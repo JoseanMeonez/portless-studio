@@ -1,6 +1,6 @@
 import type { ConfigResponse, Snapshot } from "../../core/api/contract.ts";
 import { DEFAULT_CONFIG, parseConfig, type StudioConfig } from "../../core/config/studio-config.ts";
-import type { DetectedPort } from "../../core/ports/detected-port.ts";
+import { type DetectedPort, projectOf } from "../../core/ports/detected-port.ts";
 import { err, ok, type Result } from "../../core/result.ts";
 import { healthFromProbe, type Route, type RouteHealth } from "../../core/routes/route.ts";
 import { parsePort } from "../../core/routes/route-name.ts";
@@ -251,15 +251,19 @@ export class StudioRuntime {
     }
   }
 
-  /** Adds the listening pid and the last health to each route, when known. */
+  /** Adds the listening pid, its project and the last health to each route, when known. */
   #withDetails(routes: Route[]): Route[] {
-    const pidByPort = this.#pidByPort();
+    const listeners = new Map<number, ListeningPort>();
+    for (const port of this.#scan?.ports ?? [])
+      if (port.pid !== null) listeners.set(port.port, port);
     return routes.map((route) => {
-      const pid = pidByPort.get(route.port);
+      const listener = listeners.get(route.port);
       const health = this.#health.get(route.port);
+      const project = listener?.cwd ? projectOf(this.#projects.read(listener.cwd)) : null;
       return {
         ...route,
-        ...(pid === undefined ? {} : { listenerPid: pid }),
+        ...(listener?.pid == null ? {} : { listenerPid: listener.pid }),
+        ...(project === null ? {} : { project }),
         ...(health === undefined ? {} : { health }),
       };
     });

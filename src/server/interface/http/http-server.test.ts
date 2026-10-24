@@ -409,7 +409,9 @@ describe("detected ports and config", () => {
   it("includes detected ports and auto mode in the snapshot", async () => {
     const snapshot = json(await send("GET", API_PATHS.snapshot)) as Snapshot;
     expect(snapshot.autoName).toBe(false);
-    expect(snapshot.detected).toEqual([{ ...devServer, suggestedName: "app" }]);
+    expect(snapshot.detected).toEqual([
+      { ...devServer, suggestedName: "app", project: { name: "app", worktree: null } },
+    ]);
   });
 
   it("returns the config and its path", async () => {

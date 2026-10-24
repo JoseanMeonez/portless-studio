@@ -1,4 +1,4 @@
-import { suggestName } from "./detected-port.ts";
+import { projectOf, suggestName } from "./detected-port.ts";
 
 const info = (
   packageName: string | null,
@@ -31,5 +31,24 @@ describe("suggestName", () => {
   it("returns null when nothing usable is known", () => {
     expect(suggestName(info(null, null, null))).toBeNull();
     expect(suggestName(info("@@@", null))).toBeNull();
+  });
+});
+
+describe("projectOf", () => {
+  const info = { packageName: null, repoName: null, folderName: "tmp", worktreeName: null };
+
+  it("uses the repository and the linked worktree", () => {
+    expect(projectOf({ ...info, repoName: "acme-monorepo", worktreeName: "falcon" })).toEqual({
+      name: "acme-monorepo",
+      worktree: "falcon",
+    });
+  });
+
+  it("falls back to the package name, and to null for a loose folder", () => {
+    expect(projectOf({ ...info, packageName: "@acme/api" })).toEqual({
+      name: "@acme/api",
+      worktree: null,
+    });
+    expect(projectOf(info)).toBeNull();
   });
 });

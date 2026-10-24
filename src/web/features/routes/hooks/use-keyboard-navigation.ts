@@ -5,6 +5,7 @@ import {
   isActivatableTarget,
   isEditableTarget,
 } from "../../../shared/lib/keyboard.ts";
+import { findShortcut, type ShortcutId } from "./shortcut-registry.ts";
 
 /** Fields marked with this attribute still pass arrows and Enter to the list, like the filter. */
 export const LIST_KEYS_ATTRIBUTE = "data-list-keys";
@@ -17,17 +18,20 @@ type KeyboardNavigationOptions = {
   onCopy: (index: number) => void;
   onRename: (index: number) => void;
   onRemove: (index: number) => void;
+  onFavorite: (index: number) => void;
   onCreate: () => void;
   onFocusFilter: () => void;
   onToggleCommandMenu: () => void;
   onOpenSettings: () => void;
+  onNextView: () => void;
+  onOpenViewMenu: () => void;
+  onShowShortcuts: () => void;
   onEscape: () => void;
 };
 
 /**
- * Page-wide shortcuts for the routes list: j/k or arrows move, Enter or o opens, c copies,
- * r renames, Delete removes, n names a port, / filters, comma opens settings, Cmd/Ctrl+K opens
- * the command menu.
+ * Page-wide shortcuts for the routes list, dispatched from `SHORTCUTS` (see shortcut-registry.ts)
+ * so the `?` cheat sheet always lists what the keys really do.
  */
 export function useKeyboardNavigation(options: KeyboardNavigationOptions) {
   const [selected, setSelected] = useState(0);
@@ -40,69 +44,54 @@ export function useKeyboardNavigation(options: KeyboardNavigationOptions) {
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       const current = latest.current;
-      if (hasModifier(event) && event.key.toLowerCase() === "k") {
-        event.preventDefault();
-        current.onToggleCommandMenu();
+      if (hasModifier(event)) {
+        if (findShortcut(event.key, true)?.id === "command-menu") {
+          event.preventDefault();
+          current.onToggleCommandMenu();
+        }
         return;
       }
       if (!current.enabled || hasAnyModifier(event) || event.defaultPrevented) return;
 
+      const shortcut = findShortcut(event.key, false);
+      if (!shortcut) return;
       const target = event.target;
       const inListField = target instanceof HTMLElement && target.hasAttribute(LIST_KEYS_ATTRIBUTE);
       const typing = isEditableTarget(target);
-      const index = current.selectedIndex;
-      const move = (delta: number) => {
-        event.preventDefault();
-        if (current.itemCount === 0) return;
-        setSelected(Math.max(0, Math.min(index + delta, current.itemCount - 1)));
-      };
+      // Letters type into fields; only arrows and Enter pass through the filter to the list.
+      const isArrowOrEnter = ["ArrowDown", "ArrowUp", "Enter"].includes(event.key);
+      if (typing && !(inListField && shortcut.inFilter && isArrowOrEnter)) return;
+      if (event.key === "Enter" && !inListField && isActivatableTarget(target)) return;
 
-      if (typing && !inListField) return;
-      if (event.key === "ArrowDown") return move(1);
-      if (event.key === "ArrowUp") return move(-1);
-      if (event.key === "Enter") {
-        if (index === -1 || (!inListField && isActivatableTarget(target))) return;
-        event.preventDefault();
-        current.onOpen(index);
+      const index = current.selectedIndex;
+      if (shortcut.needsSelection && index === -1) return;
+      if (shortcut.id === "close") {
+        current.onEscape();
         return;
       }
-      if (typing) return;
-
-      const run = (action: () => void) => {
-        event.preventDefault();
-        action();
+      event.preventDefault();
+      const move = (to: number) => {
+        if (current.itemCount === 0) return;
+        setSelected(Math.max(0, Math.min(to, current.itemCount - 1)));
       };
-      const onSelected = (action: (index: number) => void) => {
-        if (index !== -1) run(() => action(index));
+      const actions: Record<Exclude<ShortcutId, "close" | "command-menu">, () => void> = {
+        "move-down": () => move(index + 1),
+        "move-up": () => move(index - 1),
+        first: () => move(0),
+        last: () => move(current.itemCount),
+        "focus-filter": current.onFocusFilter,
+        open: () => current.onOpen(index),
+        copy: () => current.onCopy(index),
+        rename: () => current.onRename(index),
+        remove: () => current.onRemove(index),
+        favorite: () => current.onFavorite(index),
+        "name-port": current.onCreate,
+        "next-view": current.onNextView,
+        "view-menu": current.onOpenViewMenu,
+        settings: current.onOpenSettings,
+        help: current.onShowShortcuts,
       };
-
-      switch (event.key) {
-        case "j":
-          return move(1);
-        case "k":
-          return move(-1);
-        case "Home":
-          return move(-index);
-        case "End":
-          return move(current.itemCount);
-        case "o":
-          return onSelected(current.onOpen);
-        case "c":
-          return onSelected(current.onCopy);
-        case "r":
-          return onSelected(current.onRename);
-        case "Delete":
-        case "Backspace":
-          return onSelected(current.onRemove);
-        case "n":
-          return run(current.onCreate);
-        case "/":
-          return run(current.onFocusFilter);
-        case ",":
-          return run(current.onOpenSettings);
-        case "Escape":
-          return current.onEscape();
-      }
+      if (shortcut.id !== "command-menu") actions[shortcut.id]();
     };
 
     window.addEventListener("keydown", handleKeyDown);

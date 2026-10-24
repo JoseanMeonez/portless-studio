@@ -1,4 +1,5 @@
 import { err, ok, type Result } from "../result.ts";
+import { DEFAULT_VIEW, isItemKey, parseViews, type View } from "../views/view.ts";
 
 /** Settings people edit in the JSON file or in the settings panel. Every field has a default. */
 export type StudioConfig = {
@@ -28,6 +29,12 @@ export type StudioConfig = {
   ignoredPorts: number[];
   /** Process names (case-insensitive) whose ports are never shown, e.g. editors and chat apps. */
   ignoredProcesses: string[];
+  /** Saved ways to group, sort and filter the dashboard. Always at least one. */
+  views: View[];
+  /** The view the dashboard opens with; the id of one of `views`. */
+  defaultViewId: string;
+  /** Rows pinned above every view: route names or `port:<number>`. */
+  favorites: string[];
 };
 
 export const DEFAULT_CONFIG: StudioConfig = {
@@ -41,6 +48,9 @@ export const DEFAULT_CONFIG: StudioConfig = {
   scanIntervalMs: 3000,
   ignoredPorts: [],
   ignoredProcesses: ["code", "cursor", "discord", "slack", "spotify", "chrome", "firefox"],
+  views: [DEFAULT_VIEW],
+  defaultViewId: DEFAULT_VIEW.id,
+  favorites: [],
 };
 
 const MIN_SCAN_INTERVAL_MS = 1000;
@@ -101,6 +111,30 @@ export function parseConfig(input: unknown): Result<StudioConfig, string> {
       return err(`"ignoredProcesses" must be a list of process names.`);
     }
     config.ignoredProcesses = [...new Set(value.map((item) => item.trim()).filter(Boolean))];
+  }
+
+  if (raw.views !== undefined) {
+    const views = parseViews(raw.views);
+    if (!views.ok) return views;
+    config.views = views.value;
+  }
+
+  // A missing default falls back to the first view, so a hand-written list of views just works.
+  config.defaultViewId = config.views[0]?.id ?? DEFAULT_VIEW.id;
+  if (raw.defaultViewId !== undefined) {
+    const id = raw.defaultViewId;
+    if (typeof id !== "string" || !config.views.some((view) => view.id === id)) {
+      return err(`"defaultViewId" must be the id of one of the views.`);
+    }
+    config.defaultViewId = id;
+  }
+
+  if (raw.favorites !== undefined) {
+    const value = raw.favorites;
+    if (!Array.isArray(value) || !value.every(isItemKey)) {
+      return err(`"favorites" must be a list of route names or "port:<number>".`);
+    }
+    config.favorites = [...new Set(value)];
   }
 
   return ok(config);

@@ -27,6 +27,19 @@ export type Route = {
   listenerPid?: number;
   /** Whether `port` answers HTTP, from the last probe. Absent until the first probe. */
   health?: RouteHealth;
+  /**
+   * Project the listening process runs in, read from its folder. `null` when the folder is not a
+   * project or cannot be read; absent from servers older than this field.
+   */
+  project?: ItemProject | null;
+};
+
+/** The repository (or package) a server runs from, and its linked git worktree if any. */
+export type ItemProject = {
+  /** Repository folder name, e.g. `acme-monorepo`, or the package name without a repository. */
+  name: string;
+  /** Folder of the linked git worktree, e.g. `falcon`; null in the main checkout. */
+  worktree: string | null;
 };
 
 /** `up` answered below 500, `error` answered 5xx, `down` did not answer at all. */

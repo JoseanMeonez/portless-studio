@@ -9,11 +9,15 @@ type NoMatchesProps = {
 export function NoMatches({ query, onClear }: NoMatchesProps) {
   return (
     <div className={styles.noMatches}>
-      <p>
-        No routes match <span className={styles.query}>{query}</span>
-      </p>
+      {query ? (
+        <p>
+          No routes match <span className={styles.query}>{query}</span>
+        </p>
+      ) : (
+        <p>No routes match these filters</p>
+      )}
       <Button variant="ghost" size="sm" onClick={onClear}>
-        Clear filter
+        {query ? "Clear filter" : "Clear filters"}
       </Button>
     </div>
   );

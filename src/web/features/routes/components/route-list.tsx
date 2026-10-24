@@ -1,14 +1,29 @@
+import { useId } from "react";
 import type { Route } from "../../../../core/routes/route.ts";
+import { GroupHeader } from "./group-header.tsx";
 import styles from "./route-list.module.css";
 import { RouteRow, type RowConfirmation } from "./route-row.tsx";
 
-type RouteListProps = {
+/** A block of rows. An empty label renders its rows without a header. */
+export type RouteSection = {
+  key: string;
+  label: string;
   routes: readonly Route[];
+  /** Set for custom groups, which can be renamed and deleted from their header. */
+  customGroupId?: string;
+};
+
+type RouteListProps = {
+  sections: readonly RouteSection[];
   now: number;
-  selectedIndex: number;
+  /** Name of the selected route. */
+  selectedName: string | null;
+  isFavorite: (route: Route) => boolean;
+  isCollapsed: (sectionKey: string) => boolean;
+  onToggleSection: (sectionKey: string) => void;
   /** The route (by name) whose row asks for a confirmation, and what for. */
   confirming: { name: string; action: RowConfirmation } | null;
-  onSelect: (index: number) => void;
+  onSelect: (route: Route) => void;
   onOpen: (route: Route) => void;
   onCopy: (route: Route) => void;
   onRename: (route: Route) => void;
@@ -16,42 +31,68 @@ type RouteListProps = {
   onRequestStop: (route: Route) => void;
   onConfirm: (route: Route, action: RowConfirmation) => void;
   onCancelConfirm: () => void;
+  onToggleFavorite: (route: Route) => void;
+  onMoveToGroup: (route: Route) => void;
+  onRenameGroup: (groupId: string, name: string) => void;
+  onDeleteGroup: (groupId: string, name: string) => void;
 };
 
-export function RouteList({
-  routes,
-  now,
-  selectedIndex,
-  confirming,
-  onSelect,
-  onOpen,
-  onCopy,
-  onRename,
-  onRequestRemove,
-  onRequestStop,
-  onConfirm,
-  onCancelConfirm,
-}: RouteListProps) {
+/** The routes, flat or under collapsible group headers, in one list for screen readers. */
+export function RouteList(props: RouteListProps) {
+  const idPrefix = useId();
+  const rows = (routes: readonly Route[]) =>
+    routes.map((route) => {
+      const action = props.confirming?.name === route.name ? props.confirming.action : null;
+      return (
+        <RouteRow
+          key={route.hostname}
+          route={route}
+          now={props.now}
+          selected={route.name === props.selectedName}
+          favorite={props.isFavorite(route)}
+          confirming={action}
+          onSelect={() => props.onSelect(route)}
+          onOpen={() => props.onOpen(route)}
+          onCopy={() => props.onCopy(route)}
+          onRename={() => props.onRename(route)}
+          onRequestRemove={() => props.onRequestRemove(route)}
+          onRequestStop={() => props.onRequestStop(route)}
+          onConfirm={() => action && props.onConfirm(route, action)}
+          onCancelConfirm={props.onCancelConfirm}
+          onToggleFavorite={() => props.onToggleFavorite(route)}
+          onMoveToGroup={() => props.onMoveToGroup(route)}
+        />
+      );
+    });
+
   return (
     <ul className={styles.list} aria-label="Routes">
-      {routes.map((route, index) => {
-        const action = confirming?.name === route.name ? confirming.action : null;
+      {props.sections.map((section, index) => {
+        if (section.label === "") return rows(section.routes);
+        const collapsed = props.isCollapsed(section.key);
+        const listId = `${idPrefix}-${index}`;
+        const groupId = section.customGroupId;
         return (
-          <RouteRow
-            key={route.hostname}
-            route={route}
-            now={now}
-            selected={index === selectedIndex}
-            confirming={action}
-            onSelect={() => onSelect(index)}
-            onOpen={() => onOpen(route)}
-            onCopy={() => onCopy(route)}
-            onRename={() => onRename(route)}
-            onRequestRemove={() => onRequestRemove(route)}
-            onRequestStop={() => onRequestStop(route)}
-            onConfirm={() => action && onConfirm(route, action)}
-            onCancelConfirm={onCancelConfirm}
-          />
+          <li key={section.key} role="none" className={styles.group}>
+            <GroupHeader
+              label={section.label}
+              routes={section.routes}
+              collapsed={collapsed}
+              controls={listId}
+              onToggle={() => props.onToggleSection(section.key)}
+              {...(groupId
+                ? {
+                    onRename: () => props.onRenameGroup(groupId, section.label),
+                    onDelete: () => props.onDeleteGroup(groupId, section.label),
+                  }
+                : {})}
+            />
+            {collapsed ? null : (
+              <ul id={listId} className={styles.groupRows} aria-label={section.label}>
+                {rows(section.routes)}
+              </ul>
+            )}
+          </li>
         );
       })}
     </ul>

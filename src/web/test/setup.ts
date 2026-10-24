@@ -18,5 +18,7 @@ if (!window.matchMedia) {
 afterEach(() => {
   cleanup();
   localStorage.clear();
+  // The view, search and filters live in the URL; each test starts from a clean one.
+  window.history.replaceState(null, "", "/");
   document.documentElement.removeAttribute("data-theme");
 });

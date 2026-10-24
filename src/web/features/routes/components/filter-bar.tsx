@@ -1,8 +1,6 @@
-import type { Ref } from "react";
-import { Button } from "../../../shared/ui/button.tsx";
+import type { ReactNode, Ref } from "react";
 import { Icon } from "../../../shared/ui/icons/icon.tsx";
 import { Kbd } from "../../../shared/ui/kbd.tsx";
-import type { SortOrder } from "../hooks/use-filter.ts";
 import styles from "./filter-bar.module.css";
 
 type FilterBarProps = {
@@ -10,9 +8,11 @@ type FilterBarProps = {
   onQueryChange: (query: string) => void;
   visibleCount: number;
   totalCount: number;
-  sort: SortOrder;
-  onSortChange: (sort: SortOrder) => void;
+  /** True when view filters, not only the search, narrow the list. */
+  narrowed?: boolean;
   inputRef: Ref<HTMLInputElement>;
+  /** Shown before the search field: the view switcher. */
+  leading?: ReactNode;
 };
 
 export function FilterBar({
@@ -20,11 +20,11 @@ export function FilterBar({
   onQueryChange,
   visibleCount,
   totalCount,
-  sort,
-  onSortChange,
+  narrowed = false,
   inputRef,
+  leading,
 }: FilterBarProps) {
-  const searching = query.trim() !== "";
+  const searching = query.trim() !== "" || narrowed;
   // With no routes yet the filter only narrows detected ports, which count themselves.
   const count =
     totalCount === 0
@@ -35,6 +35,7 @@ export function FilterBar({
 
   return (
     <div className={styles.bar}>
+      {leading}
       <div className={styles.search}>
         <Icon name="search" className={styles.searchIcon} />
         <input
@@ -61,16 +62,6 @@ export function FilterBar({
       <output className={styles.count} aria-live="polite">
         {count}
       </output>
-      <Button
-        variant="ghost"
-        size="sm"
-        onClick={() => onSortChange(sort === "name" ? "newest" : "name")}
-        aria-label={`Sort by ${sort === "name" ? "newest" : "name"}`}
-        title="Change sort order"
-      >
-        <Icon name="sortDown" size={14} />
-        {sort === "name" ? "Name" : "Newest"}
-      </Button>
     </div>
   );
 }

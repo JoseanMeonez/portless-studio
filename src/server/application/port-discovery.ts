@@ -2,6 +2,7 @@ import type { StudioConfig } from "../../core/config/studio-config.ts";
 import {
   type DetectedPort,
   type ProjectInfo,
+  projectOf,
   suggestName,
 } from "../../core/ports/detected-port.ts";
 import type { Route } from "../../core/routes/route.ts";
@@ -65,11 +66,14 @@ function isDevServer(port: ListeningPort, projects: ProjectInfoSource): boolean 
 }
 
 function toDetected(port: ListeningPort, projects: ProjectInfoSource): DetectedPort {
+  const info = port.cwd === null ? null : projects.read(port.cwd);
+  const project = info === null ? null : projectOf(info);
   return {
     port: port.port,
     pid: port.pid,
     processName: port.processName,
     cwd: port.cwd,
-    suggestedName: port.cwd === null ? null : suggestName(projects.read(port.cwd)),
+    suggestedName: info === null ? null : suggestName(info),
+    ...(project === null ? {} : { project }),
   };
 }

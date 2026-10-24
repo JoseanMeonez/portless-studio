@@ -3,6 +3,7 @@ import { ok, type Result } from "../../core/result.ts";
 import type { Route } from "../../core/routes/route.ts";
 import type { AppError } from "./app-error.ts";
 import type { ConfigStore } from "./config-store.ts";
+import type { ProjectInfoSource } from "./port-discovery.ts";
 import type { HttpProbe, ListeningPort, PortScanner, ProbePort } from "./port-scanner.ts";
 import type { PortlessState, RouteRegistry } from "./route-registry.ts";
 import { StudioRuntime } from "./studio-runtime.ts";
@@ -123,6 +124,7 @@ function build(
     ports?: ListeningPort[];
     proxyRunning?: boolean;
     probe?: ProbePort;
+    projects?: ProjectInfoSource;
   } = {},
 ) {
   const store = options.store ?? memoryStore();
@@ -133,7 +135,7 @@ function build(
     registry: fake.registry,
     scanner,
     configStore: store,
-    projects,
+    projects: options.projects ?? projects,
     studioPort: 4949,
     log: (line) => lines.push(line),
     ...(options.probe ? { probe: options.probe, now: () => 1000 } : {}),
@@ -270,6 +272,51 @@ describe("StudioRuntime config", () => {
       ok: false,
       error: { code: "invalid_port" },
     });
+  });
+});
+
+describe("StudioRuntime projects", () => {
+  // `/code/acme/<worktree>` is a linked worktree of acme-monorepo; `/code/main` is its main
+  // checkout; anything else is a loose folder.
+  const repos = {
+    read: (cwd: string) => {
+      const folder = cwd.split("/").pop() ?? null;
+      const inAcme = cwd.startsWith("/code/acme/") || cwd === "/code/main";
+      return {
+        packageName: null,
+        repoName: inAcme ? "acme-monorepo" : null,
+        folderName: folder,
+        worktreeName: cwd.startsWith("/code/acme/") ? folder : null,
+      };
+    },
+  };
+
+  it("maps a route to the project of the process listening on its port", async () => {
+    const { runtime, fake } = build({
+      ports: [node(3000, "acme/falcon"), node(4000, "main")],
+      projects: repos,
+    });
+    await fake.registry.createAlias("web", 3000, false);
+    await fake.registry.createAlias("api", 4000, false);
+    await fake.registry.createAlias("db", 5432, false);
+    const routes = (await runtime.readSnapshot()).routes;
+    expect(routes.map((route) => [route.name, route.project])).toEqual([
+      ["web", { name: "acme-monorepo", worktree: "falcon" }],
+      ["api", { name: "acme-monorepo", worktree: null }],
+      ["db", undefined],
+    ]);
+  });
+
+  it("maps a detected port to its project and leaves loose folders without one", async () => {
+    const { runtime } = build({
+      ports: [node(5173, "acme/research"), node(8000, "scratch")],
+      projects: repos,
+    });
+    const detected = (await runtime.readSnapshot()).detected;
+    expect(detected.map((item) => [item.port, item.project])).toEqual([
+      [5173, { name: "acme-monorepo", worktree: "research" }],
+      [8000, undefined],
+    ]);
   });
 });
 

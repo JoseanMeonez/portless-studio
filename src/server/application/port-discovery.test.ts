@@ -90,6 +90,7 @@ describe("discoverPorts", () => {
         processName: "node",
         cwd: "/code/acme/apps/web",
         suggestedName: "web.acme",
+        project: { name: "acme", worktree: null },
       },
       { port: 9000, pid: 90000, processName: "python3", cwd: null, suggestedName: null },
     ]);

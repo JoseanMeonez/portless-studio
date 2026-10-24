@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { StudioActionResponse } from "../../../../core/api/contract.ts";
 import type { DetectedPort } from "../../../../core/ports/detected-port.ts";
 import type { Route } from "../../../../core/routes/route.ts";
+import { hasFilters, type ItemKind, routeKey } from "../../../../core/views/view.ts";
 import { modifierLabel } from "../../../shared/lib/keyboard.ts";
 import { useToast } from "../../../shared/ui/toast/use-toast.ts";
 import { DashboardHeader } from "../components/dashboard-header.tsx";
@@ -9,18 +10,24 @@ import { EmptyState } from "../components/empty-state.tsx";
 import { ErrorState } from "../components/error-state.tsx";
 import { FilterBar } from "../components/filter-bar.tsx";
 import { LoadingRows } from "../components/loading-rows.tsx";
+import { MoveToGroupDialog } from "../components/move-to-group-dialog.tsx";
+import { NameDialog } from "../components/name-dialog.tsx";
 import { NoMatches } from "../components/no-matches.tsx";
 import { ProxyBanner } from "../components/proxy-banner.tsx";
 import { RouteList } from "../components/route-list.tsx";
 import type { RowConfirmation } from "../components/route-row.tsx";
 import { ShortcutHints } from "../components/shortcut-hints.tsx";
+import { ShortcutsDialog } from "../components/shortcuts-dialog.tsx";
 import { StudioStopped } from "../components/studio-stopped.tsx";
+import { ViewControls } from "../components/view-controls.tsx";
+import { ViewMenu } from "../components/view-menu.tsx";
+import { readLastSelected, storeLastSelected } from "../hooks/last-selected.ts";
 import { apiErrorMessage } from "../hooks/route-messages.ts";
 import { useDoctor } from "../hooks/use-doctor.ts";
-import { useFilter } from "../hooks/use-filter.ts";
 import { useKeyboardNavigation } from "../hooks/use-keyboard-navigation.ts";
 import { useNow } from "../hooks/use-now.ts";
 import { useRouteActions } from "../hooks/use-route-actions.ts";
+import { useRouteViews } from "../hooks/use-route-views.ts";
 import { useRoutes } from "../hooks/use-routes.ts";
 import { useServiceControl } from "../hooks/use-service-control.ts";
 import { useStopProcess } from "../hooks/use-stop-process.ts";
@@ -40,6 +47,12 @@ type RoutesDashboardProps = {
 const NO_ROUTES: Route[] = [];
 const NO_DETECTED: DetectedPort[] = [];
 
+/** Dialogs that ask for one name. */
+type NameRequest =
+  | { kind: "sshop-view" }
+  | { kind: "rename-view" }
+  | { kind: "rename-group"; groupId: string; name: string };
+
 /**
  * The whole routes screen: header, filter, detected ports, live list, dialogs and keyboard
  * shortcuts.
@@ -51,7 +64,8 @@ export function RoutesDashboard({ theme, onToggleTheme }: RoutesDashboardProps) 
   const portlessMissing = snapshot?.portless?.installed === false;
   // Naming needs portless, so detected ports wait until it is installed.
   const detected = portlessMissing ? NO_DETECTED : (snapshot?.detected ?? NO_DETECTED);
-  const filter = useFilter(routes, detected);
+  const views = useRouteViews(routes, detected);
+  const { state: viewState, config: viewsConfig } = views;
   const actions = useRouteActions();
   const toast = useToast();
   const now = useNow();
@@ -66,6 +80,10 @@ export function RoutesDashboard({ theme, onToggleTheme }: RoutesDashboardProps) 
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [healthOpen, setHealthOpen] = useState(false);
   const [stopped, setStopped] = useState<StudioActionResponse | null>(null);
+  const [viewMenuOpen, setViewMenuOpen] = useState(false);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const [naming, setNaming] = useState<NameRequest | null>(null);
+  const [moving, setMoving] = useState<Route | null>(null);
   const [confirming, setConfirming] = useState<{ name: string; action: RowConfirmation } | null>(
     null,
   );
@@ -75,7 +93,7 @@ export function RoutesDashboard({ theme, onToggleTheme }: RoutesDashboardProps) 
 
   const hasRoutes = routes.length > 0;
   const hasDetected = detected.length > 0;
-  const routeAt = (index: number) => filter.visible[index];
+  const routeAt = (index: number): Route | undefined => views.ordered[index];
   const openCreate = () => setDialog({ mode: "create" });
   const openSettings = () => setSettingsOpen(true);
   const nameDetected = (item: DetectedPort) =>
@@ -110,30 +128,131 @@ export function RoutesDashboard({ theme, onToggleTheme }: RoutesDashboardProps) 
   const proxyAction = (action: "start" | "stop" | "restart") => {
     void services.controlProxy(action).then(() => doctor.refresh());
   };
+  const toggleFavorite = (route: Route) => void viewsConfig.toggleFavorite(route);
+  const nextView = () => {
+    const list = viewsConfig.views;
+    const at = list.findIndex((view) => view.id === viewState.saved.id);
+    const next = list[(at + 1) % list.length];
+    if (next && next.id !== viewState.saved.id) {
+      viewState.switchView(next.id);
+      toast({ title: `View: ${next.name}` });
+    }
+  };
+  const toggleKind = (kind: ItemKind) => {
+    const { filters } = viewState.view;
+    viewState.setFilters({
+      ...filters,
+      kinds: filters.kinds.includes(kind)
+        ? filters.kinds.filter((item) => item !== kind)
+        : [...filters.kinds, kind],
+    });
+  };
+  const clearSearchAndFilters = () => {
+    setQuery("");
+    if (hasFilters(viewState.view.filters))
+      viewState.setFilters({ kinds: [], projects: [], statuses: [] });
+  };
+  const saveNamed = async (name: string) => {
+    const request = naming;
+    setNaming(null);
+    if (!request) return;
+    const { view, saved } = viewState;
+    if (request.kind === "sshop-view") {
+      const { id: _id, name: _name, ...settings } = view;
+      const id = await viewsConfig.addView({ ...settings, name });
+      if (id) {
+        viewState.switchView(id);
+        toast({ title: `Saved view ${name}`, tone: "success" });
+      }
+    } else if (request.kind === "rename-view") {
+      await viewsConfig.renameView(saved.id, name);
+    } else {
+      await viewsConfig.renameGroup(saved.id, request.groupId, name);
+    }
+  };
+  const deleteView = async () => {
+    const { saved } = viewState;
+    if (await viewsConfig.deleteView(saved.id)) {
+      viewState.switchView(viewsConfig.defaultViewId);
+      toast({ title: `Deleted view ${saved.name}` });
+    }
+  };
+  const moveToGroup = async (route: Route, groupId: string | null, newName?: string) => {
+    setMoving(null);
+    const viewId = viewState.saved.id;
+    const done = newName
+      ? await viewsConfig.createGroup(viewId, newName, routeKey(route))
+      : await viewsConfig.moveToGroup(viewId, routeKey(route), groupId);
+    if (done && viewState.view.groupBy !== "custom") {
+      toast({
+        title: groupId === null && !newName ? "Taken out of its group" : "Moved",
+        description: "Group by Custom groups to see your groups.",
+      });
+    }
+  };
+  const closeViewMenu = useCallback((open: boolean) => setViewMenuOpen(open), []);
 
+  const overlayOpen =
+    dialog !== null ||
+    commandMenuOpen ||
+    settingsOpen ||
+    healthOpen ||
+    viewMenuOpen ||
+    shortcutsOpen ||
+    naming !== null ||
+    moving !== null;
   const navigation = useKeyboardNavigation({
-    itemCount: filter.visible.length,
-    enabled:
-      dialog === null && !commandMenuOpen && !settingsOpen && !healthOpen && snapshot !== null,
+    itemCount: views.ordered.length,
+    enabled: !overlayOpen && snapshot !== null,
     onOpen: (index) => withRoute(routeAt(index), actions.open),
     onCopy: (index) => withRoute(routeAt(index), (route) => void actions.copyUrl(route)),
     onRename: (index) => withRoute(routeAt(index), requestRename),
     onRemove: (index) => withRoute(routeAt(index), requestRemove),
+    onFavorite: (index) => withRoute(routeAt(index), toggleFavorite),
     onCreate: openCreate,
     onFocusFilter: () => filterInput.current?.focus(),
     onToggleCommandMenu: () => setCommandMenuOpen((open) => !open),
     onOpenSettings: openSettings,
+    onNextView: nextView,
+    onOpenViewMenu: () => setViewMenuOpen(true),
+    onShowShortcuts: () => setShortcutsOpen(true),
     onEscape: () => setConfirming(null),
   });
   const selected = routeAt(navigation.selectedIndex) ?? null;
+  const selectRoute = (route: Route) => navigation.select(views.ordered.indexOf(route));
 
   useEffect(() => {
     if (navigation.selectedIndex < 0) return;
     list.current?.querySelector('[aria-current="true"]')?.scrollIntoView?.({ block: "nearest" });
   }, [navigation.selectedIndex]);
 
+  // The selection follows its route when the rows reorder (a favorite moves up, a view changes),
+  // and starts on the route selected before the last reload.
+  const followed = useRef<string | null>(readLastSelected());
+  const lastOrdered = useRef<readonly Route[]>([]);
+  const { select } = navigation;
+  useLayoutEffect(() => {
+    if (lastOrdered.current !== views.ordered) {
+      lastOrdered.current = views.ordered;
+      const name = followed.current;
+      const index = name === null ? -1 : views.ordered.findIndex((route) => route.name === name);
+      if (index >= 0 && index !== navigation.selectedIndex) {
+        select(index);
+        return;
+      }
+    }
+    // With no rows yet (still loading) keep following the remembered route.
+    if (views.ordered.length > 0) followed.current = selected?.name ?? null;
+  });
+  const selectedName = selected?.name ?? null;
+  useEffect(() => {
+    if (selectedName) storeLastSelected(selectedName);
+  }, [selectedName]);
+
   const setQuery = (query: string) => {
-    filter.setQuery(query);
+    viewState.setQuery(query);
+    // A new search starts at its best match, wherever the old selection went.
+    followed.current = null;
     navigation.select(0);
   };
 
@@ -190,17 +309,44 @@ export function RoutesDashboard({ theme, onToggleTheme }: RoutesDashboardProps) 
         {snapshot && (hasRoutes || hasDetected) ? (
           <>
             <FilterBar
-              query={filter.query}
+              query={viewState.query}
               onQueryChange={setQuery}
-              visibleCount={filter.visible.length}
+              visibleCount={views.matched}
               totalCount={routes.length}
-              sort={filter.sort}
-              onSortChange={filter.setSort}
+              narrowed={hasFilters(viewState.view.filters)}
               inputRef={filterInput}
+              leading={
+                <ViewMenu
+                  views={viewsConfig.views}
+                  currentId={viewState.saved.id}
+                  defaultViewId={viewsConfig.defaultViewId}
+                  modified={viewState.modified}
+                  open={viewMenuOpen}
+                  onOpenChange={closeViewMenu}
+                  onSwitch={viewState.switchView}
+                  onSaveAs={() => setNaming({ kind: "sshop-view" })}
+                  onSaveChanges={() =>
+                    void viewsConfig
+                      .replaceView(viewState.saved.id, viewState.view)
+                      .then((saved) => saved && viewState.resetChanges())
+                  }
+                  onResetChanges={viewState.resetChanges}
+                  onRename={() => setNaming({ kind: "rename-view" })}
+                  onSetDefault={() => void viewsConfig.setDefaultView(viewState.saved.id)}
+                  onDelete={() => void deleteView()}
+                />
+              }
             />
-            {filter.visibleDetected.length > 0 ? (
+            <ViewControls
+              view={viewState.view}
+              projects={views.projects}
+              onGroupByChange={viewState.setGroupBy}
+              onSortChange={viewState.setSort}
+              onFiltersChange={viewState.setFilters}
+            />
+            {views.visibleDetected.length > 0 ? (
               <DetectedContainer
-                visible={filter.visibleDetected}
+                visible={views.visibleDetected}
                 totalCount={detected.length}
                 autoName={snapshot.autoName}
                 onName={nameDetected}
@@ -208,13 +354,16 @@ export function RoutesDashboard({ theme, onToggleTheme }: RoutesDashboardProps) 
             ) : null}
             {hasRoutes && hasDetected ? <h2 className={styles.sectionTitle}>Routes</h2> : null}
             <div ref={list}>
-              {!hasRoutes ? null : filter.visible.length > 0 ? (
+              {!hasRoutes ? null : views.matched > 0 ? (
                 <RouteList
-                  routes={filter.visible}
+                  sections={views.sections}
                   now={now}
-                  selectedIndex={navigation.selectedIndex}
+                  selectedName={selected?.name ?? null}
+                  isFavorite={views.isFavorite}
+                  isCollapsed={views.collapsed.isCollapsed}
+                  onToggleSection={views.collapsed.toggle}
                   confirming={confirming}
-                  onSelect={navigation.select}
+                  onSelect={selectRoute}
                   onOpen={actions.open}
                   onCopy={(route) => void actions.copyUrl(route)}
                   onRename={requestRename}
@@ -222,12 +371,22 @@ export function RoutesDashboard({ theme, onToggleTheme }: RoutesDashboardProps) 
                   onRequestStop={(route) => setConfirming({ name: route.name, action: "stop" })}
                   onConfirm={(route, action) => void confirmRowAction(route, action)}
                   onCancelConfirm={() => setConfirming(null)}
+                  onToggleFavorite={toggleFavorite}
+                  onMoveToGroup={setMoving}
+                  onRenameGroup={(groupId, name) =>
+                    setNaming({ kind: "rename-group", groupId, name })
+                  }
+                  onDeleteGroup={(groupId, name) =>
+                    void viewsConfig
+                      .deleteGroup(viewState.saved.id, groupId)
+                      .then((done) => done && toast({ title: `Deleted group ${name}` }))
+                  }
                 />
               ) : (
-                <NoMatches query={filter.query} onClear={() => setQuery("")} />
+                <NoMatches query={viewState.query} onClear={clearSearchAndFilters} />
               )}
-              {!hasRoutes && filter.visibleDetected.length === 0 ? (
-                <NoMatches query={filter.query} onClear={() => setQuery("")} />
+              {!hasRoutes && views.visibleDetected.length === 0 ? (
+                <NoMatches query={viewState.query} onClear={clearSearchAndFilters} />
               ) : null}
             </div>
             <ShortcutHints modifierLabel={modifier} />
@@ -254,17 +413,59 @@ export function RoutesDashboard({ theme, onToggleTheme }: RoutesDashboardProps) 
         />
       ) : null}
 
+      {shortcutsOpen ? (
+        <ShortcutsDialog modifierLabel={modifier} onClose={() => setShortcutsOpen(false)} />
+      ) : null}
+
+      {naming ? (
+        <NameDialog
+          {...nameDialogText(naming, viewState.saved.name)}
+          onSubmit={(name) => void saveNamed(name)}
+          onClose={() => setNaming(null)}
+        />
+      ) : null}
+
+      {moving ? (
+        <MoveToGroupDialog
+          routeName={moving.name}
+          viewName={viewState.saved.name}
+          groups={viewState.saved.customGroups ?? []}
+          currentGroupId={
+            viewState.saved.customGroups?.find((group) => group.members.includes(routeKey(moving)))
+              ?.id ?? null
+          }
+          onMove={(groupId) => void moveToGroup(moving, groupId)}
+          onCreate={(name) => void moveToGroup(moving, null, name)}
+          onClose={() => setMoving(null)}
+        />
+      ) : null}
+
       {commandMenuOpen ? (
         <RouteCommandMenu
           routes={routes}
           selected={selected}
+          selectedIsFavorite={selected ? views.isFavorite(selected) : false}
+          views={viewsConfig.views}
+          currentViewId={viewState.saved.id}
+          kinds={viewState.view.filters.kinds}
           onClose={() => setCommandMenuOpen(false)}
           onNamePort={openCreate}
           onRename={requestRename}
+          onToggleFavorite={toggleFavorite}
+          onMoveToGroup={setMoving}
+          onStopServer={(route) => {
+            selectRoute(route);
+            setConfirming({ name: route.name, action: "stop" });
+          }}
+          onSwitchView={viewState.switchView}
+          onSaveView={() => setNaming({ kind: "sshop-view" })}
+          onToggleKind={toggleKind}
           onToggleTheme={onToggleTheme}
           onFocusFilter={() => filterInput.current?.focus()}
           onOpenSettings={openSettings}
           onOpenHealth={() => setHealthOpen(true)}
+          onShowShortcuts={() => setShortcutsOpen(true)}
+          onStopStudio={() => setHealthOpen(true)}
           proxyRunning={snapshot?.proxy.running ?? false}
           onProxyAction={proxyAction}
         />
@@ -275,4 +476,29 @@ export function RoutesDashboard({ theme, onToggleTheme }: RoutesDashboardProps) 
 
 function withRoute(route: Route | undefined, action: (route: Route) => void) {
   if (route) action(route);
+}
+
+function nameDialogText(request: NameRequest, viewName: string) {
+  if (request.kind === "sshop-view") {
+    return {
+      title: "Save as new view",
+      description: "Keeps the current grouping, sort and filters under a name.",
+      label: "View name",
+      submitLabel: "Save view",
+    };
+  }
+  if (request.kind === "rename-view") {
+    return {
+      title: "Rename view",
+      label: "View name",
+      initialName: viewName,
+      submitLabel: "Rename",
+    };
+  }
+  return {
+    title: "Rename group",
+    label: "Group name",
+    initialName: request.name,
+    submitLabel: "Rename",
+  };
 }

@@ -58,6 +58,9 @@ restart. Missing fields take their default.
 | `scanIntervalMs` | `3000` | How often Studio looks for new listening ports, in milliseconds (at least 1000). |
 | `ignoredPorts` | `[]` | Ports never shown as detected and never named automatically. |
 | `ignoredProcesses` | `["code", "cursor", "discord", "slack", "spotify", "chrome", "firefox"]` | Process names whose ports are never shown. |
+| `views` | one view, `All`, grouped by project | Saved views. Each has an `id`, a `name`, `groupBy` (`none`, `project`, `worktree`, `kind`, `status` or `custom`), `sort` (`by`: `name`, `port`, `newest` or `status`; `direction`: `asc` or `desc`), `filters` (`kinds`, `projects`, `statuses`) and, for custom grouping, `customGroups` (`id`, `name`, `members`). |
+| `defaultViewId` | `"all"` | The view the page opens with. |
+| `favorites` | `[]` | Routes pinned above every group, by name or as `"port:3000"`. |
 
 The `--port`, `--no-open` and `--no-register` flags win over the file for one run.
 
@@ -71,8 +74,16 @@ several projects you have to remember which names exist. portless studio shows t
   any Tailscale, ngrok or Cloudflare tunnel. It updates as soon as a route appears or goes away.
 - **Name a port:** give a name to something portless did not start, such as a database in
   Docker (`db` -> `https://db.localhost`). Rename or remove those names later.
-- **Keyboard first:** `j`/`k` to move, `Enter` to open, `c` to copy, `n` to name a port,
-  `/` to filter and `Ctrl+K` (or `Cmd+K`) for the command menu.
+- **Views:** group the list by project, git worktree, kind or status, or into groups you make
+  yourself ("Move to group…" on a row). Sort by name, port, newest or status, and filter with the
+  chips for kind, status and project. Save any combination as a named view, switch views with
+  `v` and pick the one that opens by default. Views and favorites live in the config file.
+- **Favorites:** the star on a row, or `f`, pins it above every group in every view.
+- **Remembered state:** the view, search, filters and sort sit in the page URL, so a reload, a
+  bookmark or the Back button keeps them. Closed groups and the selected row are remembered in
+  the browser.
+- **Keyboard first:** every action has a key, `?` lists them all and `Ctrl+K` (or `Cmd+K`) runs
+  any of them by name.
 - **Proxy status and control:** shows whether the portless proxy is running, on which port and
   TLD. Click it to start, stop or restart the proxy. A proxy started with sudo cannot be stopped
   from the page; Studio shows the `sudo` command to run instead.
@@ -88,6 +99,26 @@ several projects you have to remember which names exist. portless studio shows t
   started from a terminal, Studio can only stop.
 - **Install portless:** when the portless command is missing, the page says so and can run
   `npm install -g portless` for you, showing npm's output.
+
+### Keyboard shortcuts
+
+| Keys | Action |
+| --- | --- |
+| `j` / `↓`, `k` / `↑` | Next and previous row, across groups |
+| `Home`, `End` | First and last row |
+| `/` | Search routes |
+| `Enter` or `o` | Open the selected route |
+| `c` | Copy its URL |
+| `r` | Rename an alias |
+| `Delete` | Remove an alias |
+| `f` | Pin or unpin as favorite |
+| `n` | Name a port |
+| `v` | Next view |
+| `Shift+V` | Open the view menu |
+| `Ctrl+K` / `Cmd+K` | Command menu |
+| `,` | Settings |
+| `?` | All keyboard shortcuts |
+| `Esc` | Close a dialog or cancel |
 
 ## Run it
 

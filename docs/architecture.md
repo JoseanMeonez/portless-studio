@@ -85,10 +85,26 @@ Two more ports feed port detection and settings:
 another Studio (they send `x-portless-studio`), and run on a known runtime (`node`, `python`, `bun`
 and similar) or from a binary built inside the project.
 
-`StudioRuntime` also adds two optional fields to each route in the snapshot: `listenerPid`, the
-process listening on the route's port in the last scan, and `health`, the last HTTP probe of that
-port (`up` below 500, `error` for 5xx, `down` when nothing answers). Routes are probed on the scan
-loop only while a browser watches.
+`StudioRuntime` also adds three optional fields to each route in the snapshot: `listenerPid`, the
+process listening on the route's port in the last scan; `project`, the repository (and linked git
+worktree) that process runs in, read with `ProjectInfoSource` from its folder; and `health`, the
+last HTTP probe of that port (`up` below 500, `error` for 5xx, `down` when nothing answers).
+Detected ports carry `project` too. Routes are probed on the scan loop only while a browser
+watches.
+
+## Views and shortcuts
+
+Saved views, the default view and favorites are fields of the Studio config (`views`,
+`defaultViewId`, `favorites`), validated by `parseConfig` like every other field, so they are
+edited in the JSON file or from the page and written through the same `PUT /api/config`. A view
+is grouping, sort and filters (`core/views/view.ts`); `core/views/arrange-routes.ts` applies one
+to the routes with a pure function. The page keeps the view id, the search and any unsaved
+grouping, sort or filter change in the URL query (`?view=…&q=…&kind=…&sort=…`), and closed groups
+and the last selected row in `localStorage`.
+
+Every keyboard shortcut is declared once in `features/routes/hooks/shortcut-registry.ts`. The
+keyboard hook dispatches from it, the command menu shows its keys and the `?` dialog lists it, so
+the three cannot drift apart.
 
 ## Health checks and control
 

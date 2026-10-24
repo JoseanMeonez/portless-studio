@@ -1,3 +1,4 @@
+import type { ItemProject } from "../routes/route.ts";
 import { parseRouteName } from "../routes/route-name.ts";
 
 /** A port something on this machine listens on that has no portless name yet. */
@@ -10,6 +11,8 @@ export type DetectedPort = {
   cwd: string | null;
   /** Name Studio would give it, or null when nothing useful could be inferred. */
   suggestedName: string | null;
+  /** Project the process runs in; `null` when unknown, absent from older servers. */
+  project?: ItemProject | null;
 };
 
 /** What we know about the project a process runs in, read from its folder. */
@@ -58,4 +61,14 @@ function slug(value: string | null): string | null {
     .slice(0, 63)
     .replace(/-+$/g, "");
   return cleaned === "" ? null : cleaned;
+}
+
+/**
+ * The project a folder belongs to, for grouping: the repository, or the package when there is no
+ * repository. Null when neither is known, so loose folders do not each become a project.
+ */
+export function projectOf(info: ProjectInfo): ItemProject | null {
+  const name = info.repoName ?? info.packageName;
+  if (!name) return null;
+  return { name, worktree: info.worktreeName };
 }

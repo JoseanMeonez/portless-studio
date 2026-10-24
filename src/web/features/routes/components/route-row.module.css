@@ -40,6 +40,28 @@
   min-width: 0;
 }
 
+.nameLine {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.favoriteMark {
+  display: inline-flex;
+  flex-shrink: 0;
+  color: var(--color-warning);
+}
+
+.favoriteMark svg,
+.starOn {
+  fill: currentColor;
+}
+
+.starOn {
+  color: var(--color-warning);
+}
+
 .name {
   overflow: hidden;
   color: var(--color-text);

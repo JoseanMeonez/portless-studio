@@ -2,6 +2,7 @@ import type { Snapshot } from "../../../../core/api/contract.ts";
 import type { DetectedPort } from "../../../../core/ports/detected-port.ts";
 import {
   healthFromProbe,
+  type ItemProject,
   type ProxyStatus,
   type Route,
   type RouteKind,
@@ -24,7 +25,12 @@ type SampleRoute = {
   listenerPid?: number;
   /** Last probe: status and latency, or null when the port does not answer. */
   answer?: { status: number; latencyMs: number } | null;
+  /** Project of the listening process; aliases to databases have none. */
+  project?: ItemProject;
 };
+
+const ACME = "acme-monorepo";
+const AVE = "shop-admin";
 
 const SAMPLE_ROUTES: SampleRoute[] = [
   {
@@ -35,6 +41,7 @@ const SAMPLE_ROUTES: SampleRoute[] = [
     listenerPid: 48_219,
     answer: { status: 200, latencyMs: 12 },
     upFor: 2 * HOUR + 14 * MINUTE,
+    project: { name: ACME, worktree: null },
     tunnels: [
       { provider: "tailscale", url: "https://web-acme.tail2f9c.ts.net" },
       { provider: "ngrok", url: "https://4f1c-web-acme.ngrok-free.app" },
@@ -48,6 +55,7 @@ const SAMPLE_ROUTES: SampleRoute[] = [
     listenerPid: 48_246,
     answer: { status: 200, latencyMs: 4 },
     upFor: 2 * HOUR + 13 * MINUTE,
+    project: { name: ACME, worktree: null },
   },
   {
     name: "docs",
@@ -57,6 +65,7 @@ const SAMPLE_ROUTES: SampleRoute[] = [
     listenerPid: 51_009,
     answer: { status: 500, latencyMs: 31 },
     upFor: 26 * MINUTE,
+    project: { name: ACME, worktree: "research" },
   },
   {
     name: "storybook",
@@ -66,6 +75,7 @@ const SAMPLE_ROUTES: SampleRoute[] = [
     listenerPid: 50_121,
     answer: { status: 200, latencyMs: 8 },
     upFor: 3 * 24 * HOUR + 4 * HOUR,
+    project: { name: ACME, worktree: "falcon" },
     tunnels: [{ provider: "cloudflare", url: "https://storybook-demo.trycloudflare.com" }],
   },
   { name: "db", port: 5432, kind: "alias", upFor: 9 * 24 * HOUR, answer: null },
@@ -80,6 +90,7 @@ export const SAMPLE_DETECTED: readonly DetectedPort[] = [
     processName: "ng",
     cwd: "/home/dev/code/shop-admin/otter",
     suggestedName: "otter.shop-admin",
+    project: { name: AVE, worktree: "otter" },
   },
   {
     port: 4321,
@@ -87,6 +98,7 @@ export const SAMPLE_DETECTED: readonly DetectedPort[] = [
     processName: "node",
     cwd: "/home/dev/code/acme/apps/blog",
     suggestedName: "blog.acme",
+    project: { name: ACME, worktree: "falcon" },
   },
   {
     port: 5173,
@@ -94,6 +106,7 @@ export const SAMPLE_DETECTED: readonly DetectedPort[] = [
     processName: "node",
     cwd: "/home/dev/code/acme/apps/app",
     suggestedName: "app.acme",
+    project: { name: ACME, worktree: null },
   },
   { port: 8000, pid: 62_003, processName: "python3", cwd: null, suggestedName: null },
 ];
@@ -105,6 +118,7 @@ export const SAMPLE_LATE_SERVER: DetectedPort = {
   processName: "workerd",
   cwd: "/home/dev/code/acme/apps/edge",
   suggestedName: "edge.acme",
+  project: { name: ACME, worktree: "research" },
 };
 
 /**
@@ -126,6 +140,7 @@ export function createSampleSnapshot(now: number, portlessInstalled = true): Sna
       tunnels: sample.tunnels ?? [],
       ...(sample.listenerPid === undefined ? {} : { listenerPid: sample.listenerPid }),
       ...(sample.answer === undefined ? {} : { health: healthFromProbe(sample.answer, now) }),
+      project: sample.project ?? null,
     };
   });
   const portless = portlessInstalled

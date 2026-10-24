@@ -6,6 +6,7 @@ import {
   routeUrl,
   type Tunnel,
 } from "../../../../core/routes/route.ts";
+import { DEMO_PORTLESS_VERSION } from "./in-memory-routes-gateway.ts";
 
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
@@ -45,8 +46,11 @@ const SAMPLE_ROUTES: SampleRoute[] = [
   { name: "redis", port: 6379, kind: "alias", upFor: null },
 ];
 
-/** Realistic routes for the `?demo` mode, as if portless had been running for a while. */
-export function createSampleSnapshot(now: number): Snapshot {
+/**
+ * Realistic routes for the `?demo` mode, as if portless had been running for a while.
+ * `portlessInstalled: false` shows the install flow instead.
+ */
+export function createSampleSnapshot(now: number, portlessInstalled = true): Snapshot {
   const proxy: ProxyStatus = { running: true, port: 443, https: true, tlds: ["localhost"] };
   const routes = SAMPLE_ROUTES.map((sample): Route => {
     const hostname = `${sample.name}.${proxy.tlds[0]}`;
@@ -61,5 +65,8 @@ export function createSampleSnapshot(now: number): Snapshot {
       tunnels: sample.tunnels ?? [],
     };
   });
-  return { proxy, routes, readAt: now };
+  const portless = portlessInstalled
+    ? { installed: true, version: DEMO_PORTLESS_VERSION }
+    : { installed: false, version: null };
+  return { proxy, portless, routes, readAt: now };
 }

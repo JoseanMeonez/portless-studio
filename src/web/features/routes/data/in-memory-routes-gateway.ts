@@ -1,6 +1,7 @@
 import type {
   ApiError,
   CreateAliasRequest,
+  InstallPortlessResponse,
   RenameAliasRequest,
   Snapshot,
 } from "../../../../core/api/contract.ts";
@@ -8,6 +9,15 @@ import { err, ok, type Result } from "../../../../core/result.ts";
 import { type Route, routeUrl } from "../../../../core/routes/route.ts";
 import { parsePort, parseRouteName } from "../../../../core/routes/route-name.ts";
 import type { ConnectionListener, RoutesGateway, SnapshotListener } from "./routes-gateway.ts";
+
+export type InMemoryRoutesGatewayOptions = {
+  /** How long the fake `npm install -g portless` takes. */
+  installDelayMs?: number;
+  installOutcome?: "success" | "failure";
+};
+
+/** Version the fake install reports. */
+export const DEMO_PORTLESS_VERSION = "0.4.2";
 
 /**
  * `RoutesGateway` that keeps routes in memory. Tests use it to drive the UI, and `?demo` uses it
@@ -17,10 +27,17 @@ export class InMemoryRoutesGateway implements RoutesGateway {
   #snapshot: Snapshot;
   readonly #listeners = new Set<SnapshotListener>();
   readonly #now: () => number;
+  readonly #options: InMemoryRoutesGatewayOptions;
+  #installing = false;
 
-  constructor(initial: Snapshot, now: () => number = Date.now) {
+  constructor(
+    initial: Snapshot,
+    now: () => number = Date.now,
+    options: InMemoryRoutesGatewayOptions = {},
+  ) {
     this.#snapshot = initial;
     this.#now = now;
+    this.#options = options;
   }
 
   async getSnapshot(): Promise<Result<Snapshot, ApiError>> {
@@ -92,6 +109,33 @@ export class InMemoryRoutesGateway implements RoutesGateway {
       return err({ error: "not_an_alias", message: `${name} is an app, not an alias.` });
     this.#update(this.#snapshot.routes.filter((route) => route !== current));
     return ok(null);
+  }
+
+  /** Pretends to run npm: waits, then installs or fails with output like npm's. */
+  async installPortless(): Promise<Result<InstallPortlessResponse, ApiError>> {
+    if (this.#installing) {
+      return err({ error: "install_in_progress", message: "portless is already being installed." });
+    }
+    this.#installing = true;
+    await new Promise((resolve) => setTimeout(resolve, this.#options.installDelayMs ?? 1500));
+    this.#installing = false;
+
+    if (this.#options.installOutcome === "failure") {
+      return err({
+        error: "install_failed",
+        message: [
+          "npm exited with code 243.",
+          "",
+          "npm error code EACCES",
+          "npm error syscall mkdir",
+          "npm error path /usr/local/lib/node_modules/portless",
+          "npm error errno -13",
+        ].join("\n"),
+      });
+    }
+    const portless = { installed: true, version: DEMO_PORTLESS_VERSION };
+    this.emit({ ...this.#snapshot, portless, readAt: this.#now() });
+    return ok({ version: DEMO_PORTLESS_VERSION, output: "added 1 package in 1s" });
   }
 
   #find(name: string): Route | undefined {

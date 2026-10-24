@@ -26,8 +26,10 @@ function registry(initial: Route[], fail = false) {
     readSnapshot: async (): Promise<Snapshot> => ({
       proxy: { running: true, port: 1355, https: false, tlds: ["localhost"] },
       routes,
+      portless: { installed: true, version: "1.0.0" },
       readAt: 0,
     }),
+    installPortless: async () => ok({ version: "1.0.0", output: "" }),
     watch: () => () => {},
     createAlias: async (name, port, force) => {
       calls.push(`create ${name} ${port} ${force}`);

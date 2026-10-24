@@ -9,6 +9,8 @@ import { ProxyStatusPill } from "./proxy-status-pill.tsx";
 
 type DashboardHeaderProps = {
   proxy: ProxyStatus | null;
+  /** Shown in the proxy pill's tooltip; null when unknown or not installed. */
+  portlessVersion: string | null;
   connection: ConnectionState;
   theme: "light" | "dark";
   modifierLabel: string;
@@ -19,6 +21,7 @@ type DashboardHeaderProps = {
 
 export function DashboardHeader({
   proxy,
+  portlessVersion,
   connection,
   theme,
   modifierLabel,
@@ -47,7 +50,7 @@ export function DashboardHeader({
         </div>
 
         <div className={styles.status}>
-          {proxy ? <ProxyStatusPill proxy={proxy} /> : null}
+          {proxy ? <ProxyStatusPill proxy={proxy} portlessVersion={portlessVersion} /> : null}
           <ConnectionIndicator state={connection} />
         </div>
 

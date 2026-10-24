@@ -2,6 +2,7 @@ import {
   API_PATHS,
   type ApiError,
   type CreateAliasRequest,
+  type InstallPortlessResponse,
   type RenameAliasRequest,
   type Session,
   SNAPSHOT_EVENT,
@@ -102,16 +103,31 @@ export class HttpRoutesGateway implements RoutesGateway {
     return this.#write(API_PATHS.alias(name), "DELETE");
   }
 
+  async installPortless(): Promise<Result<InstallPortlessResponse, ApiError>> {
+    const response = await this.#send(API_PATHS.installPortless, "POST");
+    if (!response.ok) return response;
+    const body = response.value as Partial<InstallPortlessResponse> | null;
+    return ok({
+      version: typeof body?.version === "string" ? body.version : null,
+      output: typeof body?.output === "string" ? body.output : "",
+    });
+  }
+
   async #write(path: string, method: string, body?: unknown): Promise<Result<null, ApiError>> {
-    const attempt = async (): Promise<Result<null, ApiError>> => {
+    const response = await this.#send(path, method, body);
+    return response.ok ? ok(null) : response;
+  }
+
+  /** A request that changes state: carries the session token and retries once with a new one. */
+  async #send(path: string, method: string, body?: unknown): Promise<Result<unknown, ApiError>> {
+    const attempt = async (): Promise<Result<unknown, ApiError>> => {
       const token = await this.#getToken();
       if (!token.ok) return token;
       const headers: Record<string, string> = { [TOKEN_HEADER]: token.value };
       if (body !== undefined) headers["content-type"] = "application/json";
       const init: RequestInit = { method, headers };
       if (body !== undefined) init.body = JSON.stringify(body);
-      const response = await this.#request(path, init);
-      return response.ok ? ok(null) : response;
+      return this.#request(path, init);
     };
 
     const first = await attempt();

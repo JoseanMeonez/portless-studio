@@ -1,4 +1,9 @@
-import type { CreateAliasRequest, RenameAliasRequest, Snapshot } from "../../core/api/contract.ts";
+import type {
+  CreateAliasRequest,
+  InstallPortlessResponse,
+  RenameAliasRequest,
+  Snapshot,
+} from "../../core/api/contract.ts";
 import { err, ok, type Result } from "../../core/result.ts";
 import type { Route } from "../../core/routes/route.ts";
 import { parsePort, parseRouteName } from "../../core/routes/route-name.ts";
@@ -54,6 +59,13 @@ export async function removeAlias(
   const alias = await findAlias(registry, name);
   if (!alias.ok) return alias;
   return registry.removeAlias(alias.value.name);
+}
+
+/** The package and its arguments are fixed in the adapter; nothing from the request reaches npm. */
+export function installPortless(
+  registry: RouteRegistry,
+): Promise<Result<InstallPortlessResponse, AppError>> {
+  return registry.installPortless();
 }
 
 function validName(input: string): Result<string, AppError> {

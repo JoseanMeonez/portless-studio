@@ -11,6 +11,7 @@ import type { AppError } from "../../application/app-error.ts";
 import type { RouteRegistry } from "../../application/route-registry.ts";
 import {
   createAlias,
+  installPortless,
   listSnapshot,
   removeAlias,
   renameAlias,
@@ -96,6 +97,11 @@ export function createHttpServer(options: HttpServerOptions): HttpServer {
       if (!body.ok) return sendBodyError(res, body.error);
       const result = await createAlias(options.registry, toCreateRequest(body.value));
       return sendResult(res, result, 201);
+    }
+    if (pathname === API_PATHS.installPortless && method === "POST") {
+      const result = await installPortless(options.registry);
+      if (!result.ok) return sendError(res, result.error.code, result.error.message);
+      return sendJson(res, 200, result.value);
     }
     if (pathname.startsWith(ALIAS_PREFIX) && (method === "PATCH" || method === "DELETE")) {
       const name = decodeName(pathname.slice(ALIAS_PREFIX.length));

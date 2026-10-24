@@ -1,6 +1,7 @@
 import type {
   ApiError,
   CreateAliasRequest,
+  InstallPortlessResponse,
   RenameAliasRequest,
   Snapshot,
 } from "../../../../core/api/contract.ts";
@@ -24,4 +25,6 @@ export interface RoutesGateway {
   createAlias(request: CreateAliasRequest): Promise<Result<null, ApiError>>;
   renameAlias(currentName: string, request: RenameAliasRequest): Promise<Result<null, ApiError>>;
   removeAlias(name: string): Promise<Result<null, ApiError>>;
+  /** Runs `npm install -g portless` on the server; resolves when npm finishes. */
+  installPortless(): Promise<Result<InstallPortlessResponse, ApiError>>;
 }

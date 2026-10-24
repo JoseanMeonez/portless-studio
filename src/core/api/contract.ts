@@ -12,6 +12,8 @@ export const API_PATHS = {
   events: "/api/events",
   aliases: "/api/aliases",
   alias: (name: string) => `/api/aliases/${encodeURIComponent(name)}`,
+  /** POST: runs `npm install -g portless` on the server. A write, so it needs the token. */
+  installPortless: "/api/portless/install",
 } as const;
 
 export const SNAPSHOT_EVENT = "snapshot";
@@ -24,8 +26,16 @@ export type Session = {
   token: string;
 };
 
+/** Whether the portless command runs on the server's machine, and which version it reports. */
+export type PortlessInstallation = {
+  installed: boolean;
+  /** What `portless --version` printed, or null when it is not installed or printed nothing. */
+  version: string | null;
+};
+
 export type Snapshot = {
   proxy: ProxyStatus;
+  portless: PortlessInstallation;
   routes: Route[];
   /** Epoch milliseconds when the server read this state. */
   readAt: number;
@@ -44,6 +54,14 @@ export type RenameAliasRequest = {
   name: string;
 };
 
+/** POST /api/portless/install, on success. */
+export type InstallPortlessResponse = {
+  /** The version detected after the install; null when the command still cannot be found. */
+  version: string | null;
+  /** What npm printed, without color codes, trimmed to its last few kilobytes. */
+  output: string;
+};
+
 export type ApiErrorCode =
   | "invalid_request"
   | "invalid_name"
@@ -53,6 +71,10 @@ export type ApiErrorCode =
   | "not_an_alias"
   | "forbidden"
   | "portless_unavailable"
+  /** `npm install -g portless` failed; the message carries what npm printed. */
+  | "install_failed"
+  /** Another install is still running. */
+  | "install_in_progress"
   | "internal";
 
 /** Body of every non-2xx response. */

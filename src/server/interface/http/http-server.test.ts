@@ -4,9 +4,15 @@ import type { AddressInfo } from "node:net";
 import * as os from "node:os";
 import * as path from "node:path";
 import { gunzipSync } from "node:zlib";
-import { API_PATHS, type Snapshot, TOKEN_HEADER } from "../../../core/api/contract.ts";
-import { ok } from "../../../core/result.ts";
+import {
+  API_PATHS,
+  type InstallPortlessResponse,
+  type Snapshot,
+  TOKEN_HEADER,
+} from "../../../core/api/contract.ts";
+import { err, ok, type Result } from "../../../core/result.ts";
 import type { Route } from "../../../core/routes/route.ts";
+import type { AppError } from "../../application/app-error.ts";
 import type { RouteRegistry } from "../../application/route-registry.ts";
 import { createHttpServer, type HttpServer } from "./http-server.ts";
 
@@ -27,9 +33,13 @@ function fakeRegistry() {
   const listeners = new Set<() => void>();
   const calls: string[] = [];
   let routes: Route[] = [alias];
+  const install: { result: Result<InstallPortlessResponse, AppError> } = {
+    result: ok({ version: "1.2.3", output: "added 1 package" }),
+  };
   const registry: RouteRegistry = {
     readSnapshot: async (): Promise<Snapshot> => ({
       proxy: { running: true, port: 1355, https: false, tlds: ["localhost"] },
+      portless: { installed: false, version: null },
       routes,
       readAt: 1,
     }),
@@ -45,12 +55,16 @@ function fakeRegistry() {
       calls.push(`remove ${name}`);
       return ok(undefined);
     },
+    installPortless: async () => {
+      calls.push("install");
+      return install.result;
+    },
   };
   const change = (next: Route[]) => {
     routes = next;
     for (const listener of listeners) listener();
   };
-  return { registry, calls, change, listeners };
+  return { registry, calls, change, listeners, install };
 }
 
 type Reply = {
@@ -124,7 +138,11 @@ describe("API reads", () => {
     const reply = await send("GET", API_PATHS.snapshot);
     expect(reply.status).toBe(200);
     expect(reply.headers["content-type"]).toContain("application/json");
-    expect(json(reply)).toMatchObject({ routes: [{ name: "db" }], proxy: { port: 1355 } });
+    expect(json(reply)).toMatchObject({
+      routes: [{ name: "db" }],
+      proxy: { port: 1355 },
+      portless: { installed: false, version: null },
+    });
     expect(reply.headers["access-control-allow-origin"]).toBeUndefined();
   });
 
@@ -211,6 +229,48 @@ describe("API writes", () => {
     const reply = await send("POST", API_PATHS.aliases, write, "{nope");
     expect(reply.status).toBe(400);
     expect(json(reply)).toMatchObject({ error: "invalid_request" });
+  });
+});
+
+describe("portless install", () => {
+  it("rejects an install without the token and does not run it", async () => {
+    const reply = await send("POST", API_PATHS.installPortless);
+    expect(reply.status).toBe(403);
+    expect(json(reply)).toMatchObject({ error: "forbidden" });
+    expect(fake.calls).toEqual([]);
+  });
+
+  it("runs the install and returns the version and output", async () => {
+    const reply = await send("POST", API_PATHS.installPortless, write);
+    expect(reply.status).toBe(200);
+    expect(json(reply)).toEqual({ version: "1.2.3", output: "added 1 package" });
+    expect(fake.calls).toEqual(["install"]);
+  });
+
+  it("returns install_failed as 502 with npm's output", async () => {
+    fake.install.result = err({
+      code: "install_failed",
+      message: "npm exited with code 1.\n\nEACCES",
+    });
+    const reply = await send("POST", API_PATHS.installPortless, write);
+    expect(reply.status).toBe(502);
+    expect(json(reply)).toEqual({
+      error: "install_failed",
+      message: "npm exited with code 1.\n\nEACCES",
+    });
+  });
+
+  it("returns install_in_progress as 409", async () => {
+    fake.install.result = err({ code: "install_in_progress", message: "Already installing." });
+    const reply = await send("POST", API_PATHS.installPortless, write);
+    expect(reply.status).toBe(409);
+    expect(json(reply)).toMatchObject({ error: "install_in_progress" });
+  });
+
+  it("does not install on GET", async () => {
+    const reply = await send("GET", API_PATHS.installPortless);
+    expect(reply.status).toBe(404);
+    expect(fake.calls).toEqual([]);
   });
 });
 

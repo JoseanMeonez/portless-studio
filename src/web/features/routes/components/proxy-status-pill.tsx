@@ -3,11 +3,17 @@ import { Icon } from "../../../shared/ui/icons/icon.tsx";
 import { StatusDot } from "../../../shared/ui/status-dot.tsx";
 import styles from "./proxy-status-pill.module.css";
 
+type ProxyStatusPillProps = {
+  proxy: ProxyStatus;
+  portlessVersion?: string | null;
+};
+
 /** Whether the portless proxy is up, and how it serves: protocol, port and TLD. */
-export function ProxyStatusPill({ proxy }: { proxy: ProxyStatus }) {
+export function ProxyStatusPill({ proxy, portlessVersion = null }: ProxyStatusPillProps) {
   const tld = proxy.tlds[0];
+  const title = portlessVersion ? `portless ${portlessVersion} proxy` : "portless proxy";
   return (
-    <div className={styles.pill} title="portless proxy">
+    <div className={styles.pill} title={title}>
       <StatusDot tone={proxy.running ? "success" : "danger"} />
       <span className={styles.state}>{proxy.running ? "Running" : "Stopped"}</span>
       <span className={styles.divider} aria-hidden="true" />

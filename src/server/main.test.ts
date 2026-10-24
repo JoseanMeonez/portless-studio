@@ -39,4 +39,15 @@ describe("startServer", () => {
     await first.close();
     await second.close();
   });
+
+  it("reports portless as missing when its binary does not exist", async () => {
+    running = await startServer({
+      port: 0,
+      stateDir: dir,
+      portlessBin: path.join(dir, "no-such-portless"),
+    });
+    const response = await fetch(`${running.url}${API_PATHS.snapshot}`);
+    const snapshot = (await response.json()) as { portless: unknown };
+    expect(snapshot.portless).toEqual({ installed: false, version: null });
+  });
 });

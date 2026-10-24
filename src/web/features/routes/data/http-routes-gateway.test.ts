@@ -9,6 +9,7 @@ import type { ConnectionState } from "./routes-gateway.ts";
 
 const snapshot: Snapshot = {
   proxy: { running: true, port: 443, https: true, tlds: ["localhost"] },
+  portless: { installed: true, version: "0.4.2" },
   routes: [],
   readAt: 1,
 };
@@ -82,6 +83,37 @@ describe("HttpRoutesGateway writes", () => {
 
     expect((await gateway.removeAlias("db")).ok).toBe(true);
     expect(calls.filter((call) => call.url === API_PATHS.session)).toHaveLength(2);
+  });
+
+  it("installs portless with the token and returns the version and output", async () => {
+    const { calls, fetch } = stubFetch((url) =>
+      url === API_PATHS.session
+        ? json(200, { token: "secret" })
+        : json(200, { version: "0.4.2", output: "added 1 package" }),
+    );
+    const gateway = new HttpRoutesGateway({ fetch });
+
+    expect(await gateway.installPortless()).toEqual({
+      ok: true,
+      value: { version: "0.4.2", output: "added 1 package" },
+    });
+    const install = calls.find((call) => call.url === API_PATHS.installPortless);
+    expect(install?.init.method).toBe("POST");
+    expect(install && header(install, TOKEN_HEADER)).toBe("secret");
+  });
+
+  it("returns install_failed from the server as a failed result", async () => {
+    const { fetch } = stubFetch((url) =>
+      url === API_PATHS.session
+        ? json(200, { token: "secret" })
+        : json(502, { error: "install_failed", message: "npm exited with code 1." }),
+    );
+    const gateway = new HttpRoutesGateway({ fetch });
+
+    expect(await gateway.installPortless()).toEqual({
+      ok: false,
+      error: { error: "install_failed", message: "npm exited with code 1." },
+    });
   });
 
   it("reports an unreachable server as an internal error instead of throwing", async () => {

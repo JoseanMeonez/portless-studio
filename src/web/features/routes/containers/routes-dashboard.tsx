@@ -18,6 +18,7 @@ import { useNow } from "../hooks/use-now.ts";
 import { useRouteActions } from "../hooks/use-route-actions.ts";
 import { useRoutes } from "../hooks/use-routes.ts";
 import { AliasDialogContainer, type AliasDialogRequest } from "./alias-dialog-container.tsx";
+import { InstallPortlessContainer } from "./install-portless-container.tsx";
 import { RouteCommandMenu } from "./route-command-menu.tsx";
 import styles from "./routes-dashboard.module.css";
 
@@ -44,6 +45,8 @@ export function RoutesDashboard({ theme, onToggleTheme }: RoutesDashboardProps) 
   const list = useRef<HTMLDivElement>(null);
   const modifier = modifierLabel();
 
+  // Optional chaining tolerates a server older than the `portless` field.
+  const portlessMissing = snapshot?.portless?.installed === false;
   const routeAt = (index: number) => filter.visible[index];
   const openCreate = () => setDialog({ mode: "create" });
   const requestRename = (route: Route) => {
@@ -95,6 +98,7 @@ export function RoutesDashboard({ theme, onToggleTheme }: RoutesDashboardProps) 
     <div className={styles.page}>
       <DashboardHeader
         proxy={snapshot?.proxy ?? null}
+        portlessVersion={snapshot?.portless?.version ?? null}
         connection={connection}
         theme={theme}
         modifierLabel={modifier}
@@ -104,14 +108,20 @@ export function RoutesDashboard({ theme, onToggleTheme }: RoutesDashboardProps) 
       />
 
       <main className={styles.main}>
-        {snapshot && !snapshot.proxy.running ? <ProxyBanner /> : null}
+        {portlessMissing ? (
+          <InstallPortlessContainer
+            onCopyCommand={(command) => void actions.copyCommand(command)}
+          />
+        ) : null}
+        {/* Without portless the proxy cannot run; the install banner already says what to do. */}
+        {snapshot && !portlessMissing && !snapshot.proxy.running ? <ProxyBanner /> : null}
 
         {!snapshot && error ? (
           <ErrorState message={apiErrorMessage(error)} onRetry={() => void reload()} />
         ) : null}
         {!snapshot && !error ? <LoadingRows /> : null}
 
-        {snapshot && routes.length === 0 ? (
+        {snapshot && !portlessMissing && routes.length === 0 ? (
           <EmptyState
             onCopyCommand={(command) => void actions.copyCommand(command)}
             onNamePort={openCreate}

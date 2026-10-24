@@ -1,4 +1,4 @@
-import { act, render, screen, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ApiError, Snapshot } from "../../core/api/contract.ts";
 import { err } from "../../core/result.ts";
@@ -211,5 +211,61 @@ describe("other states", () => {
 
     expect(await screen.findByText("Can’t reach the studio server")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Retry" })).toBeTruthy();
+  });
+});
+
+describe("portless install", () => {
+  const missing = (): Snapshot => ({
+    ...createSampleSnapshot(NOW),
+    portless: { installed: false, version: null },
+  });
+
+  function setupMissing(outcome: "success" | "failure") {
+    const gateway = new InMemoryRoutesGateway(missing(), () => NOW, {
+      installDelayMs: 30,
+      installOutcome: outcome,
+    });
+    const user = userEvent.setup();
+    render(<App gateway={gateway} />);
+    return { gateway, user };
+  }
+
+  it("explains that portless is missing instead of the proxy warning", async () => {
+    const snapshot = missing();
+    setup({ ...snapshot, proxy: { ...snapshot.proxy, running: false } });
+
+    expect(await screen.findByText("portless is not installed")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Install portless" })).toBeTruthy();
+    expect(screen.getByText("npm install -g portless")).toBeTruthy();
+    expect(screen.queryByText("The portless proxy is not running.")).toBeNull();
+  });
+
+  it("shows progress, then a success toast, and the banner goes away", async () => {
+    const { user } = setupMissing("success");
+    await user.click(await screen.findByRole("button", { name: "Install portless" }));
+
+    const busy = screen.getByRole("button", { name: "Installing…" });
+    expect(busy.hasAttribute("disabled")).toBe(true);
+
+    expect(await screen.findByText("portless 0.4.2 installed")).toBeTruthy();
+    await waitFor(() => expect(screen.queryByText("portless is not installed")).toBeNull());
+  });
+
+  it("shows npm's output and the manual command when the install fails", async () => {
+    const { user } = setupMissing("failure");
+    await user.click(await screen.findByRole("button", { name: "Install portless" }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("npm error code EACCES");
+    expect(screen.getByText("npm install -g portless")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Install portless" }).hasAttribute("disabled")).toBe(
+      false,
+    );
+  });
+
+  it("does not mention installing when portless is installed", async () => {
+    setup();
+    await routeList();
+    expect(screen.queryByText("portless is not installed")).toBeNull();
   });
 });

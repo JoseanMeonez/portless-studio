@@ -19,10 +19,13 @@ several projects you have to remember which names exist. portless studio shows t
 - **Keyboard first:** `j`/`k` to move, `Enter` to open, `c` to copy, `n` to name a port,
   `/` to filter and `Ctrl+K` (or `Cmd+K`) for the command menu.
 - **Proxy status:** shows whether the portless proxy is running, on which port and TLD.
+- **Install portless:** when the portless command is missing, the page says so and can run
+  `npm install -g portless` for you, showing npm's output.
 
 ## Run it
 
-Requires Node 24 and portless on your `PATH`.
+Requires Node 24. portless should be on your `PATH`; if it is not, the page offers to install it
+with `npm install -g portless`, or shows the command so you can run it yourself.
 
 ```bash
 git clone https://github.com/dev/portless-studio
@@ -41,7 +44,8 @@ It starts on `http://127.0.0.1:4321`, registers itself in portless as `studio`, 
 | `--no-open` | Do not open the browser. |
 | `--no-register` | Do not register the `studio` name in portless. |
 
-Want to see it without portless? Open `http://127.0.0.1:4321/?demo` for sample data.
+Want to see it without portless? Open `http://127.0.0.1:4321/?demo` for sample data, or
+`?demo&noportless` to try the install flow with a fake install.
 
 ## Naming routes from agents and scripts
 
@@ -57,7 +61,8 @@ portless alias db.myapp 5432      # a port something else opened, at https://db.
 
 The server listens on `127.0.0.1` only and rejects requests whose `Host` or `Origin` is not local,
 so other websites open in your browser cannot read your routes. Creating, renaming and removing
-names also needs a token that changes on every run.
+names, and installing portless, also need a token that changes on every run. The install always
+runs the same fixed command; nothing from the request reaches it.
 
 ## Develop
 

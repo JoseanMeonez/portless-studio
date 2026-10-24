@@ -1,9 +1,15 @@
-import type { Snapshot } from "../../core/api/contract.ts";
+import type { InstallPortlessResponse, Snapshot } from "../../core/api/contract.ts";
 import { err, ok, type Result } from "../../core/result.ts";
 import type { Route } from "../../core/routes/route.ts";
 import type { AppError } from "./app-error.ts";
 import type { RouteRegistry } from "./route-registry.ts";
-import { createAlias, listSnapshot, removeAlias, renameAlias } from "./route-use-cases.ts";
+import {
+  createAlias,
+  installPortless,
+  listSnapshot,
+  removeAlias,
+  renameAlias,
+} from "./route-use-cases.ts";
 
 function route(name: string, port: number, kind: Route["kind"]): Route {
   return {
@@ -23,6 +29,7 @@ class FakeRegistry implements RouteRegistry {
   calls: string[] = [];
   removeResult: Result<void, AppError> = ok(undefined);
   createResult: Result<void, AppError> = ok(undefined);
+  installResult: Result<InstallPortlessResponse, AppError> = ok({ version: "1.0.0", output: "" });
 
   constructor(routes: Route[]) {
     this.routes = routes;
@@ -31,6 +38,7 @@ class FakeRegistry implements RouteRegistry {
   async readSnapshot(): Promise<Snapshot> {
     return {
       proxy: { running: true, port: 1355, https: false, tlds: ["localhost"] },
+      portless: { installed: true, version: "1.0.0" },
       routes: this.routes,
       readAt: 1,
     };
@@ -48,6 +56,11 @@ class FakeRegistry implements RouteRegistry {
   async removeAlias(name: string) {
     this.calls.push(`remove ${name}`);
     return this.removeResult;
+  }
+
+  async installPortless() {
+    this.calls.push("install");
+    return this.installResult;
   }
 }
 
@@ -163,5 +176,14 @@ describe("renameAlias", () => {
     const result = await renameAlias(registry, "db", { name: "pg" });
     expect(result).toMatchObject({ ok: false, error: { code: "internal" } });
     if (!result.ok) expect(result.error.message).toContain('"db"');
+  });
+});
+
+describe("installPortless", () => {
+  it("passes the registry result through", async () => {
+    const registry = new FakeRegistry([]);
+    registry.installResult = err({ code: "install_failed", message: "npm exited with code 1." });
+    expect(await installPortless(registry)).toEqual(registry.installResult);
+    expect(registry.calls).toEqual(["install"]);
   });
 });

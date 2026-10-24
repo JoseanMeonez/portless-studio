@@ -12,7 +12,9 @@ const STATUS_BY_CODE: Record<ApiErrorCode, number> = {
   not_found: 404,
   name_taken: 409,
   not_an_alias: 409,
+  install_in_progress: 409,
   portless_unavailable: 503,
+  install_failed: 502,
   internal: 500,
 };
 

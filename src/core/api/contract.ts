@@ -5,6 +5,8 @@ import type { ProxyStatus, Route } from "../routes/route.ts";
  * path or a shape here is a breaking change for any other backend that implements the API.
  */
 export const API_PATHS = {
+  /** Returns the per-run write token. Same-origin only, so other sites cannot read it. */
+  session: "/api/session",
   snapshot: "/api/snapshot",
   /** Server-sent events: one `snapshot` event on connect and after every change. */
   events: "/api/events",
@@ -16,6 +18,11 @@ export const SNAPSHOT_EVENT = "snapshot";
 
 /** Header that carries the per-run token on every write request. */
 export const TOKEN_HEADER = "x-portless-studio-token";
+
+/** GET /api/session */
+export type Session = {
+  token: string;
+};
 
 export type Snapshot = {
   proxy: ProxyStatus;

@@ -1,0 +1,53 @@
+# Publishes the package to npm when a version tag such as v0.1.0 is pushed.
+# It does nothing until the repository has an NPM_TOKEN secret (an npm automation token):
+# without it the publish step is skipped and the run says so.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # Lets npm sign the provenance statement that links the package to this workflow run.
+      id-token: write
+    env:
+      NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+
+      - name: Check the tag matches package.json
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          if [ "v${version}" != "${GITHUB_REF_NAME}" ]; then
+            echo "::error::Tag ${GITHUB_REF_NAME} does not match package.json version ${version}"
+            exit 1
+          fi
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm check
+
+      - name: Skip without NPM_TOKEN
+        if: env.NPM_TOKEN == ''
+        run: echo "::notice::NPM_TOKEN is not set, so nothing was published."
+
+      # prepublishOnly runs typecheck, tests and build before the upload.
+      - name: Publish to npm
+        if: env.NPM_TOKEN != ''
+        run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

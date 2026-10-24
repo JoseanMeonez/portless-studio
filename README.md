@@ -1,211 +1,276 @@
 # portless studio
 
-A local web dashboard for [portless](https://github.com/vercel-labs/portless). See every app and
-alias portless is routing, open them, copy their URLs, and give a name to any port, from one page
-in your browser.
+A local web dashboard for [portless](https://github.com/vercel-labs/portless): see every dev server
+on your machine, give each one a name like `web.myapp.localhost`, and open it from one page.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/dashboard-dark.png">
+  <img alt="The Studio dashboard: detected ports without a name at the top, named routes grouped by project below, each with its branch, folder, port and uptime" src="docs/images/dashboard-light.png" width="1280">
+</picture>
+
+portless replaces port numbers with names: `portless api pnpm dev` serves your app at
+`http://api.localhost:1355` instead of `http://localhost:3000`. It has no interface of its own, so
+with ten dev servers across several projects you have to remember which names exist and which
+ports have none. Studio shows both, live, and names a port in one click.
+
+![Naming port 8000 as notebook.ml, searching routes with Ctrl+K and running pnpm dev in a Studio terminal](docs/images/demo.gif)
+
+The screenshots use the built-in sample data (`?demo`), not a real machine.
 
 ## Quick start
+
+Requires Node 24 or later.
 
 ```bash
 npx portless-studio init
 ```
 
-Until the package is published, run it from a clone: `pnpm install && pnpm build && node
-dist/cli/index.js init`.
-
 `init` asks a few questions and leaves everything working:
 
-- Checks that portless is installed and offers to install it with npm.
+- Checks that portless is installed and offers to install it with `npm install -g portless`.
 - Asks for the basic settings (auto mode, start at login, port, open the browser) and saves them.
 - Finds the dev servers already running, suggests a name for each and names them in portless.
 - Starts the portless proxy on port 1355 over HTTP, which needs no password, certificate or extra
   tool on macOS, Windows or Linux, and can set Studio to start when you log in.
 
-Your apps then open at names like `http://web.myapp.localhost:1355`. Chrome, Edge and Firefox send
-every `*.localhost` name to your own machine by themselves, with no hosts file and no DNS setup.
+`init --yes` accepts every default without asking. After that, `npx portless-studio` starts
+Studio at `http://127.0.0.1:4949`, registers it in portless as `studio` and opens your browser.
+Your apps open at names like `http://web.myapp.localhost:1355`: Chrome, Edge and Firefox send
+every `*.localhost` name to your own machine, with no hosts file and no DNS setup.
 
-`init --yes` accepts every default without asking.
+To try the page without portless, start Studio and open `http://127.0.0.1:4949/?demo` for sample
+data, or `?demo&noportless` to walk through the install flow with a fake install.
 
-### Commands
+## What it does
+
+- **Live list** of portless routes: name, URL, port, app or alias, uptime and any Tailscale, ngrok
+  or Cloudflare tunnel. It updates as soon as a route appears or goes away.
+- **Detected ports:** listening ports that answer HTTP but have no name yet, with the process, the
+  project folder and a suggested name. Name one, name them all, or ignore one.
+- **Auto mode** (off by default): every new dev server gets its suggested name by itself. Names
+  auto mode gave are removed 10 minutes after their port closes.
+- **Name a port** that portless did not start, such as a database in Docker (`db` gives
+  `db.localhost`). Rename or remove those names later.
+- **Where each server runs:** every row shows the git branch, the linked worktree and the project
+  folder. A route whose server is down keeps the last place it ran.
+- **Views:** group by project, worktree, kind or status, or into your own groups; sort and filter;
+  save the combination as a named view and pick the one that opens by default.
+- **Terminals:** run a command per project inside Studio and watch its output in a panel. You, the
+  CLI and your AI agents drive the same terminals. See [docs/terminals.md](docs/terminals.md).
+- **Agents:** an MCP server lets Claude Code, Cursor and other agents list, name and stop dev
+  servers and run commands in Studio terminals. See [docs/mcp.md](docs/mcp.md).
+- **Open with:** right-click a row to open its folder in an editor found on your machine (VS Code,
+  Cursor, Zed, WebStorm, IntelliJ IDEA, Sublime Text), reveal it in the file manager or copy its
+  path. Add your own apps in Settings.
+- **Health:** each route's dot says whether its port answers. The Health panel and
+  `portless-studio doctor` find a proxy left running as root, two proxies at once, an untrusted
+  certificate or a taken port, and give the fix.
+- **Proxy and Studio control:** start, stop or restart the portless proxy, and stop or restart
+  Studio, from the page.
+- **Stop a dev server** from its row, after a confirmation. Only your own processes on a port
+  Studio shows.
+- **Project icons:** the favicon the server serves, else one in the project folder, else the
+  project's initials. Set an emoji or an image per project in Settings.
+- **Notifications** in the page when a server is detected or named, and optionally from the
+  operating system.
+- **Install portless** from the page when the `portless` command is missing.
+- **Keyboard first:** every action has a key, `?` lists them and `Ctrl+K` (`Cmd+K`) runs any of
+  them by name.
+
+## How naming works
+
+A suggested name says what the work is, then the app, then the repository. The package
+`@acme/web` in the `acme-monorepo` folder on the branch `feat/ED-1234-add-x` gets
+`ed-1234.web.acme`, so two worktrees of one repository get different names. That is the order
+portless uses for worktrees, `<branch>.<name>.localhost`.
+
+Change it with `nameTemplate`, for example `{ticket}.{repo}` or `{package}-{port}`.
+[docs/naming.md](docs/naming.md) lists every token and how empty or repeated parts are dropped.
+
+Anything that names a route through the portless CLI also shows up in Studio:
+
+```bash
+portless web.myapp pnpm dev       # a dev server, at web.myapp.localhost
+portless alias db.myapp 5432      # a port something else opened, at db.myapp.localhost
+```
+
+## Agents and MCP
+
+`portless-studio mcp` is an [MCP](https://modelcontextprotocol.io) server on stdio. It talks to the
+Studio already running, so whatever an agent changes shows up in the page at once. For Claude Code:
+
+```bash
+claude mcp add --scope user portless-studio -- npx -y portless-studio mcp
+```
+
+[docs/mcp.md](docs/mcp.md) has the setup for Cursor and other clients, the list of tools, and
+instructions to paste into your agent so it names dev servers after the ticket or pull request.
+`portless-studio list --json` and `doctor --json` give the same data to scripts.
+
+## Terminals
+
+```bash
+portless-studio run -- pnpm dev
+```
+
+`run` starts the command in a Studio terminal in the current folder, prints its output here,
+names the first port it opens and stops it on Ctrl+C. The terminal stays visible in the page.
+[docs/terminals.md](docs/terminals.md) covers the panel, the CLI and the security rules.
+
+## Platforms
+
+Studio runs on Linux, macOS and Windows with Node 24 and installs nothing beyond portless. Each
+feature uses tools the system already has (`/proc` on Linux, `lsof` on macOS, `netstat` and
+PowerShell on Windows). [docs/platforms.md](docs/platforms.md) says what each system uses and what
+does not work the same everywhere.
+
+## Commands
 
 | Command | What it does |
 | --- | --- |
 | `portless-studio` | Starts Studio with the settings from the config file. |
 | `portless-studio init [--yes]` | The setup above. Safe to run again. |
-| `portless-studio uninstall [--yes]` | Undoes the setup: stops and removes the login service, removes the names auto mode gave and the `studio` name, and stops the proxy if Studio started it as you. Names you or an agent gave stay. Asks separately before deleting the settings folder (default no). |
+| `portless-studio uninstall [--yes]` | Undoes the setup: removes the login service, the names auto mode gave and the `studio` name, and stops the proxy if Studio started it. Names you or an agent gave stay. Asks before deleting the settings folder. |
 | `portless-studio service install` | Starts Studio when you log in: a systemd user unit on Linux, a LaunchAgent on macOS, a script in the Startup folder on Windows. |
 | `portless-studio service uninstall` | Undoes `service install`. |
 | `portless-studio service status` | Says whether the login service is installed and running. |
-| `portless-studio config [--edit]` | Prints the config file path and its contents, or opens it in `$EDITOR`. |
-| `portless-studio doctor` | Checks portless, the proxy, the certificate, Studio's port and the login service, and prints the fix for each problem. Exits with 1 when something fails. |
+| `portless-studio config [--edit] [--json]` | Prints the config file path and contents, or opens it in `$EDITOR`. |
+| `portless-studio doctor [--json]` | Checks portless, the proxy, the certificate, Studio's port and the login service, and prints the fix for each problem. Exits with 1 when something fails. |
+| `portless-studio list [--json]` | Lists named routes and ports without a name. |
+| `portless-studio mcp` | Runs the MCP server on stdio for AI agents. |
+| `portless-studio run [--name <name>] [--cwd <dir>] -- <command...>` | Runs a command in a Studio terminal and names the port it opens. |
+| `portless-studio open [target]` | Brings Studio to the front showing a route, project, terminal id or `port:<n>`. |
 
-### Config file
+| Flag | Effect |
+| --- | --- |
+| `--port <n>` | Port for the dashboard on 127.0.0.1. Default: `port` in the config, 4949. `0` picks a free one. |
+| `--no-open` | Do not open the browser. |
+| `--no-register` | Do not register the `studio` name in portless. |
+| `-y`, `--yes` | With `init` and `uninstall`: accept every default. |
+| `-h`, `--help` | Show the help. |
+| `-v`, `--version` | Show the version. |
 
-Settings live in one JSON file. `portless-studio config` prints where it is; you can edit it by
-hand or from the settings panel in the page, and a running Studio picks up the changes without a
-restart. Missing fields take their default.
+| Environment variable | What it does |
+| --- | --- |
+| `PORTLESS_STUDIO_CONFIG` | Path of the config file. |
+| `PORTLESS_STATE_DIR` | portless state folder. Default `~/.portless`. |
+| `PORTLESS_BIN` | portless binary used to create and remove names. Default `portless`. |
+| `PORTLESS_STUDIO_URL` | Studio that `mcp`, `list`, `run` and `open` talk to. Default `http://127.0.0.1:<port>`. |
+| `EDITOR` | Editor that `config --edit` opens. |
+
+## Config file
+
+Settings live in one JSON file: `~/.config/portless-studio/config.json` on Linux and macOS (or
+under `$XDG_CONFIG_HOME`), `%APPDATA%\portless-studio\config.json` on Windows. `portless-studio
+config` prints the path. Edit it by hand or from the Settings panel; a running Studio picks up the
+changes without a restart. Missing fields take their default.
 
 | Field | Default | What it does |
 | --- | --- | --- |
 | `port` | `4949` | Port Studio listens on, on 127.0.0.1. |
 | `autoName` | `false` | Gives every new dev server a portless name automatically. |
+| `autoRemoveAfterMinutes` | `10` | Minutes a name auto mode gave survives after its port closes. `0` keeps them. |
 | `openBrowser` | `true` | Opens the browser when Studio starts. |
 | `registerStudioAlias` | `true` | Registers Studio itself in portless as `studio`. |
 | `startProxy` | `true` | Starts the portless proxy when Studio starts and it is not running. |
-| `proxyPort` | `1355` | Port of that proxy. 1355 needs no administrator rights anywhere; 443 removes the port from URLs but needs sudo once. |
-| `proxyHttps` | `false` | Serves the names over HTTPS. Browsers only trust the local certificate after extra system setup, so HTTP is the default. |
+| `proxyPort` | `1355` | Port of that proxy. 1355 needs no administrator rights; 443 removes the port from URLs. |
+| `proxyHttps` | `false` | Serves the names over HTTPS. See the FAQ. |
 | `scanIntervalMs` | `3000` | How often Studio looks for new listening ports, in milliseconds (at least 1000). |
 | `ignoredPorts` | `[]` | Ports never shown as detected and never named automatically. |
-| `ignoredProcesses` | `["code", "cursor", "discord", "slack", "spotify", "chrome", "firefox"]` | Process names whose ports are never shown. |
-| `views` | one view, `All`, grouped by project | Saved views. Each has an `id`, a `name`, `groupBy` (`none`, `project`, `worktree`, `kind`, `status` or `custom`), `sort` (`by`: `name`, `port`, `newest` or `status`; `direction`: `asc` or `desc`), `filters` (`kinds`, `projects`, `statuses`) and, for custom grouping, `customGroups` (`id`, `name`, `members`). |
+| `ignoredProcesses` | editors, chat apps, browsers | Process names whose ports are never shown. |
+| `views` | one view, `All`, grouped by project | Saved views: grouping, sort, filters and custom groups. |
 | `defaultViewId` | `"all"` | The view the page opens with. |
 | `favorites` | `[]` | Routes pinned above every group, by name or as `"port:3000"`. |
-| `nameTemplate` | `"{work}.{package}.{repo}"` | How suggested names are built. See [Naming](#naming). |
-| `projectIcons` | `{}` | Icon per project name, e.g. `{ "acme": "🦊" }`: an emoji, an http(s) image URL (Studio downloads it and inlines it) or a `data:image` URL. |
+| `desktopNotifications` | `false` | Notifies from an open Studio tab while it is in the background. |
+| `systemNotifications` | `false` | Asks the operating system to notify when no Studio tab is open. |
+| `nameTemplate` | `"{work}.{package}.{repo}"` | How suggested names are built. See [docs/naming.md](docs/naming.md). |
+| `projectIcons` | `{}` | Icon per project: an emoji, an http(s) image URL or a `data:image` URL. |
 
-The `--port`, `--no-open` and `--no-register` flags win over the file for one run.
+The `--port`, `--no-open` and `--no-register` flags win over the file for one run. Apps you add to
+the Open with menu live in `open-with.json` next to the config file.
 
-Apps you add to the Open with menu live in `open-with.json` next to the config file, as
-`{ "customApps": [{ "name": "Neovim", "command": "kitty --directory {path} nvim" }] }`.
-`{path}` is the project folder; without it the folder goes last. Studio runs the command
-directly, not through a shell.
-
-portless replaces port numbers with names: `portless api pnpm dev` serves your app at
-`https://api.localhost`. It has no interface of its own, so when you run ten dev servers across
-several projects you have to remember which names exist. portless studio shows them live.
-
-## What it does
-
-- **Live list** of portless routes: name, URL, port, whether it is an app or an alias, uptime and
-  any Tailscale, ngrok or Cloudflare tunnel. It updates as soon as a route appears or goes away.
-- **Name a port:** give a name to something portless did not start, such as a database in
-  Docker (`db` -> `https://db.localhost`). Rename or remove those names later.
-- **Views:** group the list by project, git worktree, kind or status, or into groups you make
-  yourself ("Move to group…" on a row). Sort by name, port, newest or status, and filter with the
-  chips for kind, status and project. Save any combination as a named view, switch views with
-  `v` and pick the one that opens by default. Views and favorites live in the config file.
-- **Names that say what the work is:** a suggested name starts with the ticket key in the git
-  branch (`feat/ED-1234-add-x` gives `ed-1234.web.acme`) or the branch name, so two worktrees of
-  one repository are told apart.
-- **Project icons:** each row and project group shows the favicon its server serves, else a
-  favicon in the project folder (`public/favicon.svg`, `app/icon.png`, `static/favicon.ico`), else
-  the project's initials. Set an emoji or an image per project in Settings.
-- **Where each server runs:** every row shows its git branch, the linked worktree and the project
-  folder (shortened with `~`, the full path on hover). A route whose server is down keeps the last
-  place it ran, also after Studio restarts.
-- **Open with:** right-click a row, Ctrl+click (Cmd+click) it, or press `.` or `Shift+F10` on the
-  selected one to open its folder in an editor found on this machine (VS Code, Cursor, Zed,
-  WebStorm, IntelliJ IDEA, Sublime Text), reveal it in the file manager, copy its path or URL, or
-  open it in the browser. Add your own apps in Settings.
-- **Favorites:** the star on a row, or `f`, pins it above every group in every view.
-- **Remembered state:** the view, search, filters and sort sit in the page URL, so a reload, a
-  bookmark or the Back button keeps them. Closed groups and the selected row are remembered in
-  the browser.
-- **Keyboard first:** every action has a key, `?` lists them all and `Ctrl+K` (or `Cmd+K`) runs
-  any of them by name.
-- **Proxy status and control:** shows whether the portless proxy is running, on which port and
-  TLD. Click it to start, stop or restart the proxy. A proxy started with sudo cannot be stopped
-  from the page; Studio shows the `sudo` command to run instead.
-- **Health panel:** the header's Health button turns amber or red when something needs attention,
-  such as a proxy left running as root, two proxies at once, an HTTPS certificate Chrome does not
-  trust, or another program on Studio's port. Each problem comes with a button that fixes it, or
-  the command to copy when it needs sudo. The same checks run in `portless-studio doctor`.
-- **Route health:** each route's dot is green when its port answers, amber when it answers with a
-  server error and red when an app stops answering; the tooltip says `200 in 12 ms`.
-- **Stop a dev server** from its row, after a confirmation that names the process and port. Only
-  your own processes that listen on a port Studio shows can be stopped.
-- **Restart or stop Studio** from the Health panel. As a login service, systemd or launchd do it;
-  started from a terminal, Studio can only stop.
-- **Install portless:** when the portless command is missing, the page says so and can run
-  `npm install -g portless` for you, showing npm's output.
-
-### Keyboard shortcuts
+## Keyboard shortcuts
 
 | Keys | Action |
 | --- | --- |
-| `j` / `↓`, `k` / `↑` | Next and previous row, across groups |
+| `j` / `↓`, `k` / `↑` | Next and previous row |
 | `Home`, `End` | First and last row |
 | `/` | Search routes |
 | `Enter` or `o` | Open the selected route |
 | `c` | Copy its URL |
 | `r` | Rename an alias |
-| `Delete` | Remove an alias |
+| `Delete` or `Backspace` | Remove an alias |
 | `f` | Pin or unpin as favorite |
 | `.` or `Shift+F10` | Open with, copy path and more |
+| `t` | Open a terminal in its folder |
 | `n` | Name a port |
-| `v` | Next view |
-| `Shift+V` | Open the view menu |
+| `v` / `Shift+V` | Next view / open the view menu |
+| `[`, `]` | Collapse or expand all groups |
 | `Ctrl+K` / `Cmd+K` | Command menu |
 | `,` | Settings |
 | `?` | All keyboard shortcuts |
 | `Esc` | Close a dialog or cancel |
 
-## Run it
-
-Requires Node 24. portless should be on your `PATH`; if it is not, the page offers to install it
-with `npm install -g portless`, or shows the command so you can run it yourself.
-
-```bash
-git clone https://github.com/dev/portless-studio
-cd portless-studio
-pnpm install
-pnpm build
-pnpm start
-```
-
-It starts on `http://127.0.0.1:4949`, registers itself in portless as `studio`, so it is also at
-`https://studio.localhost`, and opens your browser.
-
-| Flag | Effect |
-| --- | --- |
-| `--port <n>` | Listen on another port. Default: `port` in the config, 4949. |
-| `--no-open` | Do not open the browser. |
-| `--no-register` | Do not register the `studio` name in portless. |
-
-Want to see it without portless? Open `http://127.0.0.1:4949/?demo` for sample data, or
-`?demo&noportless` to try the install flow with a fake install.
-
-## Naming
-
-A suggested name says what the work is, then the app, then the repository: the package `@acme/web`
-in `acme-monorepo` on the branch `feat/ED-1234-add-x` gets `ed-1234.web.acme`. That is the order
-portless uses for worktrees, `<branch>.<name>.localhost`. Change it with `nameTemplate` in the
-config file or in Settings, for example `{ticket}.{repo}` or `{package}-{port}`.
-[docs/naming.md](docs/naming.md) lists every token and how empty or repeated labels are dropped.
-
-## Naming routes from agents and scripts
-
-portless studio reads what portless already knows, so anything that names a route through the
-portless CLI shows up here. Tell your coding agents to start dev servers like this:
-
-```bash
-portless web.myapp pnpm dev       # a dev server, at https://web.myapp.localhost
-portless alias db.myapp 5432      # a port something else opened, at https://db.myapp.localhost
-```
-
 ## Security
 
-The server listens on `127.0.0.1` only and rejects requests whose `Host` or `Origin` is not local,
-so other websites open in your browser cannot read your routes. Creating, renaming and removing
-names, installing portless, controlling the proxy or Studio and stopping a dev server also need a
-token that changes on every run. The install always runs the same fixed command; nothing from the
-request reaches it. A dev server can be stopped only when it belongs to your user and listens on a
-port Studio shows, and Studio never runs a command that needs sudo.
+Studio is a local tool and only listens on `127.0.0.1`. It rejects requests whose `Host` or
+`Origin` is not local, so other websites open in your browser cannot read your routes or call the
+API. Every change (naming, removing, installing portless, controlling the proxy or Studio, stopping
+a dev server, running terminals) also needs a token that changes on every run. The page reads it from
+Studio, and browsers only let pages served by Studio itself read it. The portless install always runs the same fixed command.
+A dev server can be stopped only when it belongs to your user and listens on a port Studio shows,
+and Studio never runs a command that needs sudo. See [SECURITY.md](SECURITY.md) to report a
+problem.
 
-## Develop
+## FAQ
+
+**Safari does not open `*.localhost` names.** Safari does not always send `.localhost` names to
+your machine. Open Studio at `http://127.0.0.1:4949` and each app at `http://127.0.0.1:<its port>`,
+or use Chrome, Edge or Firefox.
+
+**Why HTTP on port 1355, and how do I get HTTPS or port 443?** Port 1355 needs no administrator
+rights on any system, and browsers treat plain HTTP on a `.localhost` name as a secure context, so
+most apps work as they would on HTTPS. For URLs without a port, set `proxyPort` to `443`; on Linux
+that needs sudo once to start the proxy. For HTTPS, set `proxyHttps` to `true` and trust the
+portless certificate: `portless-studio doctor` prints the exact command for your system, and the
+Health panel shows it too.
+
+**Does it work on Windows?** Yes, with Node 24 and PowerShell 5 (included in Windows 10 and 11).
+Ports come from `netstat`, process details from PowerShell, and start at login uses a hidden
+script in the Startup folder. Windows has no service manager Studio can ask, so the page can stop
+Studio but not restart it, and the doctor only sees the proxy portless records.
+[docs/platforms.md](docs/platforms.md) lists every difference.
+
+**How does it relate to portless?** Studio is an independent project, not part of portless and not
+made by its authors. It reads the state portless keeps in `~/.portless` and names routes through
+the `portless` command, so anything you or an agent do with portless shows up in Studio, and
+Studio never changes how portless works.
+
+**How do I remove it?** Run `npx portless-studio uninstall`. It removes the login service, the
+names auto mode gave and the `studio` name, stops the proxy if Studio started it, and asks before
+deleting the settings folder. If you installed it globally, also run
+`npm uninstall -g portless-studio`. portless itself stays installed; remove it with
+`npm uninstall -g portless`.
+
+## Development
 
 ```bash
+git clone https://github.com/keven-bardales/portless-studio
+cd portless-studio
+pnpm install
 pnpm dev          # API on :4949 and the web app with hot reload on :5173
 pnpm test         # unit and component tests
 pnpm typecheck
 pnpm check        # lint and format check
+pnpm build        # builds dist/, then `pnpm start` runs it
+pnpm smoke        # starts the built CLI on a free port and checks the API answers
 ```
 
 The code is split so the web app can talk to another backend later: see
 [docs/architecture.md](docs/architecture.md). Conventions are in
-[docs/conventions.md](docs/conventions.md).
+[docs/conventions.md](docs/conventions.md), and [CONTRIBUTING.md](CONTRIBUTING.md) covers pull
+requests.
 
 ## License
 
-MIT
+MIT, see [LICENSE](LICENSE).

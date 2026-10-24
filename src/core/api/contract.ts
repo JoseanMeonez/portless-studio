@@ -45,6 +45,7 @@ export type RenameAliasRequest = {
 };
 
 export type ApiErrorCode =
+  | "invalid_request"
   | "invalid_name"
   | "invalid_port"
   | "name_taken"

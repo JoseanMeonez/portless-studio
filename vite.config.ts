@@ -13,6 +13,6 @@ export default defineConfig({
     target: "es2022",
   },
   server: {
-    proxy: { "/api": { target: devServer, changeOrigin: true } },
+    proxy: { "/api": { target: devServer, changeOrigin: false } },
   },
 });

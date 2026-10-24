@@ -61,6 +61,6 @@ adapter is one implementation of it.
 ## Security
 
 The server listens on `127.0.0.1` only. Every request must carry a `Host` that is loopback or a
-`.localhost` name, and a browser `Origin`, when present, must match it. Writes also need the
-per-run token the server prints at startup and injects into the page. This keeps other websites
+`.localhost` name, and a browser `Origin`, when present, must match it. Writes also need a
+per-run token the page reads from `GET /api/session`; browsers only let same-origin pages read it. This keeps other websites
 open in the same browser from creating or removing routes.

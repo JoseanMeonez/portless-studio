@@ -2,12 +2,15 @@ import type { InstallPortlessResponse, Snapshot } from "../../core/api/contract.
 import type { Result } from "../../core/result.ts";
 import type { AppError } from "./app-error.ts";
 
+/** The part of the snapshot portless owns. Detected ports and auto mode are added by Studio. */
+export type PortlessState = Omit<Snapshot, "detected" | "autoName">;
+
 /**
  * Where routes live and how they change. The portless adapter is one implementation; another
  * backend only has to implement these five methods.
  */
 export interface RouteRegistry {
-  readSnapshot(): Promise<Snapshot>;
+  readSnapshot(): Promise<PortlessState>;
   /** Calls `onChange` after the routes or the proxy status change. Returns an unsubscribe. */
   watch(onChange: () => void): () => void;
   /** `name` is already validated and has no TLD. */

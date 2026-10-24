@@ -12,10 +12,10 @@ import type { RouteRegistry } from "../../application/route-registry.ts";
 import {
   createAlias,
   installPortless,
-  listSnapshot,
   removeAlias,
   renameAlias,
 } from "../../application/route-use-cases.ts";
+import type { StudioRuntime } from "../../application/studio-runtime.ts";
 import { type BodyError, MAX_BODY_BYTES, readJsonBody, sendError, sendJson } from "./json-io.ts";
 import { hasToken, isAllowedHost, isSameOrigin } from "./request-guards.ts";
 import { SnapshotEvents } from "./snapshot-events.ts";
@@ -23,6 +23,8 @@ import { StaticFiles } from "./static-files.ts";
 
 export type HttpServerOptions = {
   registry: RouteRegistry;
+  /** Builds the full snapshot (routes plus detected ports) and owns the config. */
+  studio: StudioRuntime;
   /** Per-run secret every write request must carry in `TOKEN_HEADER`. */
   token: string;
   /** Built web app to serve. Without it the server answers only the API. */
@@ -36,9 +38,10 @@ export type HttpServer = {
 };
 
 const ALIAS_PREFIX = `${API_PATHS.aliases}/`;
+const IGNORE_DETECTED = /^\/api\/detected\/([^/]+)\/ignore$/;
 
 export function createHttpServer(options: HttpServerOptions): HttpServer {
-  const events = new SnapshotEvents(options.registry);
+  const events = new SnapshotEvents(options.studio);
   const staticFiles = options.webDir ? new StaticFiles(options.webDir) : null;
 
   const server = createServer((req, res) => {
@@ -85,8 +88,24 @@ export function createHttpServer(options: HttpServerOptions): HttpServer {
       return;
     }
     if (pathname === API_PATHS.snapshot && method === "GET") {
-      sendJson(res, 200, await listSnapshot(options.registry));
+      sendJson(res, 200, await options.studio.readSnapshot());
       return;
+    }
+    if (pathname === API_PATHS.config && method === "GET") {
+      const result = await options.studio.readConfig();
+      if (!result.ok) return sendError(res, result.error.code, result.error.message);
+      return sendJson(res, 200, result.value);
+    }
+    if (pathname === API_PATHS.config && method === "PUT") {
+      const body = await readJsonBody(req);
+      if (!body.ok) return sendBodyError(res, body.error);
+      const result = await options.studio.updateConfig(body.value);
+      if (!result.ok) return sendError(res, result.error.code, result.error.message);
+      return sendJson(res, 200, result.value);
+    }
+    const ignored = IGNORE_DETECTED.exec(pathname);
+    if (ignored?.[1] && method === "POST") {
+      return sendResult(res, await options.studio.ignorePort(ignored[1]), 204);
     }
     if (pathname === API_PATHS.events && method === "GET") {
       await events.connect(res);

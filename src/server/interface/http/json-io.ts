@@ -8,6 +8,7 @@ const STATUS_BY_CODE: Record<ApiErrorCode, number> = {
   invalid_request: 400,
   invalid_name: 400,
   invalid_port: 400,
+  invalid_config: 400,
   forbidden: 403,
   not_found: 404,
   name_taken: 409,

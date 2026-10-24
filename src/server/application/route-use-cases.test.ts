@@ -1,15 +1,9 @@
-import type { InstallPortlessResponse, Snapshot } from "../../core/api/contract.ts";
+import type { InstallPortlessResponse } from "../../core/api/contract.ts";
 import { err, ok, type Result } from "../../core/result.ts";
 import type { Route } from "../../core/routes/route.ts";
 import type { AppError } from "./app-error.ts";
-import type { RouteRegistry } from "./route-registry.ts";
-import {
-  createAlias,
-  installPortless,
-  listSnapshot,
-  removeAlias,
-  renameAlias,
-} from "./route-use-cases.ts";
+import type { PortlessState, RouteRegistry } from "./route-registry.ts";
+import { createAlias, installPortless, removeAlias, renameAlias } from "./route-use-cases.ts";
 
 function route(name: string, port: number, kind: Route["kind"]): Route {
   return {
@@ -35,7 +29,7 @@ class FakeRegistry implements RouteRegistry {
     this.routes = routes;
   }
 
-  async readSnapshot(): Promise<Snapshot> {
+  async readSnapshot(): Promise<PortlessState> {
     return {
       proxy: { running: true, port: 1355, https: false, tlds: ["localhost"] },
       portless: { installed: true, version: "1.0.0" },
@@ -63,14 +57,6 @@ class FakeRegistry implements RouteRegistry {
     return this.installResult;
   }
 }
-
-describe("listSnapshot", () => {
-  it("returns the registry snapshot", async () => {
-    const registry = new FakeRegistry([route("web", 3000, "app")]);
-    const snapshot = await listSnapshot(registry);
-    expect(snapshot.routes.map((r) => r.name)).toEqual(["web"]);
-  });
-});
 
 describe("createAlias", () => {
   it("normalizes the name and passes force through", async () => {

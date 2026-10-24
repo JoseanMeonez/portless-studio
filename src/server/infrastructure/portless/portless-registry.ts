@@ -1,12 +1,8 @@
 import * as fs from "node:fs";
-import type {
-  InstallPortlessResponse,
-  PortlessInstallation,
-  Snapshot,
-} from "../../../core/api/contract.ts";
+import type { InstallPortlessResponse, PortlessInstallation } from "../../../core/api/contract.ts";
 import { err, ok, type Result } from "../../../core/result.ts";
 import { type AppError, appError } from "../../application/app-error.ts";
-import type { RouteRegistry } from "../../application/route-registry.ts";
+import type { PortlessState, RouteRegistry } from "../../application/route-registry.ts";
 import {
   addAlias,
   detectPortless,
@@ -57,7 +53,7 @@ export class PortlessRegistry implements RouteRegistry {
     this.#detectTtlMs = options.detectTtlMs ?? 30_000;
   }
 
-  async readSnapshot(): Promise<Snapshot> {
+  async readSnapshot(): Promise<PortlessState> {
     const portless = await this.#detect();
     const proxy = readProxyStatus(this.#stateDir);
     return { proxy, portless, routes: readRoutes(this.#stateDir, proxy), readAt: Date.now() };

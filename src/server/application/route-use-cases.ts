@@ -2,17 +2,12 @@ import type {
   CreateAliasRequest,
   InstallPortlessResponse,
   RenameAliasRequest,
-  Snapshot,
 } from "../../core/api/contract.ts";
 import { err, ok, type Result } from "../../core/result.ts";
 import type { Route } from "../../core/routes/route.ts";
 import { parsePort, parseRouteName } from "../../core/routes/route-name.ts";
 import { type AppError, appError } from "./app-error.ts";
 import type { RouteRegistry } from "./route-registry.ts";
-
-export function listSnapshot(registry: RouteRegistry): Promise<Snapshot> {
-  return registry.readSnapshot();
-}
 
 export async function createAlias(
   registry: RouteRegistry,

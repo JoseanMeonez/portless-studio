@@ -74,7 +74,7 @@ export async function installPortless(
   return err(appError("install_failed", output === "" ? reason : `${reason}\n\n${output}`));
 }
 
-type Outcome = {
+export type Outcome = {
   exitCode: number | null;
   /** stderr when it has text, otherwise stdout: where portless puts its messages. */
   output: string;
@@ -84,7 +84,8 @@ type Outcome = {
   missing: boolean;
 };
 
-type ExecuteOptions = { stateDir: string; timeoutMs?: number };
+/** `stateDir` reaches the child as `PORTLESS_STATE_DIR`; commands unrelated to portless omit it. */
+export type ExecuteOptions = { stateDir?: string; timeoutMs?: number };
 
 async function run(cli: PortlessCli, args: string[]): Promise<Result<void, AppError>> {
   const outcome = await execute(cli.bin, args, { stateDir: cli.stateDir });
@@ -116,7 +117,12 @@ function lastChars(text: string, max: number): string {
   return text.length <= max ? text : `…${text.slice(-max)}`;
 }
 
-function execute(bin: string, args: string[], options: ExecuteOptions): Promise<Outcome> {
+/** The one place that starts processes: portless, npm and the port scanners' system commands. */
+export function execute(
+  bin: string,
+  args: string[],
+  options: ExecuteOptions = {},
+): Promise<Outcome> {
   // Windows installs portless and npm as `.cmd` shims, which only cmd.exe can start. Arguments
   // are validated names, numbers or fixed words, so cmd.exe has nothing to interpret.
   const isWindows = process.platform === "win32";
@@ -130,7 +136,7 @@ function execute(bin: string, args: string[], options: ExecuteOptions): Promise<
     const child = spawn(command, commandArgs, {
       env: {
         ...process.env,
-        PORTLESS_STATE_DIR: options.stateDir,
+        ...(options.stateDir === undefined ? {} : { PORTLESS_STATE_DIR: options.stateDir }),
         NO_COLOR: "1",
         FORCE_COLOR: "0",
       },

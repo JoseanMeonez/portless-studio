@@ -10,10 +10,14 @@ import {
   type Snapshot,
   TOKEN_HEADER,
 } from "../../../core/api/contract.ts";
+import { DEFAULT_CONFIG } from "../../../core/config/studio-config.ts";
 import { err, ok, type Result } from "../../../core/result.ts";
 import type { Route } from "../../../core/routes/route.ts";
 import type { AppError } from "../../application/app-error.ts";
-import type { RouteRegistry } from "../../application/route-registry.ts";
+import type { ListeningPort, PortScanner } from "../../application/port-scanner.ts";
+import type { PortlessState, RouteRegistry } from "../../application/route-registry.ts";
+import { StudioRuntime } from "../../application/studio-runtime.ts";
+import { JsonConfigStore } from "../../infrastructure/config/json-config-store.ts";
 import { createHttpServer, type HttpServer } from "./http-server.ts";
 
 const TOKEN = "test-token";
@@ -37,7 +41,7 @@ function fakeRegistry() {
     result: ok({ version: "1.2.3", output: "added 1 package" }),
   };
   const registry: RouteRegistry = {
-    readSnapshot: async (): Promise<Snapshot> => ({
+    readSnapshot: async (): Promise<PortlessState> => ({
       proxy: { running: true, port: 1355, https: false, tlds: ["localhost"] },
       portless: { installed: false, version: null },
       routes,
@@ -77,11 +81,26 @@ let http: HttpServer;
 let port: number;
 let webDir: string;
 let fake: ReturnType<typeof fakeRegistry>;
+let configDir: string;
+let configFile: string;
+
+const devServer: ListeningPort = { port: 5173, pid: 51, processName: "node", cwd: "/code/app" };
+const scanner: PortScanner = { scan: async () => [devServer], answersHttp: async () => true };
 
 async function start(withWeb = true) {
   fake = fakeRegistry();
+  const studio = new StudioRuntime({
+    registry: fake.registry,
+    scanner,
+    configStore: new JsonConfigStore(configFile),
+    projects: {
+      read: () => ({ packageName: "app", repoName: null, folderName: "app", worktreeName: null }),
+    },
+    log: () => {},
+  });
   http = createHttpServer({
     registry: fake.registry,
+    studio,
     token: TOKEN,
     webDir: withWeb ? webDir : undefined,
   });
@@ -119,6 +138,8 @@ const json = (reply: Reply): unknown => JSON.parse(reply.body.toString());
 const write = { [TOKEN_HEADER]: TOKEN, "content-type": "application/json" };
 
 beforeEach(async () => {
+  configDir = fs.mkdtempSync(path.join(os.tmpdir(), "portless-studio-"));
+  configFile = path.join(configDir, "config.json");
   webDir = fs.mkdtempSync(path.join(os.tmpdir(), "portless-studio-"));
   fs.mkdirSync(path.join(webDir, "assets"));
   fs.writeFileSync(path.join(webDir, "index.html"), `<!doctype html><title>Studio</title>`);
@@ -131,6 +152,7 @@ afterEach(async () => {
   http.server.closeAllConnections();
   await new Promise((resolve) => http.server.close(resolve));
   fs.rmSync(webDir, { recursive: true, force: true });
+  fs.rmSync(configDir, { recursive: true, force: true });
 });
 
 describe("API reads", () => {
@@ -229,6 +251,59 @@ describe("API writes", () => {
     const reply = await send("POST", API_PATHS.aliases, write, "{nope");
     expect(reply.status).toBe(400);
     expect(json(reply)).toMatchObject({ error: "invalid_request" });
+  });
+});
+
+describe("detected ports and config", () => {
+  it("includes detected ports and auto mode in the snapshot", async () => {
+    const snapshot = json(await send("GET", API_PATHS.snapshot)) as Snapshot;
+    expect(snapshot.autoName).toBe(false);
+    expect(snapshot.detected).toEqual([{ ...devServer, suggestedName: "app" }]);
+  });
+
+  it("returns the config and its path", async () => {
+    const reply = await send("GET", API_PATHS.config);
+    expect(reply.status).toBe(200);
+    expect(json(reply)).toEqual({ config: DEFAULT_CONFIG, path: configFile });
+  });
+
+  it("requires the token to change the config", async () => {
+    const reply = await send("PUT", API_PATHS.config, {}, JSON.stringify({ autoName: true }));
+    expect(reply.status).toBe(403);
+    expect(fs.existsSync(configFile)).toBe(false);
+  });
+
+  it("writes a valid config and returns it", async () => {
+    const body = JSON.stringify({ ...DEFAULT_CONFIG, autoName: true });
+    const reply = await send("PUT", API_PATHS.config, write, body);
+    expect(reply.status).toBe(200);
+    expect(json(reply)).toEqual({
+      config: { ...DEFAULT_CONFIG, autoName: true },
+      path: configFile,
+    });
+    expect(JSON.parse(fs.readFileSync(configFile, "utf8")).autoName).toBe(true);
+    expect((json(await send("GET", API_PATHS.snapshot)) as Snapshot).autoName).toBe(true);
+  });
+
+  it("rejects an invalid config with invalid_config as 400", async () => {
+    const reply = await send("PUT", API_PATHS.config, write, JSON.stringify({ port: 0 }));
+    expect(reply.status).toBe(400);
+    expect(json(reply)).toMatchObject({
+      error: "invalid_config",
+      message: expect.stringContaining('"port"'),
+    });
+    expect(fs.existsSync(configFile)).toBe(false);
+  });
+
+  it("ignores a detected port", async () => {
+    expect((await send("POST", API_PATHS.ignoreDetected(5173))).status).toBe(403);
+    const reply = await send("POST", API_PATHS.ignoreDetected(5173), write);
+    expect(reply.status).toBe(204);
+    expect(JSON.parse(fs.readFileSync(configFile, "utf8")).ignoredPorts).toEqual([5173]);
+    expect((json(await send("GET", API_PATHS.snapshot)) as Snapshot).detected).toEqual([]);
+    const bad = await send("POST", "/api/detected/abc/ignore", write);
+    expect(bad.status).toBe(400);
+    expect(json(bad)).toMatchObject({ error: "invalid_port" });
   });
 });
 

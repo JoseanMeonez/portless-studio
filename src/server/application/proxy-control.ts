@@ -1,5 +1,6 @@
 import type { ProxyAction } from "../../core/api/contract.ts";
 import type { StudioConfig } from "../../core/config/studio-config.ts";
+import { stopProxyAsAdminCommand } from "../../core/doctor/platform-commands.ts";
 import { err, ok, type Result } from "../../core/result.ts";
 import { type AppError, appError } from "./app-error.ts";
 import type { ProcessControl } from "./process-control.ts";
@@ -10,6 +11,8 @@ export type ProxyControlDeps = {
   processes: Pick<ProcessControl, "ownerOf">;
   /** The config in effect, for the port and protocol a start uses. */
   config: () => Promise<StudioConfig>;
+  /** The system the command to copy is written for; defaults to this one. */
+  platform?: string;
 };
 
 /**
@@ -51,12 +54,15 @@ async function checkOwner(deps: ProxyControlDeps): Promise<Result<void, AppError
   const pid = await deps.registry.proxyPid();
   const owner = pid === null ? "unknown" : await deps.processes.ownerOf(pid);
   if (owner !== "root" && owner !== "other") return ok(undefined);
-  const who = owner === "root" ? "root" : "another user";
+  const platform = deps.platform ?? process.platform;
+  const windows = platform === "win32";
+  const who = owner === "root" ? "root" : windows ? "an Administrator" : "another user";
+  const needs = windows ? "a terminal opened with Run as Administrator" : "sudo";
   return err(
     appError(
       "needs_admin",
-      `The proxy runs as ${who} (pid ${pid}), so stopping it needs sudo.`,
-      "sudo portless proxy stop",
+      `The proxy runs as ${who} (pid ${pid}), so stopping it needs ${needs}.`,
+      stopProxyAsAdminCommand(platform),
     ),
   );
 }

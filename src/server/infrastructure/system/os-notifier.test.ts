@@ -60,6 +60,27 @@ describe("notificationCommand", () => {
     });
   });
 
+  it("uses terminal-notifier on macOS when installed, so a click opens Studio", () => {
+    expect(
+      notificationCommand("darwin", event, URL, { actions: false, terminalNotifier: true }),
+    ).toEqual({
+      bin: "terminal-notifier",
+      args: [
+        "-title",
+        "portless studio",
+        "-subtitle",
+        'Named "app"',
+        "-message",
+        "Port 5173 opens at http://app.localhost:1355",
+        "-open",
+        URL,
+        "-group",
+        "portless-studio",
+      ],
+      waitsForClick: false,
+    });
+  });
+
   it("uses an encoded PowerShell toast on Windows that opens the Studio URL", () => {
     const command = notificationCommand("win32", event, URL, { actions: false });
     expect(command?.bin).toBe("powershell");
@@ -112,6 +133,23 @@ describe("OsNotifier", () => {
     expect(calls).toHaveLength(1);
     expect(await notifier.availability()).toBe("missing");
     expect(calls).toHaveLength(1);
+  });
+
+  it("prefers terminal-notifier on macOS and reports osascript alone as limited", async () => {
+    const withTool = fakeRun({});
+    const notifier = new OsNotifier({ platform: "darwin", run: withTool.run });
+    await notifier.send(event, URL);
+    expect(withTool.calls.map((call) => call.bin)).toEqual([
+      "terminal-notifier",
+      "terminal-notifier",
+    ]);
+    expect(await notifier.availability()).toBe("available");
+
+    const without = fakeRun({ "terminal-notifier": { exitCode: null, stdout: "" } });
+    const fallback = new OsNotifier({ platform: "darwin", run: without.run });
+    await fallback.send(event, URL);
+    expect(without.calls.map((call) => call.bin)).toEqual(["terminal-notifier", "osascript"]);
+    expect(await fallback.availability()).toBe("limited");
   });
 
   it("notify returns at once and never throws", () => {

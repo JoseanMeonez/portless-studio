@@ -282,3 +282,109 @@ describe("runDoctorFix", () => {
     expect(result).toMatchObject({ ok: false, error: { message: "port in use" } });
   });
 });
+
+describe("diagnose on macOS and Windows", () => {
+  const https = { running: true, port: 1355, https: true, tlds: ["localhost"] };
+  const stopped = { running: false, port: null, https: false, tlds: ["localhost"] };
+
+  it("starts a stopped macOS login service with bootstrap, which works after a bootout", () => {
+    const checks = diagnose(
+      facts({ platform: "darwin", loginService: { installed: true, running: false } }),
+    );
+    expect(byId(checks, "login-service")?.fix?.command).toBe(
+      "launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/dev.portless-studio.plist",
+    );
+  });
+
+  it("never shows sudo on Windows: Administrator terminals and taskkill instead", () => {
+    const checks = diagnose(
+      facts({
+        platform: "win32",
+        proxy: { running: true, port: 443, https: true, tlds: ["localhost"] },
+        proxyOwner: "other",
+        proxyProcesses: null,
+        browserTrust: "not-trusted",
+      }),
+    );
+    const owner = byId(checks, "proxy-owner");
+    expect(owner?.fix).toEqual({
+      label: "Stop it once as Administrator",
+      command: "portless proxy stop",
+    });
+    expect(owner?.detail).toContain("Administrator");
+    expect(JSON.stringify(checks)).not.toContain("sudo");
+  });
+
+  it("starts a stopped proxy on port 443 on macOS, which needs no root there", () => {
+    const checks = diagnose(
+      facts({
+        platform: "darwin",
+        proxy: stopped,
+        proxyPid: null,
+        proxyOwner: "unknown",
+        proxyProcesses: [],
+        config: { ...DEFAULT_CONFIG, proxyPort: 443, proxyHttps: true },
+      }),
+    );
+    expect(byId(checks, "proxy-running")?.fix).toMatchObject({
+      action: "start-proxy",
+      command: "portless proxy start --port 443 --https",
+    });
+  });
+
+  it("gives the trust command of each system's own certificate store", () => {
+    const mac = byId(
+      diagnose(facts({ platform: "darwin", proxy: https, browserTrust: "not-trusted" })),
+      "https-trust",
+    );
+    expect(mac?.detail).toContain("security add-trusted-cert");
+    expect(mac?.detail).not.toContain("nssdb");
+    const windows = byId(
+      diagnose(facts({ platform: "win32", proxy: https, browserTrust: "not-trusted" })),
+      "https-trust",
+    );
+    expect(windows?.detail).toContain("certutil -user -addstore Root");
+    const trusted = byId(
+      diagnose(facts({ platform: "win32", proxy: https, browserTrust: "trusted" })),
+      "https-trust",
+    );
+    expect(trusted).toMatchObject({
+      status: "ok",
+      title: "This system trusts the portless certificate",
+    });
+  });
+
+  it("points Safari to the 127.0.0.1 address of Studio and of each app", () => {
+    const safari = byId(diagnose(facts({ platform: "darwin" })), "safari");
+    expect(safari?.detail).toContain("http://127.0.0.1:4949");
+  });
+
+  it("explains macOS notifications without terminal-notifier", () => {
+    const on = { ...DEFAULT_CONFIG, systemNotifications: true };
+    const check = byId(
+      diagnose(facts({ platform: "darwin", config: on, systemNotifier: "limited" })),
+      "notifications",
+    );
+    expect(check?.status).toBe("ok");
+    expect(check?.detail).toContain("Script Editor");
+    expect(check?.fix?.command).toBe("brew install terminal-notifier");
+  });
+});
+
+describe("runDoctorFix on Windows", () => {
+  it("asks for an Administrator terminal instead of sudo after saving HTTP", async () => {
+    const current = facts({
+      platform: "win32",
+      proxy: { running: true, port: 443, https: true, tlds: ["localhost"] },
+      proxyOwner: "other",
+      browserTrust: "not-trusted",
+    });
+    const result = await runDoctorFix("https-trust", {
+      collect: async () => current,
+      controlProxy: async () => ok("done"),
+      updateConfig: async () => ok(undefined),
+    });
+    expect(result.ok && result.value.message).toContain("Administrator");
+    expect(result.ok && result.value.message).not.toContain("sudo");
+  });
+});

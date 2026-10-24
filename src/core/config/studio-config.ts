@@ -28,7 +28,11 @@ export type StudioConfig = {
   scanIntervalMs: number;
   /** Ports never shown as detected and never named automatically. */
   ignoredPorts: number[];
-  /** Process names (case-insensitive) whose ports are never shown, e.g. editors and chat apps. */
+  /**
+   * Process names (case-insensitive) whose ports are never shown, e.g. editors and chat apps. A
+   * name also covers processes that start with it and a space, dot, dash or parenthesis, so
+   * `code` covers `Code Helper (Plugin)`.
+   */
   ignoredProcesses: string[];
   /** Saved ways to group, sort and filter the dashboard. Always at least one. */
   views: View[];
@@ -62,7 +66,21 @@ export const DEFAULT_CONFIG: StudioConfig = {
   proxyHttps: false,
   scanIntervalMs: 3000,
   ignoredPorts: [],
-  ignoredProcesses: ["code", "cursor", "discord", "slack", "spotify", "chrome", "firefox"],
+  // Editors, chat and browsers everywhere, plus macOS system services that answer HTTP
+  // (ControlCenter on 5000 and 7000, rapportd) and Electron apps run from their own binary.
+  ignoredProcesses: [
+    "code",
+    "cursor",
+    "discord",
+    "slack",
+    "spotify",
+    "chrome",
+    "google chrome",
+    "firefox",
+    "electron",
+    "controlcenter",
+    "rapportd",
+  ],
   views: [DEFAULT_VIEW],
   defaultViewId: DEFAULT_VIEW.id,
   favorites: [],

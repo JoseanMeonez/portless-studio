@@ -7,6 +7,7 @@ import {
   resolveServiceEntry,
   type ServiceEnv,
   serviceFile,
+  serviceStartCommand,
   serviceStatus,
   uninstallService,
 } from "./login-service.ts";
@@ -111,7 +112,27 @@ describe("macOS service", () => {
     expect(plist).toContain("<string>--no-open</string>");
     expect(plist).toContain("<key>RunAtLoad</key>\n  <true/>");
     expect(plist).toContain("<key>KeepAlive</key>\n  <true/>");
-    expect(e.commands).toEqual([`launchctl bootstrap gui/501 ${file}`]);
+    // A loaded agent makes bootstrap fail, so a reinstall boots the old one out first.
+    expect(e.commands).toEqual([
+      "launchctl bootout gui/501/dev.portless-studio",
+      `launchctl bootstrap gui/501 ${file}`,
+    ]);
+  });
+
+  it("installs even when there was nothing to boot out", async () => {
+    const e = env("darwin", (line) =>
+      line.includes("bootout")
+        ? { exitCode: 3, output: "Boot-out failed: 3: No such process", missing: false }
+        : success,
+    );
+    expect(await installService(e)).toMatchObject({ ok: true });
+    expect(e.commands[1]).toContain("launchctl bootstrap gui/501");
+  });
+
+  it("starts a stopped agent again with bootstrap, since kickstart needs it loaded", () => {
+    expect(serviceStartCommand(env("darwin"))).toBe(
+      "launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/dev.portless-studio.plist",
+    );
   });
 
   it("falls back to launchctl load when bootstrap fails", async () => {
@@ -119,7 +140,7 @@ describe("macOS service", () => {
       line.includes("bootstrap") ? { exitCode: 5, output: "I/O error", missing: false } : success,
     );
     expect(await installService(e)).toMatchObject({ ok: true });
-    expect(e.commands[1]).toBe(`launchctl load -w ${serviceFile(e)}`);
+    expect(e.commands[2]).toBe(`launchctl load -w ${serviceFile(e)}`);
   });
 
   it("boots the agent out and removes it on uninstall", async () => {
@@ -141,13 +162,8 @@ describe("macOS service", () => {
 });
 
 describe("Windows service", () => {
-  it("writes a Startup script that starts Studio minimized", async () => {
-    const e = env("win32");
-    e.nodePath = "C:\\Program Files\\nodejs\\node.exe";
-    e.entryPath = "C:\\studio\\dist\\cli\\index.js";
-    const result = await installService(e);
-
-    const file = path.join(
+  const startup = () =>
+    path.join(
       home,
       "AppData",
       "Roaming",
@@ -156,20 +172,53 @@ describe("Windows service", () => {
       "Start Menu",
       "Programs",
       "Startup",
-      "portless-studio.cmd",
     );
+  // Startup scripts are UTF-16 with a byte order mark, so Windows Script Host reads any path.
+  const readScript = (file: string) => {
+    const bytes = fs.readFileSync(file);
+    expect([...bytes.subarray(0, 2)]).toEqual([0xff, 0xfe]);
+    return bytes.subarray(2).toString("utf16le");
+  };
+
+  it("writes a hidden Startup script that keeps non-ASCII paths and the environment", async () => {
+    const e = env("win32");
+    e.nodePath = "C:\\Program Files\\nodejs\\node.exe";
+    e.entryPath = "C:\\Users\\José Núñez\\studio\\dist\\cli\\index.js";
+    e.variables = {
+      PATH: 'C:\\Program Files\\nodejs;C:\\tools "x"',
+      PORTLESS_STATE_DIR: "D:\\state",
+    };
+    const result = await installService(e);
+
+    const file = path.join(startup(), "portless-studio.vbs");
     expect(result).toEqual({ ok: true, value: { file } });
-    expect(fs.readFileSync(file, "utf8")).toContain(
-      'start "portless-studio" /min "C:\\Program Files\\nodejs\\node.exe" "C:\\studio\\dist\\cli\\index.js" --no-open',
+    const script = readScript(file);
+    expect(script).toContain('env("PATH") = "C:\\Program Files\\nodejs;C:\\tools ""x"""');
+    expect(script).toContain('env("PORTLESS_STATE_DIR") = "D:\\state"');
+    // Window style 0 runs it hidden; False returns without waiting.
+    expect(script).toContain(
+      'shell.Run """C:\\Program Files\\nodejs\\node.exe"" ""C:\\Users\\José Núñez\\studio\\dist\\cli\\index.js"" --no-open", 0, False',
     );
   });
 
-  it("removes the script on uninstall and reports status from it", async () => {
+  it("replaces the .cmd script older versions wrote", async () => {
+    const e = env("win32");
+    const legacy = path.join(startup(), "portless-studio.cmd");
+    fs.mkdirSync(startup(), { recursive: true });
+    fs.writeFileSync(legacy, "@echo off\r\n");
+    await installService(e);
+    expect(fs.existsSync(legacy)).toBe(false);
+  });
+
+  it("removes the script, and an older .cmd one, on uninstall and reports status from it", async () => {
     const e = env("win32");
     await installService(e);
     expect(await serviceStatus(e)).toMatchObject({ installed: true, running: false });
+    const legacy = path.join(startup(), "portless-studio.cmd");
+    fs.writeFileSync(legacy, "@echo off\r\n");
     await uninstallService(e);
     expect(await serviceStatus(e)).toMatchObject({ installed: false });
+    expect(fs.existsSync(legacy)).toBe(false);
   });
 });
 

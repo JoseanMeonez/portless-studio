@@ -115,3 +115,33 @@ describe("ProjectInfoReader", () => {
     expect(reader.read(cwd).packageName).toBe("first");
   });
 });
+
+describe("ProjectInfoReader home folder", () => {
+  // A dotfiles repository in home must never name the projects below it.
+  function setup() {
+    write("home/dev/.git/HEAD", "ref: refs/heads/main\n");
+    write("home/dev/shop/package.json", JSON.stringify({ name: "shop" }));
+    return path.join(dir, "home", "dev", "shop");
+  }
+
+  it("stops at home spelled in another case where file names ignore case", () => {
+    const cwd = setup();
+    const home = path.join(dir, "HOME", "Dev");
+    expect(new ProjectInfoReader(home, "darwin").read(cwd).repoName).toBeNull();
+    expect(new ProjectInfoReader(home, "win32").read(cwd).repoName).toBeNull();
+  });
+
+  it("compares case exactly on Linux", () => {
+    const cwd = setup();
+    expect(new ProjectInfoReader(path.join(dir, "HOME", "Dev"), "linux").read(cwd).repoName).toBe(
+      "dev",
+    );
+  });
+
+  it("stops at home reached through a symlink", () => {
+    const cwd = setup();
+    const link = path.join(dir, "link-home");
+    fs.symlinkSync(path.join(dir, "home", "dev"), link);
+    expect(new ProjectInfoReader(link, "linux").read(cwd).repoName).toBeNull();
+  });
+});

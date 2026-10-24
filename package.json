@@ -15,7 +15,7 @@
   },
   "packageManager": "pnpm@12.14.0",
   "scripts": {
-    "dev": "node --run dev:server & node --run dev:web",
+    "dev": "node scripts/dev.mjs",
     "dev:server": "node --watch src/cli/index.ts --no-open --port 4949",
     "dev:web": "vite",
     "build": "vite build && tsc -p tsconfig.node.json",

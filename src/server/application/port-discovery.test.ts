@@ -119,4 +119,44 @@ describe("discoverPorts", () => {
     // Filtered ports are never probed: a probe can cost the full timeout.
     expect(probed.sort()).toEqual([5432, 8080]);
   });
+
+  it("compares Windows paths without regard to case and never matches a sibling folder", async () => {
+    const windowsProjects: ProjectInfoSource = {
+      read: (cwd): ProjectInfo => ({ ...projects.read(cwd), rootDir: "C:\\code\\acme" }),
+    };
+    const { scanner } = fakeScanner([
+      {
+        ...listening(8080, "api", "C:\\code\\acme"),
+        executable: "c:\\Code\\acme\\target\\api.exe",
+      },
+      {
+        ...listening(8081, "tool", "C:\\code\\acme"),
+        executable: "C:\\code\\acme-tools\\tool.exe",
+      },
+      { ...listening(5173, "node.exe", "C:\\code\\acme"), executable: "C:\\nodejs\\node.exe" },
+    ]);
+    const detected = await discoverPorts(scanner, windowsProjects, {
+      config: { ...DEFAULT_CONFIG, ignoredProcesses: [] },
+      routes: [],
+      excludedPorts: [],
+    });
+    expect(detected.map((port) => port.port)).toEqual([5173, 8080]);
+  });
+
+  it("ignores helpers of an ignored app by the start of their name", async () => {
+    const { scanner } = fakeScanner([
+      listening(7001, "Code Helper (Plugin)"),
+      listening(7002, "Google Chrome Helper"),
+      listening(7003, "ControlCenter"),
+      listening(7004, "rapportd"),
+      listening(7005, "Electron"),
+      listening(7006, "codex"),
+    ]);
+    const detected = await discoverPorts(scanner, projects, {
+      config: DEFAULT_CONFIG,
+      routes: [],
+      excludedPorts: [],
+    });
+    expect(detected.map((port) => port.port)).toEqual([7006]);
+  });
 });

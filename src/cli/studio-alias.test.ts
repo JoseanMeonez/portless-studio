@@ -1,5 +1,5 @@
-import type { AddressInfo } from "node:net";
-import { createServer, type Server } from "node:net";
+import { createServer as createHttpServer } from "node:http";
+import type { AddressInfo, Server } from "node:net";
 import type { Snapshot } from "../core/api/contract.ts";
 import { err, ok } from "../core/result.ts";
 import type { Route } from "../core/routes/route.ts";
@@ -74,13 +74,26 @@ describe("registerStudioAlias", () => {
     expect(calls).toEqual([]);
   });
 
-  it("leaves an alias alone while something listens on its port", async () => {
-    listener = createServer().listen(0, "127.0.0.1");
+  it("leaves an alias alone while another Studio answers on its port", async () => {
+    const { fake, calls } = registry([studio(5000)]);
+    const isStudioAt = async (port: number) => port === 5000;
+    expect(await registerStudioAlias(fake, 4321, { isStudioAt })).toMatchObject({
+      url: null,
+      owned: false,
+    });
+    expect(calls).toEqual([]);
+  });
+
+  it("replaces an alias whose port now belongs to a program that is not a Studio", async () => {
+    // macOS ControlCenter, for one, takes port 5000 after a Studio there stopped.
+    const program = createHttpServer((_req, res) => res.writeHead(403).end());
+    listener = program.listen(0, "127.0.0.1");
     await new Promise((resolve) => listener?.once("listening", resolve));
     const busy = (listener.address() as AddressInfo).port;
     const { fake, calls } = registry([studio(busy)]);
-    expect(await registerStudioAlias(fake, 4321)).toMatchObject({ url: null, owned: false });
-    expect(calls).toEqual([]);
+    expect(await registerStudioAlias(fake, 4321)).toMatchObject({ owned: true });
+    program.closeAllConnections();
+    expect(calls).toEqual(["create studio 4321 true"]);
   });
 
   it("replaces a stale alias whose port is closed", async () => {

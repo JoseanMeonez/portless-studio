@@ -1,7 +1,7 @@
-import { spawn } from "node:child_process";
 import type { InstallPortlessResponse, PortlessInstallation } from "../../../core/api/contract.ts";
 import { err, ok, type Result } from "../../../core/result.ts";
 import { type AppError, appError } from "../../application/app-error.ts";
+import { runProcess } from "../system/process-runner.ts";
 
 /** `portless alias` waits up to 15 s for its file lock; give it a little more. */
 const TIMEOUT_MS = 20_000;
@@ -11,8 +11,6 @@ const INSTALL_TIMEOUT_MS = 5 * 60_000;
 const MAX_OUTPUT_CHARS = 8 * 1024;
 // Fixed arguments: nothing from the request reaches this command line.
 const INSTALL_ARGS = ["install", "-g", "portless"];
-// cmd.exe exits with 9009 when the command it was asked to run does not exist.
-const WINDOWS_COMMAND_NOT_FOUND = 9009;
 // Colors plus the cursor and line codes npm uses to draw its progress spinner.
 const ANSI_ESCAPE = new RegExp(`${String.fromCharCode(27)}\\[[0-9;?]*[A-Za-z]`, "g");
 const VERSION = /\bv?(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)/;
@@ -134,49 +132,27 @@ function lastChars(text: string, max: number): string {
   return text.length <= max ? text : `…${text.slice(-max)}`;
 }
 
-/** The one place that starts processes: portless, npm and the port scanners' system commands. */
-export function execute(
+/** Runs portless, npm and the scanners' system commands through the shared process runner. */
+export async function execute(
   bin: string,
   args: string[],
   options: ExecuteOptions = {},
 ): Promise<Outcome> {
-  // Windows installs portless and npm as `.cmd` shims, which only cmd.exe can start. Arguments
-  // are validated names, numbers or fixed words, so cmd.exe has nothing to interpret.
-  const isWindows = process.platform === "win32";
-  const command = isWindows ? (process.env.ComSpec ?? "cmd.exe") : bin;
-  const commandArgs = isWindows ? ["/d", "/s", "/c", bin, ...args] : args;
-
-  return new Promise((resolve) => {
-    let stdout = "";
-    let stderr = "";
-    let combined = "";
-    const child = spawn(command, commandArgs, {
-      env: {
-        ...process.env,
-        ...(options.stateDir === undefined ? {} : { PORTLESS_STATE_DIR: options.stateDir }),
-        NO_COLOR: "1",
-        FORCE_COLOR: "0",
-      },
-      stdio: ["ignore", "pipe", "pipe"],
-      timeout: options.timeoutMs ?? TIMEOUT_MS,
-      windowsHide: true,
-    });
-    child.stdout.on("data", (chunk: Buffer) => {
-      stdout += chunk.toString();
-      combined += chunk.toString();
-    });
-    child.stderr.on("data", (chunk: Buffer) => {
-      stderr += chunk.toString();
-      combined += chunk.toString();
-    });
-    child.on("error", (error: NodeJS.ErrnoException) => {
-      const missing = error.code === "ENOENT";
-      resolve({ exitCode: null, output: error.message, stdout, combined, missing });
-    });
-    child.on("close", (exitCode) => {
-      const output = stderr.trim() === "" ? stdout : stderr;
-      const missing = isWindows && exitCode === WINDOWS_COMMAND_NOT_FOUND;
-      resolve({ exitCode, output, stdout, combined, missing });
-    });
+  const outcome = await runProcess(bin, args, {
+    env: {
+      ...process.env,
+      ...(options.stateDir === undefined ? {} : { PORTLESS_STATE_DIR: options.stateDir }),
+      NO_COLOR: "1",
+      FORCE_COLOR: "0",
+    },
+    timeoutMs: options.timeoutMs ?? TIMEOUT_MS,
   });
+  const output = outcome.error ?? (outcome.stderr.trim() === "" ? outcome.stdout : outcome.stderr);
+  return {
+    exitCode: outcome.exitCode,
+    output,
+    stdout: outcome.stdout,
+    combined: outcome.combined,
+    missing: outcome.missing,
+  };
 }

@@ -9,8 +9,14 @@ export type SystemIo = {
   readDir(path: string): string[];
   /** Symlink target, or null when it is not a link or cannot be read. */
   readLink(path: string): string | null;
-  /** Runs a system command; `stdout` is empty when it could not start. */
-  run(bin: string, args: string[]): Promise<{ exitCode: number | null; stdout: string }>;
+  /**
+   * Runs a system command; `stdout` is empty when it could not start. `output` is stdout and
+   * stderr together, for commands like taskkill that explain failures on stderr.
+   */
+  run(
+    bin: string,
+    args: string[],
+  ): Promise<{ exitCode: number | null; stdout: string; output?: string }>;
 };
 
 /** System commands like lsof answer in well under a second; a hung one should not block a scan. */
@@ -40,6 +46,10 @@ export const nodeSystemIo: SystemIo = {
   },
   run: async (bin, args) => {
     const outcome = await execute(bin, args, { timeoutMs: COMMAND_TIMEOUT_MS });
-    return { exitCode: outcome.exitCode, stdout: outcome.missing ? "" : outcome.stdout };
+    return {
+      exitCode: outcome.exitCode,
+      stdout: outcome.missing ? "" : outcome.stdout,
+      output: outcome.combined,
+    };
   },
 };

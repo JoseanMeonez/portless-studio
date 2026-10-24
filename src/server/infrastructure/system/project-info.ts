@@ -16,10 +16,20 @@ const BRANCH_REF = /^ref:\s*refs\/heads\/(.+?)\s*$/;
  */
 export class ProjectInfoReader implements ProjectInfoSource {
   readonly #home: string;
+  readonly #ignoreCase: boolean;
   readonly #cache = new Map<string, { info: ProjectInfo; gitDir: string | null }>();
 
-  constructor(home: string = os.homedir()) {
-    this.#home = path.resolve(home);
+  /**
+   * Home is compared by its real path (folders reported by the system are real paths) and, on
+   * Windows and macOS, whose file names ignore case, without regard to case.
+   */
+  constructor(home: string = os.homedir(), platform: NodeJS.Platform = process.platform) {
+    this.#ignoreCase = platform === "win32" || platform === "darwin";
+    this.#home = this.#key(realPath(path.resolve(home)));
+  }
+
+  #key(dir: string): string {
+    return this.#ignoreCase ? dir.toLowerCase() : dir;
   }
 
   /** The folder walk is cached per folder; the branch is read again each time, it is one file. */
@@ -43,7 +53,7 @@ export class ProjectInfoReader implements ProjectInfoSource {
       rootDir: null,
     };
     let dir = cwd;
-    while (dir !== this.#home) {
+    while (this.#key(dir) !== this.#home) {
       const packageName = readPackageName(dir);
       if (info.packageName === null && packageName !== null) {
         info.packageName = packageName;
@@ -67,6 +77,14 @@ export class ProjectInfoReader implements ProjectInfoSource {
       dir = parent;
     }
     return { info, gitDir };
+  }
+}
+
+function realPath(dir: string): string {
+  try {
+    return fs.realpathSync.native(dir);
+  } catch {
+    return dir;
   }
 }
 

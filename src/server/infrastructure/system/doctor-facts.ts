@@ -1,3 +1,4 @@
+import { createServer } from "node:net";
 import * as path from "node:path";
 import { DEFAULT_CONFIG } from "../../../core/config/studio-config.ts";
 import type { ConfigStore } from "../../application/config-store.ts";
@@ -29,10 +30,22 @@ export type DoctorFactsOptions = {
   /** Asks the login service manager; omitted when it cannot be known. */
   loginService?: () => Promise<LoginServiceState | null>;
   /** Whether OS notifications can be shown here; omitted when not checked. */
-  systemNotifier?: () => Promise<"available" | "missing" | "unsupported">;
+  systemNotifier?: () => Promise<"available" | "limited" | "missing" | "unsupported">;
+  /**
+   * Whether a loopback port can be bound right now. Asked when the port list does not show who
+   * holds Studio's port, as on macOS where lsof cannot see root's listeners. Defaults to a real
+   * bind on macOS and to not asking elsewhere.
+   */
+  canBind?: (port: number) => Promise<boolean>;
 };
 
-type ProcessRow = { pid: number; uid: number | null; args: string[] };
+/** A process from /proc (exact `args`) or from ps (`args` split on spaces, plus the raw `line`). */
+type ProcessRow = { pid: number; uid: number | null; args: string[]; line?: string };
+
+// The program, or a runtime running the script, is portless; a directory part never holds " -",
+// so `zsh -c /usr/bin/portless proxy start` is not a proxy.
+const PROXY_LINE =
+  /^(?:(?:(?! -).)*[\\/])?(?:(?:node|bun|deno)(?:\.exe)?\s+(?:(?:(?! -).)*[\\/])?)?portless(?:\.[cm]?js|\.cmd)?\s+proxy\s+start(?:\s+(.*))?$/i;
 
 /**
  * `portless proxy start ...` as node runs it, e.g. `node /path/bin/portless proxy start --port
@@ -47,7 +60,22 @@ export function parsePortlessProxyArgs(
   if ((index !== 0 && !runtime) || args[index + 1] !== "proxy" || args[index + 2] !== "start") {
     return null;
   }
-  const rest = args.slice(index + 3);
+  return proxyOptions(args.slice(index + 3));
+}
+
+/**
+ * The same as `parsePortlessProxyArgs` for a whole `ps` line, whose arguments cannot be split
+ * where paths hold spaces.
+ */
+export function parsePortlessProxyLine(
+  line: string,
+): { port: number | null; https: boolean } | null {
+  const match = PROXY_LINE.exec(line.trim());
+  if (!match) return null;
+  return proxyOptions((match[1] ?? "").split(/\s+/).filter(Boolean));
+}
+
+function proxyOptions(rest: string[]): { port: number | null; https: boolean } {
   let port: number | null = null;
   for (const [i, arg] of rest.entries()) {
     const value = arg === "--port" || arg === "-p" ? rest[i + 1] : /^--port=(\d+)$/.exec(arg)?.[1];
@@ -57,15 +85,30 @@ export function parsePortlessProxyArgs(
   return { port, https: rest.includes("--https") };
 }
 
-/** Reads `ps -A -o pid=,uid=,args=`. Arguments are split on spaces; paths with spaces split too. */
+/**
+ * Reads `ps -ww -A -o pid=,uid=,args=`. `args` is split on spaces, so paths with spaces split
+ * too; `line` keeps the command line whole for `parsePortlessProxyLine`.
+ */
 export function parsePsProcesses(text: string): ProcessRow[] {
   const rows: ProcessRow[] = [];
   for (const line of text.split("\n")) {
     const match = /^\s*(\d+)\s+(\d+)\s+(.+)$/.exec(line);
     if (!match?.[3]) continue;
-    rows.push({ pid: Number(match[1]), uid: Number(match[2]), args: match[3].trim().split(/\s+/) });
+    const command = match[3].trim();
+    rows.push({
+      pid: Number(match[1]),
+      uid: Number(match[2]),
+      args: command.split(/\s+/),
+      line: command,
+    });
   }
   return rows;
+}
+
+function proxyOf(row: ProcessRow): { port: number | null; https: boolean } | null {
+  return row.line === undefined
+    ? parsePortlessProxyArgs(row.args)
+    : parsePortlessProxyLine(row.line);
 }
 
 /** True when `certutil -L` lists a certificate whose nickname mentions portless. */
@@ -82,7 +125,7 @@ export async function listProxyProcesses(
   if (platform === "win32") return null;
   const rows = platform === "darwin" ? await psRows(io) : procRows(io);
   return rows.flatMap((row) => {
-    const proxy = parsePortlessProxyArgs(row.args);
+    const proxy = proxyOf(row);
     if (!proxy) return [];
     const owner: ProcessOwner = ownerFromUid(row.uid, uid);
     return [{ pid: row.pid, ...proxy, owner }];
@@ -103,13 +146,13 @@ export async function proxyPidsAmong(
   const rows: ProcessRow[] =
     platform === "darwin"
       ? parsePsProcesses(
-          (await io.run("ps", ["-o", "pid=,uid=,args=", "-p", pids.join(",")])).stdout,
+          (await io.run("ps", ["-ww", "-o", "pid=,uid=,args=", "-p", pids.join(",")])).stdout,
         )
       : pids.flatMap((pid) => {
           const cmdline = io.readFile(`/proc/${pid}/cmdline`);
           return cmdline ? [{ pid, uid: null, args: cmdline.split("\0").filter(Boolean) }] : [];
         });
-  return new Set(rows.filter((row) => parsePortlessProxyArgs(row.args)).map((row) => row.pid));
+  return new Set(rows.filter((row) => proxyOf(row)).map((row) => row.pid));
 }
 
 /** Gathers the facts the doctor checks. Each part is read once; nothing is changed. */
@@ -143,11 +186,31 @@ export async function collectDoctorFacts(options: DoctorFactsOptions): Promise<D
     configError: stored.ok ? null : stored.error.message,
     configPath: configStore.path,
     caFile: path.join(options.stateDir, "ca.pem"),
-    browserTrust: https && platform === "linux" ? await chromeTrust(options) : "unknown",
+    browserTrust: https ? await browserTrust(options) : "unknown",
     studioPort: { port: config.port, holder: await portHolder(config.port, options) },
     loginService,
     ...(systemNotifier === undefined ? {} : { systemNotifier }),
   };
+}
+
+/** Reads, never changes, the certificate store the browsers of this system use. */
+async function browserTrust(options: DoctorFactsOptions): Promise<BrowserTrust> {
+  if (options.platform === "linux") return chromeTrust(options);
+  if (options.platform === "darwin") {
+    const found = await options.io.run("security", ["find-certificate", "-c", "portless"]);
+    if (found.exitCode === null) return "unknown";
+    return found.exitCode === 0 ? "trusted" : "not-trusted";
+  }
+  if (options.platform === "win32") {
+    // The user's Root store first; one an Administrator trusted for the machine counts too.
+    for (const scope of [["-user"], []]) {
+      const listed = await options.io.run("certutil", [...scope, "-verifystore", "Root"]);
+      if (listed.exitCode === null) return "unknown";
+      if (/portless/i.test(listed.stdout)) return "trusted";
+    }
+    return "not-trusted";
+  }
+  return "unknown";
 }
 
 async function chromeTrust({ io, homeDir }: DoctorFactsOptions): Promise<BrowserTrust> {
@@ -161,7 +224,11 @@ async function chromeTrust({ io, homeDir }: DoctorFactsOptions): Promise<Browser
 
 async function portHolder(port: number, options: DoctorFactsOptions): Promise<PortHolder> {
   const listening = (await options.listPorts().catch(() => [])).find((item) => item.port === port);
-  if (!listening) return { kind: "free" };
+  if (!listening) {
+    const canBind = options.canBind ?? (options.platform === "darwin" ? bindsOnLoopback : null);
+    if (canBind === null || (await canBind(port))) return { kind: "free" };
+    return { kind: "other", pid: null, processName: "" };
+  }
   const answer = await options.probe(port);
   if (answer?.studio) return { kind: "studio" };
   return { kind: "other", pid: listening.pid, processName: listening.processName };
@@ -186,6 +253,18 @@ function procRows(io: SystemIo): ProcessRow[] {
 }
 
 async function psRows(io: SystemIo): Promise<ProcessRow[]> {
-  const listed = await io.run("ps", ["-A", "-o", "pid=,uid=,args="]);
+  // -ww: without it ps cuts the command line at the terminal width.
+  const listed = await io.run("ps", ["-ww", "-A", "-o", "pid=,uid=,args="]);
   return parsePsProcesses(listed.stdout);
+}
+
+/** Binds the port on loopback and lets it go at once. */
+function bindsOnLoopback(port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const server = createServer();
+    server.once("error", () => resolve(false));
+    server.listen({ port, host: "127.0.0.1", exclusive: true }, () =>
+      server.close(() => resolve(true)),
+    );
+  });
 }

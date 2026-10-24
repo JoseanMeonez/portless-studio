@@ -4,7 +4,7 @@ export type ListeningPort = {
   pid: number | null;
   processName: string;
   cwd: string | null;
-  /** Full path of the executable, when the system reports it (Linux does). */
+  /** Full path of the executable: from `/proc` on Linux, `ps` on macOS, `Win32_Process` on Windows. */
   executable?: string | null;
 };
 

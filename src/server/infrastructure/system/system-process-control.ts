@@ -17,7 +17,19 @@ export type SystemProcessControlOptions = {
   userName: string;
   graceMs?: number;
   pollMs?: number;
+  /** Whether a pid still runs; tests replace it. */
+  isAlive?: (pid: number) => boolean;
 };
+
+/** What a `taskkill` run says happened, read from its exit code and English output. */
+export type TaskkillAnswer = "sent" | "forcefully-only" | "access-denied" | "not-found" | "failed";
+
+export function parseTaskkill(exitCode: number | null, output: string): TaskkillAnswer {
+  if (/access is denied/i.test(output)) return "access-denied";
+  if (/terminated forcefully/i.test(output)) return "forcefully-only";
+  if (exitCode === 128 || /not found/i.test(output)) return "not-found";
+  return exitCode === 0 ? "sent" : "failed";
+}
 
 /** `Uid:` in `/proc/<pid>/status` lists real, effective, saved and filesystem uids; take the real one. */
 export function parseProcStatusUid(text: string): number | null {
@@ -68,13 +80,7 @@ export class SystemProcessControl implements ProcessControl {
 
   async terminate(pid: number): Promise<Result<void, AppError>> {
     const graceMs = this.#options.graceMs ?? GRACE_MS;
-    if (this.#options.platform === "win32") {
-      // Without /F, taskkill asks the process tree to close, like Ctrl+C would.
-      await this.#options.io.run("taskkill", ["/PID", String(pid), "/T"]);
-      if (await this.#exited(pid, graceMs)) return ok(undefined);
-      await this.#options.io.run("taskkill", ["/F", "/PID", String(pid), "/T"]);
-      return (await this.#exited(pid, 1000)) ? ok(undefined) : stillRunning(pid);
-    }
+    if (this.#options.platform === "win32") return this.#taskkill(pid, graceMs);
 
     const sent = signal(pid, "SIGTERM");
     if (!sent.ok) return sent;
@@ -84,14 +90,34 @@ export class SystemProcessControl implements ProcessControl {
     return (await this.#exited(pid, 1000)) ? ok(undefined) : stillRunning(pid);
   }
 
+  /**
+   * Without /F, taskkill asks the process tree to close, like closing its window would. Console
+   * programs such as node only stop with /F, and taskkill says so: then it forces at once.
+   */
+  async #taskkill(pid: number, graceMs: number): Promise<Result<void, AppError>> {
+    const { io } = this.#options;
+    const asked = await io.run("taskkill", ["/PID", String(pid), "/T"]);
+    const answer = parseTaskkill(asked.exitCode, asked.output ?? asked.stdout);
+    if (answer === "access-denied") return accessDenied(pid);
+    if (answer === "not-found") return ok(undefined);
+    if (answer !== "forcefully-only" && (await this.#exited(pid, graceMs))) return ok(undefined);
+
+    const forced = await io.run("taskkill", ["/F", "/PID", String(pid), "/T"]);
+    if (parseTaskkill(forced.exitCode, forced.output ?? forced.stdout) === "access-denied") {
+      return accessDenied(pid);
+    }
+    return (await this.#exited(pid, 1000)) ? ok(undefined) : stillRunning(pid);
+  }
+
   async #exited(pid: number, withinMs: number): Promise<boolean> {
     const pollMs = this.#options.pollMs ?? POLL_MS;
+    const isAlive = this.#options.isAlive ?? isProcessAlive;
     const deadline = Date.now() + withinMs;
     while (Date.now() < deadline) {
-      if (!isProcessAlive(pid)) return true;
+      if (!isAlive(pid)) return true;
       await new Promise((resolve) => setTimeout(resolve, pollMs));
     }
-    return !isProcessAlive(pid);
+    return !isAlive(pid);
   }
 }
 
@@ -114,6 +140,17 @@ function signal(pid: number, name: NodeJS.Signals): Result<void, AppError> {
     }
     return err(appError("command_failed", `Could not signal process ${pid}: ${code ?? "unknown"}`));
   }
+}
+
+function accessDenied(pid: number): Result<void, AppError> {
+  return err(
+    appError(
+      "process_not_allowed",
+      `Process ${pid} belongs to another user or to Windows. Stop it from a terminal opened ` +
+        "with Run as Administrator.",
+      `taskkill /F /PID ${pid}`,
+    ),
+  );
 }
 
 function stillRunning(pid: number): Result<void, AppError> {

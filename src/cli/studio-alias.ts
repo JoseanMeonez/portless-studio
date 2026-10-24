@@ -1,5 +1,6 @@
 import { connect } from "node:net";
 import type { RouteRegistry } from "../server/application/route-registry.ts";
+import { probeHttpResponse } from "../server/infrastructure/system/system-port-scanner.ts";
 
 export const STUDIO_ALIAS = "studio";
 
@@ -12,24 +13,32 @@ export type StudioAlias = {
   note?: string;
 };
 
+export type StudioAliasDeps = {
+  /** True when a Portless Studio answers on the port; asks it over HTTP by default. */
+  isStudioAt?: (port: number) => Promise<boolean>;
+};
+
 /**
  * Names the dashboard `studio` in portless. Best effort: any failure leaves the plain URL working.
- * An existing `studio` alias is replaced only when nothing listens on its port anymore.
+ * An existing `studio` alias is kept only while another Studio answers on its port; one left by
+ * a Studio that stopped (its port closed or taken by another program) is replaced.
  */
 export async function registerStudioAlias(
   registry: RouteRegistry,
   port: number,
+  deps: StudioAliasDeps = {},
 ): Promise<StudioAlias> {
+  const isStudioAt = deps.isStudioAt ?? studioAnswersOn;
   const current = await findStudio(registry);
   if (current?.port === port) return { url: current.url, owned: false };
   if (current?.kind === "app") {
     return { url: null, owned: false, note: `"${STUDIO_ALIAS}" belongs to a running app.` };
   }
-  if (current && (await isListening(current.port))) {
+  if (current && (await isStudioAt(current.port))) {
     return {
       url: null,
       owned: false,
-      note: `"${STUDIO_ALIAS}" already points to port ${current.port}.`,
+      note: `"${STUDIO_ALIAS}" already points to another Studio on port ${current.port}.`,
     };
   }
 
@@ -50,6 +59,10 @@ export async function unregisterStudioAlias(registry: RouteRegistry, port: numbe
 async function findStudio(registry: RouteRegistry) {
   const { routes } = await registry.readSnapshot();
   return routes.find((route) => route.name === STUDIO_ALIAS);
+}
+
+async function studioAnswersOn(port: number): Promise<boolean> {
+  return (await probeHttpResponse(port))?.studio === true;
 }
 
 /** True when something accepts TCP connections on the loopback port. */

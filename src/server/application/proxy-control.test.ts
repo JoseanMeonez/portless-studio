@@ -4,7 +4,9 @@ import type { ProcessOwner } from "./process-control.ts";
 import { controlProxy, type ProxyControlDeps } from "./proxy-control.ts";
 import type { PortlessState, RouteRegistry } from "./route-registry.ts";
 
-function setup(options: { running?: boolean; owner?: ProcessOwner; installed?: boolean } = {}) {
+function setup(
+  options: { running?: boolean; owner?: ProcessOwner; installed?: boolean; platform?: string } = {},
+) {
   const calls: string[] = [];
   let running = options.running ?? true;
   const registry = {
@@ -30,6 +32,7 @@ function setup(options: { running?: boolean; owner?: ProcessOwner; installed?: b
     registry,
     processes: { ownerOf: async () => options.owner ?? "you" },
     config: async () => ({ ...DEFAULT_CONFIG, proxyPort: 1355, proxyHttps: false }),
+    platform: options.platform ?? "linux",
   };
   return { calls, deps };
 }
@@ -73,6 +76,19 @@ describe("controlProxy", () => {
       expect(calls).toEqual([]);
     },
   );
+
+  it("asks for an Administrator terminal on Windows instead of sudo", async () => {
+    const { deps } = setup({ owner: "other", platform: "win32" });
+    expect(await controlProxy("stop", deps)).toEqual(
+      err({
+        code: "needs_admin",
+        message:
+          "The proxy runs as an Administrator (pid 4100), so stopping it needs a terminal " +
+          "opened with Run as Administrator.",
+        command: "portless proxy stop",
+      }),
+    );
+  });
 
   it("needs portless installed", async () => {
     const { deps } = setup({ installed: false });

@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { runProcess } from "../server/infrastructure/system/process-runner.ts";
 
 export type CommandResult = {
   /** null when the process could not start or was killed. */
@@ -21,34 +21,12 @@ export type CommandRunner = (
   options?: RunOptions,
 ) => Promise<CommandResult>;
 
-// cmd.exe exits with 9009 when the command it was asked to run does not exist.
-const WINDOWS_COMMAND_NOT_FOUND = 9009;
-
-export const runCommand: CommandRunner = (command, args, options = {}) => {
-  // Windows installs portless and npm as `.cmd` shims, which only cmd.exe can start. Callers pass
-  // fixed words, paths and validated names, so cmd.exe has nothing to interpret.
-  const isWindows = process.platform === "win32";
-  const file = isWindows ? (process.env.ComSpec ?? "cmd.exe") : command;
-  const fileArgs = isWindows ? ["/d", "/s", "/c", command, ...args] : args;
-
-  return new Promise((resolve) => {
-    let output = "";
-    const child = spawn(file, fileArgs, {
-      stdio: options.inherit ? "inherit" : ["ignore", "pipe", "pipe"],
-      windowsHide: !options.inherit,
-    });
-    child.stdout?.on("data", (chunk: Buffer) => {
-      output += chunk.toString();
-    });
-    child.stderr?.on("data", (chunk: Buffer) => {
-      output += chunk.toString();
-    });
-    child.on("error", (error: NodeJS.ErrnoException) => {
-      resolve({ exitCode: null, output: error.message, missing: error.code === "ENOENT" });
-    });
-    child.on("close", (exitCode) => {
-      const missing = isWindows && exitCode === WINDOWS_COMMAND_NOT_FOUND;
-      resolve({ exitCode, output: output.trim(), missing });
-    });
-  });
+/** The server's process runner, so Windows quoting and UTF-8 output work the same in the CLI. */
+export const runCommand: CommandRunner = async (command, args, options = {}) => {
+  const outcome = await runProcess(command, args, { inherit: options.inherit === true });
+  return {
+    exitCode: outcome.exitCode,
+    output: outcome.error ?? outcome.combined.trim(),
+    missing: outcome.missing,
+  };
 };

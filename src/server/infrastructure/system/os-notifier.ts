@@ -1,6 +1,7 @@
 import type { StudioEvent } from "../../../core/api/contract.ts";
 import type { SystemNotifier } from "../../application/system-notifier.ts";
 import { execute } from "../portless/portless-cli.ts";
+import { powershellArgs } from "./powershell.ts";
 
 /** Starts a command and resolves when it ends; `missing` when it is not installed. */
 export type NotifierRun = (
@@ -9,8 +10,14 @@ export type NotifierRun = (
   options: { timeoutMs: number },
 ) => Promise<{ exitCode: number | null; stdout: string; missing: boolean }>;
 
-/** Whether this machine can show OS notifications, for the doctor. */
-export type NotifierAvailability = "available" | "missing" | "unsupported";
+/**
+ * Whether this machine can show OS notifications, for the doctor. `limited`: macOS without
+ * terminal-notifier, where osascript shows them but a click does nothing.
+ */
+export type NotifierAvailability = "available" | "limited" | "missing" | "unsupported";
+
+/** What the notification tools installed here can do. */
+export type NotifierSupport = { actions: boolean; terminalNotifier?: boolean };
 
 export type NotificationCommand = {
   bin: string;
@@ -29,7 +36,8 @@ const POWERSHELL_APP_ID =
 
 /**
  * The command that shows `event` on this system. Linux: `notify-send`, whose Open action we
- * follow with `xdg-open`. macOS: `osascript`, which cannot react to a click, so it only informs.
+ * follow with `xdg-open`. macOS: `terminal-notifier` when installed, which opens `url` on a
+ * click, else `osascript`, which cannot react to a click, so it only informs.
  * Windows: a PowerShell toast whose click opens `url` (best effort: it needs the Windows
  * Runtime types that Windows PowerShell 5 ships with).
  */
@@ -37,15 +45,33 @@ export function notificationCommand(
   platform: NodeJS.Platform,
   event: StudioEvent,
   url: string,
-  linux: { actions: boolean },
+  support: NotifierSupport,
 ): NotificationCommand | null {
   if (platform === "linux") {
-    const action = linux.actions ? ["--action=open=Open"] : [];
+    const action = support.actions ? ["--action=open=Open"] : [];
     return {
       bin: "notify-send",
       // `--` keeps a title that starts with a dash from being read as an option.
       args: [`--app-name=${APP_NAME}`, ...action, "--", event.title, event.body],
-      waitsForClick: linux.actions,
+      waitsForClick: support.actions,
+    };
+  }
+  if (platform === "darwin" && support.terminalNotifier) {
+    return {
+      bin: "terminal-notifier",
+      args: [
+        "-title",
+        APP_NAME,
+        "-subtitle",
+        event.title,
+        "-message",
+        event.body,
+        "-open",
+        url,
+        "-group",
+        "portless-studio",
+      ],
+      waitsForClick: false,
     };
   }
   if (platform === "darwin") {
@@ -53,18 +79,9 @@ export function notificationCommand(
     return { bin: "osascript", args: ["-e", script], waitsForClick: false };
   }
   if (platform === "win32") {
-    const encoded = Buffer.from(toastScript(event, url), "utf16le").toString("base64");
     return {
       bin: "powershell",
-      // An encoded script needs no quoting, so cmd.exe has nothing to interpret.
-      args: [
-        "-NoProfile",
-        "-NonInteractive",
-        "-ExecutionPolicy",
-        "Bypass",
-        "-EncodedCommand",
-        encoded,
-      ],
+      args: powershellArgs(toastScript(event, url)),
       waitsForClick: false,
     };
   }
@@ -82,6 +99,7 @@ export class OsNotifier implements SystemNotifier {
   readonly #platform: NodeJS.Platform;
   readonly #run: NotifierRun;
   #linux: Promise<{ installed: boolean; actions: boolean }> | null = null;
+  #terminalNotifier: Promise<boolean> | null = null;
 
   constructor(options: OsNotifierOptions) {
     this.#platform = options.platform;
@@ -96,7 +114,11 @@ export class OsNotifier implements SystemNotifier {
   async send(event: StudioEvent, url: string): Promise<void> {
     const linux = this.#platform === "linux" ? await this.#linuxSupport() : { actions: false };
     if ("installed" in linux && !linux.installed) return;
-    const command = notificationCommand(this.#platform, event, url, linux);
+    const terminalNotifier = this.#platform === "darwin" && (await this.#hasTerminalNotifier());
+    const command = notificationCommand(this.#platform, event, url, {
+      actions: linux.actions,
+      terminalNotifier,
+    });
     if (!command) return;
     const timeoutMs = command.waitsForClick ? CLICK_WAIT_MS : COMMAND_TIMEOUT_MS;
     const outcome = await this.#run(command.bin, command.args, { timeoutMs });
@@ -109,7 +131,21 @@ export class OsNotifier implements SystemNotifier {
     if (this.#platform === "linux") {
       return (await this.#linuxSupport()).installed ? "available" : "missing";
     }
-    return this.#platform === "darwin" || this.#platform === "win32" ? "available" : "unsupported";
+    if (this.#platform === "darwin") {
+      return (await this.#hasTerminalNotifier()) ? "available" : "limited";
+    }
+    return this.#platform === "win32" ? "available" : "unsupported";
+  }
+
+  /** Asks `terminal-notifier -help` once whether it is installed (Homebrew). */
+  #hasTerminalNotifier(): Promise<boolean> {
+    this.#terminalNotifier ??= this.#run("terminal-notifier", ["-help"], {
+      timeoutMs: COMMAND_TIMEOUT_MS,
+    }).then(
+      (outcome) => !outcome.missing,
+      () => false,
+    );
+    return this.#terminalNotifier;
   }
 
   /** Asks `notify-send --help` once whether it is installed and knows `--action` (libnotify 0.7.10+). */

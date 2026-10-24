@@ -117,3 +117,71 @@ describe("terminate", () => {
     },
   );
 });
+
+describe("terminate on Windows", () => {
+  const PID = 4242;
+
+  function windowsControl(answers: { exitCode: number; output: string }[]) {
+    const calls: string[] = [];
+    let forced = false;
+    const io = fakeIo({}, async (bin, args) => {
+      calls.push(`${bin} ${args.join(" ")}`);
+      if (args.includes("/F")) forced = true;
+      const answer = answers.shift() ?? { exitCode: 0, output: "SUCCESS" };
+      return { exitCode: answer.exitCode, stdout: "", output: answer.output };
+    });
+    const control = new SystemProcessControl({
+      platform: "win32",
+      io,
+      uid: null,
+      userName: "dev",
+      graceMs: 5000,
+      pollMs: 10,
+      isAlive: () => !forced,
+    });
+    return { control, calls };
+  }
+
+  it("forces at once when taskkill says the process only stops forcefully", async () => {
+    const { control, calls } = windowsControl([
+      {
+        exitCode: 1,
+        output:
+          "ERROR: The process with PID 4242 could not be terminated.\r\n" +
+          "Reason: This process can only be terminated forcefully (with /F option).\r\n",
+      },
+    ]);
+    const started = Date.now();
+    expect(await control.terminate(PID)).toEqual({ ok: true, value: undefined });
+    expect(calls).toEqual(["taskkill /PID 4242 /T", "taskkill /F /PID 4242 /T"]);
+    expect(Date.now() - started).toBeLessThan(1000);
+  });
+
+  it("reports access denied as not allowed, with the Administrator command", async () => {
+    const { control, calls } = windowsControl([
+      {
+        exitCode: 1,
+        output:
+          "ERROR: The process with PID 4242 could not be terminated.\r\nReason: Access is denied.\r\n",
+      },
+    ]);
+    const result = await control.terminate(PID);
+    expect(result).toMatchObject({
+      ok: false,
+      error: {
+        code: "process_not_allowed",
+        message: expect.stringContaining("Administrator"),
+        command: "taskkill /F /PID 4242",
+      },
+    });
+    expect(calls).toEqual(["taskkill /PID 4242 /T"]);
+  });
+
+  it("counts a process that is already gone as stopped", async () => {
+    const { control, calls } = windowsControl([
+      { exitCode: 128, output: 'ERROR: The process "4242" not found.\r\n' },
+    ]);
+    expect(await control.terminate(PID)).toEqual({ ok: true, value: undefined });
+    expect(calls).toEqual(["taskkill /PID 4242 /T"]);
+  });
+});

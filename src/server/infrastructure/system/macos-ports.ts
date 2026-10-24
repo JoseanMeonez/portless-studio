@@ -38,20 +38,42 @@ export function parseLsofCwds(text: string): Map<number, string> {
   return cwds;
 }
 
-/** Lists listening ports with `lsof`, which ships with macOS. */
+/**
+ * Reads `ps -ww -o pid=,comm=` into pid -> executable. macOS prints the full path, which may hold
+ * spaces; a bare name (a process started through PATH) says nothing about where it lives.
+ */
+export function parsePsExecutables(text: string): Map<number, string> {
+  const executables = new Map<number, string>();
+  for (const line of text.split("\n")) {
+    const match = /^\s*(\d+)\s+(\/.*?)\s*$/.exec(line);
+    if (match?.[2]) executables.set(Number(match[1]), match[2]);
+  }
+  return executables;
+}
+
+/** Lists listening ports with `lsof` and `ps`, which ship with macOS. */
 export async function listMacosPorts(io: SystemIo): Promise<ListeningPort[]> {
   const listen = await io.run("lsof", ["-nP", "-iTCP", "-sTCP:LISTEN", "-F", "pcn"]);
   const rows = parseLsofListen(listen.stdout);
   if (rows.length === 0) return [];
 
   const pids = [...new Set(rows.map((row) => row.pid))];
-  const cwd = await io.run("lsof", ["-a", "-d", "cwd", "-p", pids.join(","), "-F", "pn"]);
+  const [cwd, ps] = await Promise.all([
+    io.run("lsof", ["-a", "-d", "cwd", "-p", pids.join(","), "-F", "pn"]),
+    // -ww: without it ps cuts long paths at the terminal width.
+    io.run("ps", ["-ww", "-o", "pid=,comm=", "-p", pids.join(",")]),
+  ]);
   const cwds = parseLsofCwds(cwd.stdout);
+  const executables = parsePsExecutables(ps.stdout);
 
   const byPort = new Map<number, ListeningPort>();
   for (const row of rows) {
     if (byPort.has(row.port)) continue;
-    byPort.set(row.port, { ...row, cwd: cwds.get(row.pid) ?? null });
+    byPort.set(row.port, {
+      ...row,
+      cwd: cwds.get(row.pid) ?? null,
+      executable: executables.get(row.pid) ?? null,
+    });
   }
   return [...byPort.values()].sort((a, b) => a.port - b.port);
 }

@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { AutoNamedEntry, AutoNamedStore } from "../../application/auto-named-store.ts";
+import { writeFileAtomic } from "./atomic-write.ts";
 
 const FILE_NAME = "auto-named.json";
 
@@ -32,16 +33,7 @@ export class JsonAutoNamedStore implements AutoNamedStore {
   }
 
   async write(entries: AutoNamedEntry[]): Promise<void> {
-    // Same as the config: a temporary file renamed into place, so a reader never sees half.
-    const temporary = `${this.path}.${process.pid}.tmp`;
-    try {
-      fs.mkdirSync(path.dirname(this.path), { recursive: true });
-      fs.writeFileSync(temporary, `${JSON.stringify({ autoNamed: entries }, null, 2)}\n`);
-      fs.renameSync(temporary, this.path);
-    } catch (error) {
-      fs.rmSync(temporary, { force: true });
-      throw error;
-    }
+    writeFileAtomic(this.path, `${JSON.stringify({ autoNamed: entries }, null, 2)}\n`);
   }
 }
 

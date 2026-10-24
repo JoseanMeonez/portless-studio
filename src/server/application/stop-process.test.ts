@@ -2,7 +2,7 @@ import { ok } from "../../core/result.ts";
 import type { ProcessControl, ProcessOwner } from "./process-control.ts";
 import { stopProcess } from "./stop-process.ts";
 
-function setup(owner: ProcessOwner = "you") {
+function setup(owner: ProcessOwner = "you", platform = "linux") {
   const terminated: number[] = [];
   const processes: ProcessControl = {
     ownerOf: async () => owner,
@@ -15,6 +15,7 @@ function setup(owner: ProcessOwner = "you") {
     processes,
     stoppablePids: async () => new Map([[51_002, 3001]]),
     selfPid: 999,
+    platform,
   };
   return { deps, terminated };
 }
@@ -57,6 +58,14 @@ describe("stopProcess", () => {
     expect(await stopProcess(input, deps)).toMatchObject({
       ok: false,
       error: { code: "invalid_request" },
+    });
+  });
+
+  it("gives the Windows command for a process of another user", async () => {
+    const { deps } = setup("other", "win32");
+    expect(await stopProcess("51002", deps)).toMatchObject({
+      ok: false,
+      error: { code: "process_not_allowed", command: "taskkill /F /PID 51002" },
     });
   });
 });

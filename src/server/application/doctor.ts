@@ -1,6 +1,14 @@
 import type { PortlessInstallation, ProxyAction } from "../../core/api/contract.ts";
 import type { StudioConfig } from "../../core/config/studio-config.ts";
 import type { DoctorAction, DoctorCheck } from "../../core/doctor/doctor-check.ts";
+import {
+  adminWords,
+  killCommand,
+  portNeedsRoot,
+  startLoginServiceCommand,
+  stopProxyAsAdminCommand,
+  trustCertificateCommand,
+} from "../../core/doctor/platform-commands.ts";
 import { err, ok, type Result } from "../../core/result.ts";
 import type { ProxyStatus } from "../../core/routes/route.ts";
 import { type AppError, appError } from "./app-error.ts";
@@ -17,8 +25,8 @@ export type ProxyProcess = {
 };
 
 /**
- * Whether Chrome trusts the portless certificate. Linux Chrome reads its own NSS store in
- * `~/.pki/nssdb`, not the system store; other systems are `unknown` and not checked.
+ * Whether browsers trust the portless certificate. Linux Chrome reads its own NSS store in
+ * `~/.pki/nssdb`; macOS reads the keychain and Windows the user's Root store.
  */
 export type BrowserTrust = "trusted" | "not-trusted" | "no-certutil" | "no-store" | "unknown";
 
@@ -48,8 +56,11 @@ export type DoctorFacts = {
   studioPort: { port: number; holder: PortHolder };
   /** Null when it cannot be known, e.g. when Studio runs from source. */
   loginService: LoginServiceState | null;
-  /** Whether OS notifications can be shown; absent when not checked. */
-  systemNotifier?: "available" | "missing" | "unsupported";
+  /**
+   * Whether OS notifications can be shown; absent when not checked. `limited` is macOS without
+   * terminal-notifier: osascript shows them, but a click does nothing.
+   */
+  systemNotifier?: "available" | "limited" | "missing" | "unsupported";
 };
 
 /** The checks, in the order people should read them. Pure, so every rule is easy to test. */
@@ -116,12 +127,10 @@ async function runAction(
   if (!facts.proxy.running) return deps.controlProxy("start");
   if (facts.proxyOwner === "you") return deps.controlProxy("restart");
   return ok(
-    "Saved HTTP on port 1355. Stop the current proxy with `sudo portless proxy stop`, then start " +
-      "the new one from the proxy menu.",
+    `Saved HTTP on port 1355. Stop the current proxy with \`${stopProxyAsAdminCommand(facts.platform)}\` ` +
+      `${adminWords(facts.platform)}, then start the new one from the proxy menu.`,
   );
 }
-
-const STOP_WITH_SUDO = "sudo portless proxy stop";
 
 function portlessCheck({ portless }: DoctorFacts): DoctorCheck {
   if (portless.installed) {
@@ -173,7 +182,7 @@ function proxyRunningCheck(facts: DoctorFacts): DoctorCheck {
       detail: `It serves ${proxy.https ? "HTTPS" : "HTTP"}${where}${pid}.`,
     };
   }
-  const needsSudo = config.proxyPort < 1024 && platform !== "win32";
+  const needsSudo = portNeedsRoot(platform, config.proxyPort);
   return {
     id: "proxy-running",
     status: "warn",
@@ -192,7 +201,12 @@ function proxyRunningCheck(facts: DoctorFacts): DoctorCheck {
   };
 }
 
-function proxyOwnerCheck({ proxy, proxyPid, proxyOwner }: DoctorFacts): DoctorCheck | null {
+function proxyOwnerCheck({
+  proxy,
+  proxyPid,
+  proxyOwner,
+  platform,
+}: DoctorFacts): DoctorCheck | null {
   if (!proxy.running || proxyOwner === "unknown") return null;
   if (proxyOwner === "you") {
     return {
@@ -203,26 +217,31 @@ function proxyOwnerCheck({ proxy, proxyPid, proxyOwner }: DoctorFacts): DoctorCh
       fix: { label: "Restart the proxy", action: "restart-proxy" },
     };
   }
-  const who = proxyOwner === "root" ? "root" : "another user";
+  const windows = platform === "win32";
+  const who = proxyOwner === "root" ? "root" : windows ? "an Administrator" : "another user";
   const pid = proxyPid === null ? "" : `pid ${proxyPid}, `;
   return {
     id: "proxy-owner",
     status: "warn",
     title: `The proxy runs as ${who}`,
     detail:
-      `It was started with sudo (${pid}port ${proxy.port ?? "unknown"}), so Studio cannot stop ` +
-      "or restart it. Stop it once; Studio then starts its own proxy over HTTP on port 1355.",
-    fix: { label: "Stop it once with sudo", command: STOP_WITH_SUDO },
+      `It was started ${adminWords(platform)} (${pid}port ${proxy.port ?? "unknown"}), so Studio ` +
+      "cannot stop or restart it. Stop it once the same way; Studio then starts its own proxy " +
+      "over HTTP on port 1355.",
+    fix: {
+      label: windows ? "Stop it once as Administrator" : "Stop it once with sudo",
+      command: stopProxyAsAdminCommand(platform),
+    },
   };
 }
 
-function proxyCountCheck({ proxyProcesses }: DoctorFacts): DoctorCheck | null {
+function proxyCountCheck({ proxyProcesses, platform }: DoctorFacts): DoctorCheck | null {
   if (proxyProcesses === null || proxyProcesses.length < 2) return null;
   const listed = proxyProcesses
     .map((item) => `:${item.port ?? "?"} (${item.owner}, pid ${item.pid})`)
     .join(", ");
   const needsSudo = proxyProcesses.some((item) => item.owner === "root" || item.owner === "other");
-  const pids = proxyProcesses.map((item) => item.pid).join(" ");
+  const pids = proxyProcesses.map((item) => item.pid);
   return {
     id: "proxy-count",
     status: "fail",
@@ -230,19 +249,37 @@ function proxyCountCheck({ proxyProcesses }: DoctorFacts): DoctorCheck | null {
     detail:
       `Found ${listed}. portless records only one of them, so names can open on one port and ` +
       "fail on the other. Stop them all, then start one from the proxy menu.",
-    fix: { label: "Stop every proxy", command: `${needsSudo ? "sudo " : ""}kill ${pids}` },
+    fix: { label: "Stop every proxy", command: killCommand(platform, pids, needsSudo) },
   };
 }
 
 function httpsTrustCheck(facts: DoctorFacts): DoctorCheck | null {
   const https = facts.proxy.running ? facts.proxy.https : facts.config.proxyHttps;
   if (!https || facts.browserTrust === "unknown") return null;
+  const linux = facts.platform === "linux";
   if (facts.browserTrust === "trusted") {
     return {
       id: "https-trust",
       status: "ok",
-      title: "Chrome trusts the portless certificate",
+      title: linux
+        ? "Chrome trusts the portless certificate"
+        : "This system trusts the portless certificate",
       detail: "HTTPS names open without a warning.",
+    };
+  }
+  const ca = facts.caFile ?? "~/.portless/ca.pem";
+  const trust = `\`${trustCertificateCommand(facts.platform, ca)}\``;
+  const fix = { label: "Switch to HTTP on port 1355", action: "use-http-1355" as const };
+  if (!linux) {
+    const store = facts.platform === "darwin" ? "the macOS keychain" : "your Windows Root store";
+    return {
+      id: "https-trust",
+      status: "warn",
+      title: "Browsers may not trust the HTTPS certificate",
+      detail:
+        `The portless certificate is not in ${store}, so names show a certificate warning. ` +
+        `Switch to HTTP, or trust the certificate with ${trust}.`,
+      fix,
     };
   }
   const reason = {
@@ -250,16 +287,15 @@ function httpsTrustCheck(facts: DoctorFacts): DoctorCheck | null {
     "no-store": "Chrome's certificate store (~/.pki/nssdb) does not exist yet.",
     "no-certutil": "certutil is not installed, so Studio cannot check Chrome's certificate store.",
   }[facts.browserTrust];
-  const ca = facts.caFile ?? "~/.portless/ca.pem";
   return {
     id: "https-trust",
     status: "warn",
     title: "Chrome may not trust the HTTPS certificate",
     detail:
       `${reason} On Linux, Chrome reads ~/.pki/nssdb and not the system store, so names show ` +
-      "ERR_CERT_AUTHORITY_INVALID. Switch to HTTP, or trust the certificate with " +
-      `\`certutil -d sql:$HOME/.pki/nssdb -A -t "C,," -n portless -i ${ca}\` (package libnss3-tools).`,
-    fix: { label: "Switch to HTTP on port 1355", action: "use-http-1355" },
+      `ERR_CERT_AUTHORITY_INVALID. Switch to HTTP, or trust the certificate with ${trust} ` +
+      "(package libnss3-tools).",
+    fix,
   };
 }
 
@@ -311,12 +347,7 @@ function loginServiceCheck({ loginService, platform }: DoctorFacts): DoctorCheck
       detail: "The login service is installed and running.",
     };
   }
-  const command =
-    platform === "darwin"
-      ? "launchctl kickstart gui/$(id -u)/dev.portless-studio"
-      : platform === "win32"
-        ? "portless-studio"
-        : "systemctl --user start portless-studio";
+  const command = startLoginServiceCommand(platform);
   return {
     id: "login-service",
     status: "warn",
@@ -326,7 +357,7 @@ function loginServiceCheck({ loginService, platform }: DoctorFacts): DoctorCheck
   };
 }
 
-function safariCheck({ platform }: DoctorFacts): DoctorCheck | null {
+function safariCheck({ platform, studioPort }: DoctorFacts): DoctorCheck | null {
   if (platform !== "darwin") return null;
   return {
     id: "safari",
@@ -334,13 +365,27 @@ function safariCheck({ platform }: DoctorFacts): DoctorCheck | null {
     title: "Safari and .localhost names",
     detail:
       "Safari does not always send *.localhost names to this machine. If a name does not open " +
-      "in Safari, use Chrome or Firefox, or open the route's local port.",
+      `in Safari, open Studio at http://127.0.0.1:${studioPort.port} and each app at ` +
+      "http://127.0.0.1:<its port>, or use Chrome or Firefox.",
   };
 }
 
-/** Information only: a missing notify-send costs OS notifications, nothing else. */
+/** Information only: missing tools cost OS notifications or their click, nothing else. */
 function notificationsCheck({ config, systemNotifier }: DoctorFacts): DoctorCheck | null {
-  if (!config.systemNotifications || systemNotifier !== "missing") return null;
+  if (!config.systemNotifications) return null;
+  if (systemNotifier === "limited") {
+    return {
+      id: "notifications",
+      status: "ok",
+      title: "macOS notifications come from Script Editor",
+      detail:
+        "Without terminal-notifier, Studio shows them through osascript: allow Script Editor in " +
+        "System Settings > Notifications, and a click does not open Studio. With " +
+        "terminal-notifier installed, a click opens the item.",
+      fix: { label: "Install terminal-notifier", command: "brew install terminal-notifier" },
+    };
+  }
+  if (systemNotifier !== "missing") return null;
   return {
     id: "notifications",
     status: "ok",

@@ -9,6 +9,7 @@ import {
 import { err, ok, type Result } from "../../../core/result.ts";
 import { type AppError, appError } from "../../application/app-error.ts";
 import type { ConfigStore } from "../../application/config-store.ts";
+import { writeFileAtomic } from "./atomic-write.ts";
 
 const FILE_NAME = "config.json";
 const APP_FOLDER = "portless-studio";
@@ -66,15 +67,10 @@ export class JsonConfigStore implements ConfigStore {
   }
 
   async write(config: StudioConfig): Promise<Result<void, AppError>> {
-    // Writing a temporary file and renaming it means a reader never sees half a file.
-    const temporary = `${this.path}.${process.pid}.tmp`;
     try {
-      fs.mkdirSync(path.dirname(this.path), { recursive: true });
-      fs.writeFileSync(temporary, `${JSON.stringify(config, null, 2)}\n`);
-      fs.renameSync(temporary, this.path);
+      writeFileAtomic(this.path, `${JSON.stringify(config, null, 2)}\n`);
       return ok(undefined);
     } catch (error) {
-      fs.rmSync(temporary, { force: true });
       return err(appError("internal", `Could not write ${this.path}: ${(error as Error).message}`));
     }
   }

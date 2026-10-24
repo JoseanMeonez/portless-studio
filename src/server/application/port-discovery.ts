@@ -35,16 +35,14 @@ export async function discoverPorts(
     ...context.excludedPorts,
     ...context.config.ignoredPorts,
   ]);
-  const skippedProcesses = new Set(
-    context.config.ignoredProcesses.map((name) => name.toLowerCase()),
-  );
+  const ignored = context.config.ignoredProcesses.map((name) => name.toLowerCase());
   // A port whose process we cannot read belongs to another user or the system (printing, DNS),
   // never to a dev server this person started.
   const candidates = (await scanner.scan()).filter(
     (port) =>
       port.pid !== null &&
       !skippedPorts.has(port.port) &&
-      !skippedProcesses.has(port.processName.toLowerCase()),
+      !isIgnoredProcess(port.processName, ignored),
   );
   // Probes run in parallel; a port that never answers costs its timeout once, not per port.
   const answers = await Promise.all(candidates.map((port) => scanner.answersHttp(port.port)));
@@ -60,9 +58,40 @@ const DEV_RUNTIME = /^(node|nodejs|bun|deno|python\d*(\.\d+)?|ruby|php|java|dotn
 
 function isDevServer(port: ListeningPort, projects: ProjectInfoSource): boolean {
   if (!port.executable) return true;
-  if (DEV_RUNTIME.test(port.processName)) return true;
+  if (DEV_RUNTIME.test(withoutExe(port.processName))) return true;
   const root = port.cwd === null ? null : projects.read(port.cwd).rootDir;
-  return Boolean(root) && port.executable.startsWith(`${root}/`);
+  return Boolean(root) && isInsideFolder(root ?? "", port.executable);
+}
+
+/**
+ * An ignored name matches the process name, or its start followed by a space, dot, dash or
+ * parenthesis: `code` covers `Code Helper (Plugin)` and `Code.exe`, but not `codex`.
+ */
+function isIgnoredProcess(processName: string, ignored: readonly string[]): boolean {
+  const name = processName.toLowerCase();
+  return ignored.some(
+    (entry) =>
+      name === entry || (name.startsWith(entry) && /^[ .\-(]/.test(name.slice(entry.length))),
+  );
+}
+
+function withoutExe(name: string): string {
+  return name.replace(/\.exe$/i, "");
+}
+
+/**
+ * Whether `file` sits inside `folder`. Windows paths (a drive letter or backslashes) compare
+ * without case and with either separator; a sibling like `acme-tools` never counts as `acme`.
+ */
+export function isInsideFolder(folder: string, file: string): boolean {
+  const windows = /^[A-Za-z]:|\\/.test(folder);
+  const normalize = (value: string) =>
+    windows
+      ? value.replace(/\//g, "\\").toLowerCase().replace(/\\+$/, "")
+      : value.replace(/\/+$/, "");
+  const root = normalize(folder);
+  if (root === "") return false;
+  return normalize(file).startsWith(`${root}${windows ? "\\" : "/"}`);
 }
 
 function toDetected(port: ListeningPort, projects: ProjectInfoSource): DetectedPort {

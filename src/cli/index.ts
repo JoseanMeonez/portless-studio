@@ -38,6 +38,7 @@ import { createStudioClient, resolveStudioUrl, type StudioClient } from "./mcp/s
 import { AGENT_INSTRUCTIONS, createStudioTools } from "./mcp/studio-tools.ts";
 import { openBrowser } from "./open-browser.ts";
 import { createDefaultsPrompter, createTerminalPrompter } from "./prompter.ts";
+import { onShutdown } from "./shutdown.ts";
 import {
   isListening,
   registerStudioAlias,
@@ -199,8 +200,7 @@ async function start(overrides: StartOverrides): Promise<void> {
     process.exit(0);
   };
   shutdown = stop;
-  process.on("SIGINT", stop);
-  process.on("SIGTERM", stop);
+  onShutdown(process, process.platform, stop);
 }
 
 async function init(yes: boolean): Promise<void> {

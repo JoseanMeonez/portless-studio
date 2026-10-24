@@ -1,0 +1,126 @@
+# Linux, macOS and Windows
+
+Portless Studio runs on Node 24 or later on all three systems and installs nothing beyond
+portless itself. Each feature uses tools the system already ships with. This page says which
+tool each feature uses on each system, where Studio keeps its files, and what does not work the
+same everywhere.
+
+## What works where
+
+| Feature | Linux | macOS | Windows |
+| --- | --- | --- | --- |
+| Find listening ports | `/proc/net/tcp` and `/proc/<pid>/fd` | `lsof` | `netstat -ano` |
+| Process name and executable | `/proc/<pid>/exe` | `lsof` and `ps -ww -o comm=` | PowerShell `Get-CimInstance Win32_Process` |
+| Project folder of a dev server | `/proc/<pid>/cwd` | `lsof -d cwd` | The script path in the process's command line |
+| Auto mode and suggested names | Yes | Yes | Yes, when the command line names a script by its full path |
+| Find every portless proxy | `/proc/<pid>/cmdline` | `ps -ww -A` | Only the one portless records in `proxy.port` |
+| Stop a dev server | SIGTERM, then SIGKILL after 5 s | SIGTERM, then SIGKILL after 5 s | `taskkill /T`, or `taskkill /T /F` at once for console programs |
+| Start at login | systemd user unit | LaunchAgent | Hidden script in the Startup folder |
+| Restart or stop Studio from the page | Through systemd | Through launchd | Stop only: Windows has no service manager Studio can ask |
+| System notifications | `notify-send`; a click opens the item | `terminal-notifier`, or `osascript` without click | PowerShell toast; a click opens the item |
+| HTTPS trust check | Chrome's store, `~/.pki/nssdb` | `security find-certificate` | `certutil -verifystore Root` |
+| Proxy on a port below 1024 | Needs sudo | No root needed | No Administrator needed |
+
+Every check only reads; Studio never changes a certificate store or a system setting on its
+own.
+
+## Where Studio keeps its files
+
+| System | Config folder |
+| --- | --- |
+| Linux | `$XDG_CONFIG_HOME/portless-studio`, or `~/.config/portless-studio` |
+| macOS | `$XDG_CONFIG_HOME/portless-studio`, or `~/.config/portless-studio` |
+| Windows | `%APPDATA%\portless-studio`, for example `C:\Users\dev\AppData\Roaming\portless-studio` |
+
+`PORTLESS_STUDIO_CONFIG` overrides the config file path on every system. The folder holds
+`config.json`, which you edit, and `auto-named.json` and `proxy-started.json`, which Studio
+writes. portless keeps its own state in `~/.portless`, or in `PORTLESS_STATE_DIR`.
+
+The login service lives in:
+
+| System | File |
+| --- | --- |
+| Linux | `~/.config/systemd/user/portless-studio.service` |
+| macOS | `~/Library/LaunchAgents/dev.portless-studio.plist`, with its log in `~/Library/Logs/portless-studio.log` |
+| Windows | `portless-studio.vbs` in `%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup` |
+
+## How some features work on each system
+
+### Starting commands on Windows
+
+portless and npm install on Windows as `.cmd` scripts, which only `cmd.exe` can start. Studio
+looks each command up on `PATH` with `PATHEXT`. An `.exe` such as `netstat`, `taskkill` or
+`powershell` starts directly. A `.cmd` or `.bat` runs through `cmd.exe` with every argument
+quoted and every character `cmd.exe` treats specially escaped, so a path like
+`C:\Program Files\nodejs\npm.cmd` works. When a command runs past its time limit, Studio stops
+its whole process tree with `taskkill /T /F`, because stopping `cmd.exe` alone would leave the
+command running.
+
+Output is read as UTF-8. Node programs such as portless and npm write UTF-8, and Studio's
+PowerShell scripts set their output to UTF-8, so names and paths with letters like `ñ` or `é`
+survive.
+
+### Dev server folders on Windows
+
+Windows has no command that prints another process's working folder. Studio reads the command
+line instead: `node C:\Users\dev\shop\node_modules\vite\bin\vite.js` gives `C:\Users\dev\shop`,
+and `node C:\Users\dev\api\server.mjs` gives `C:\Users\dev\api`. A server started with a relative
+script, such as `python manage.py runserver`, gets no folder, so it shows without a suggested
+name and auto mode does not name it.
+
+The PowerShell query runs once for each new listening process and again after 30 seconds, so most
+scans start no PowerShell at all. Ports owned by the kernel (pid 4, for example 445) are never
+offered as dev servers.
+
+### Start at login on Windows
+
+`portless-studio service install` writes a VBScript to the Startup folder. It sets `PATH` and the
+`PORTLESS_*` variables Studio was installed with, then starts Studio with no window. The file is
+UTF-16, so a user folder with non-ASCII letters works. An older `portless-studio.cmd` in the same
+folder is removed.
+
+### Start at login on macOS
+
+Installing boots out any loaded copy of the LaunchAgent before loading the new one, so installing
+twice works. Stopping Studio from the page boots the agent out until the next login; start it
+again with:
+
+```sh
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/dev.portless-studio.plist
+```
+
+### Stopping Studio
+
+Studio removes its `studio` alias when it stops on SIGINT, SIGTERM or SIGHUP (a closed terminal),
+and on Windows also on SIGBREAK (Ctrl+Break) and when its console window closes. If Studio was
+killed without a chance to clean up, the next start replaces a `studio` alias whose port no longer
+answers as a Studio.
+
+### Commands that need more rights
+
+Fix commands shown by the doctor and the page are written for the system. On Linux and macOS they
+use `sudo`. On Windows they run in a terminal opened with Run as Administrator, for example
+`portless proxy stop` or `taskkill /F /PID 4242`.
+
+### Config writes on Windows
+
+Windows refuses to replace a file another program has open, such as an editor or an antivirus
+scan. Studio retries the write four times over about 300 ms, then copies the new content over the
+file.
+
+## Known limits
+
+- **macOS notification clicks.** Without `terminal-notifier` (`brew install terminal-notifier`),
+  notifications come from Script Editor through `osascript`: allow Script Editor in System
+  Settings, Notifications, and a click does not open Studio.
+- **Safari and `.localhost` names.** Safari does not always send `*.localhost` names to this
+  machine. Open Studio at `http://127.0.0.1:4949` and each app at `http://127.0.0.1:<its port>`,
+  or use Chrome or Firefox.
+- **macOS listeners of other users.** `lsof` without root does not show who holds a port that
+  root listens on. The doctor then tries to bind Studio's port and reports it taken by an unknown
+  program.
+- **Windows Studio restart.** The page can stop Studio but not restart it; start it again with
+  `portless-studio`.
+- **Windows proxy count.** Studio sees only the proxy portless records, so the doctor cannot warn
+  about two proxies running at once.
+- **Windows PowerShell toasts** need Windows PowerShell 5, which ships with Windows 10 and 11.

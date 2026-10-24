@@ -75,7 +75,7 @@ Two more ports feed port detection and settings:
 
 | Port | Default implementation | What it does |
 | --- | --- | --- |
-| `PortScanner` (`application/port-scanner.ts`) | `infrastructure/system`: `/proc` on Linux, `lsof` on macOS, `netstat` and `tasklist` on Windows | Lists listening ports with their process and folder, and probes whether a port answers HTTP. |
+| `PortScanner` (`application/port-scanner.ts`) | `infrastructure/system`: `/proc` on Linux, `lsof` on macOS, `netstat` plus one PowerShell `Win32_Process` query (cached 30 s) on Windows | Lists listening ports with their process, executable and folder (on Windows the folder comes from the script path in the command line), and probes whether a port answers HTTP. See `docs/platforms.md`. |
 | `ConfigStore` (`application/config-store.ts`) | `infrastructure/config/json-config-store.ts` | Reads, writes and watches the JSON config file. |
 
 `StudioRuntime` (`application/studio-runtime.ts`) ties them together. It scans every

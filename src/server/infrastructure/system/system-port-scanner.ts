@@ -22,7 +22,10 @@ export function createPortScanner(
 
 /** The raw listing for this operating system, without the HTTP check. */
 export function listPortsFor(platform: NodeJS.Platform, io: SystemIo): ListPorts {
-  if (platform === "win32") return () => listWindowsPorts(io);
+  if (platform === "win32") {
+    const cache = new Map();
+    return () => listWindowsPorts(io, cache);
+  }
   if (platform === "darwin") return () => listMacosPorts(io);
   return () => listLinuxPorts(io);
 }

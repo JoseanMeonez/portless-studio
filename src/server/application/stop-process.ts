@@ -1,3 +1,4 @@
+import { killCommand } from "../../core/doctor/platform-commands.ts";
 import { err, ok, type Result } from "../../core/result.ts";
 import { type AppError, appError } from "./app-error.ts";
 import type { ProcessControl } from "./process-control.ts";
@@ -8,6 +9,8 @@ export type StopProcessDeps = {
   stoppablePids: () => Promise<Map<number, number>>;
   /** Studio's own pid, never stopped from its own page. */
   selfPid: number;
+  /** The system the command to copy is written for; defaults to this one. */
+  platform?: string;
 };
 
 /**
@@ -35,7 +38,7 @@ export async function stopProcess(
       appError(
         "process_not_allowed",
         `Process ${pid} on port ${port} belongs to ${who}; stop it from a terminal.`,
-        `sudo kill ${pid}`,
+        killCommand(deps.platform ?? process.platform, [pid], true),
       ),
     );
   }

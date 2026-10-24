@@ -107,7 +107,7 @@ describe("detected ports", () => {
     await detectedList();
 
     await user.keyboard("/");
-    await user.keyboard("viper");
+    await user.keyboard("otter");
 
     expect(await detectedPorts()).toEqual(["4209"]);
   });

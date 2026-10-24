@@ -20,7 +20,7 @@ const ROOT_PROXY = [NODE, PORTLESS, "proxy", "start", "--foreground", "--port", 
 const USER_PROXY = [NODE, PORTLESS, "proxy", "start", "--foreground", "--port", "1355", "--no-tls"];
 const status = (uid: number) => `Name:\tnode\nUid:\t${uid}\t${uid}\t${uid}\t${uid}\n`;
 
-/** /proc as Keven's machine showed it: a root proxy on 443 and his own on 1355. */
+/** /proc as a real machine showed it: a root proxy on 443 and a user-owned one on 1355. */
 function linuxIo(run: SystemIo["run"] = async () => ({ exitCode: null, stdout: "" })): SystemIo {
   const files: Record<string, string> = {
     "/proc/3694271/cmdline": `${ROOT_PROXY.join("\0")}\0`,
@@ -139,7 +139,7 @@ describe("collectDoctorFacts", () => {
     };
   }
 
-  it("gathers what Keven's machine showed", async () => {
+  it("gathers what a real machine showed", async () => {
     const facts = await collectDoctorFacts(options());
     expect(facts).toMatchObject({
       proxyPid: 3694271,

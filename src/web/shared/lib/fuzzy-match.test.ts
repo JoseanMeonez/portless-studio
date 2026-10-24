@@ -2,7 +2,7 @@ import { fuzzyFilter, fuzzyScore } from "./fuzzy-match.ts";
 
 describe("fuzzyScore", () => {
   it("matches letters in order and rejects letters out of order", () => {
-    expect(fuzzyScore("wr", "web.acme")).not.toBeNull();
+    expect(fuzzyScore("wm", "web.acme")).not.toBeNull();
     expect(fuzzyScore("rw", "web")).toBeNull();
   });
 
@@ -20,7 +20,7 @@ describe("fuzzyFilter", () => {
 
   it("drops items that do not match and puts the best match first", () => {
     const names = ["docs", "api.acme", "web.acme"];
-    expect(fuzzyFilter(names, "run", (item) => item)).toEqual(["api.acme", "web.acme"]);
+    expect(fuzzyFilter(names, "acm", (item) => item)).toEqual(["api.acme", "web.acme"]);
     expect(fuzzyFilter(names, "web", (item) => item)[0]).toBe("web.acme");
   });
 });

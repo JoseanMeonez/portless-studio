@@ -102,9 +102,7 @@ describe("views: favorites", () => {
 
     await user.keyboard("f");
 
-    await waitFor(async () =>
-      expect((await savedConfig(gateway)).favorites).toEqual(["api.acme"]),
-    );
+    await waitFor(async () => expect((await savedConfig(gateway)).favorites).toEqual(["api.acme"]));
     await user.keyboard("f");
     await waitFor(async () => expect((await savedConfig(gateway)).favorites).toEqual([]));
   });

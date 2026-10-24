@@ -36,8 +36,8 @@ describe("arrangeRoutes", () => {
   it("groups by project with a count per group and routes without a project last", () => {
     const result = arrangeRoutes(ROUTES, view({ groupBy: "project" }), []);
     expect(result.groups.map((group) => [group.label, names(group.routes)])).toEqual([
-      ["shop-admin", ["admin"]],
       ["acme-monorepo", ["api", "web"]],
+      ["shop-admin", ["admin"]],
       ["No project", ["db"]],
     ]);
   });
@@ -45,9 +45,9 @@ describe("arrangeRoutes", () => {
   it("groups by worktree, labelling linked worktrees after their project", () => {
     const result = arrangeRoutes(ROUTES, view({ groupBy: "worktree" }), []);
     expect(result.groups.map((group) => group.label)).toEqual([
-      "shop-admin / otter",
       "acme-monorepo",
       "acme-monorepo / falcon",
+      "shop-admin / otter",
       "No project",
     ]);
   });
@@ -70,10 +70,7 @@ describe("arrangeRoutes", () => {
   it("pins favorites on top, by name or by port, and keeps them out of their groups", () => {
     const result = arrangeRoutes(ROUTES, view({ groupBy: "project" }), ["db", "port:4000"]);
     expect(names(result.favorites)).toEqual(["api", "db"]);
-    expect(result.groups.map((group) => group.label)).toEqual([
-      "shop-admin",
-      "acme-monorepo",
-    ]);
+    expect(result.groups.map((group) => group.label)).toEqual(["acme-monorepo", "shop-admin"]);
   });
 
   it("sorts by port, status and newest, in either direction", () => {

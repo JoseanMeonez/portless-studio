@@ -30,8 +30,8 @@ describe("parsers", () => {
 
   it("reads the user name column of tasklist /v", () => {
     const row =
-      '"node.exe","8120","Console","1","52,344 K","Running","DESKTOP-1\\\\keven","0:00:03","N/A"';
-    expect(parseTasklistUser(row.replaceAll("\\\\", "\\"))).toBe("DESKTOP-1\\keven");
+      '"node.exe","8120","Console","1","52,344 K","Running","DESKTOP-1\\\\dev","0:00:03","N/A"';
+    expect(parseTasklistUser(row.replaceAll("\\\\", "\\"))).toBe("DESKTOP-1\\dev");
     expect(parseTasklistUser("INFO: No tasks are running which match the criteria.")).toBeNull();
   });
 });

@@ -67,7 +67,7 @@ export async function runInit(deps: InitDeps): Promise<InitSummary> {
   let proxyRunning = false;
   if (portlessReady) {
     namesCreated = await nameDetectedPorts(deps);
-    proxyRunning = await offerProxyStart(deps);
+    proxyRunning = await ensureProxy(deps, config);
   } else {
     print("Skipping port names and the proxy until portless is installed.\n");
   }
@@ -206,43 +206,28 @@ async function studioUrl(deps: InitDeps, viaProxy: boolean, port: number): Promi
   return routeUrl(`${STUDIO_ALIAS}.${proxy.tlds[0] ?? "localhost"}`, proxy);
 }
 
-/** Returns whether the proxy runs at the end. */
-async function offerProxyStart(deps: InitDeps): Promise<boolean> {
+/**
+ * Starts the portless proxy the same way Studio does: on `proxyPort` over HTTP by default, which
+ * needs no password, certificate or extra tool on any system. Returns whether it runs at the end.
+ */
+async function ensureProxy(deps: InitDeps, config: StudioConfig): Promise<boolean> {
   const { print } = deps;
   const { proxy } = await deps.services.registry.readSnapshot();
   if (proxy.running) {
     print("The portless proxy is running.\n");
     return true;
   }
-
-  print("The portless proxy is what serves the .localhost names in your browser.");
-  print("Its first start asks for your password once: it listens on port 443 and trusts a");
-  print("local certificate so the names work over HTTPS.");
-  const command = `${deps.portlessBin} proxy start`;
-  if (!(await deps.prompter.confirm("Start the portless proxy now?"))) {
-    print(`Start it later with: ${command}\n`);
+  if (!config.startProxy) {
+    print(`Start the portless proxy any time with: ${deps.portlessBin} proxy start\n`);
     return false;
   }
-  if (await startProxy(deps, [])) return true;
-
-  print("");
-  print("The proxy could not take port 443. It can run on port 1355 without sudo instead;");
-  print("the names then open with the port, like https://studio.localhost:1355.");
-  if (!(await deps.prompter.confirm("Start it on port 1355 without sudo?"))) {
-    print(`Start it later with: ${command}\n`);
-    return false;
-  }
-  if (await startProxy(deps, ["--port", "1355", "--https"])) return true;
-  print(`The proxy did not start. Run it yourself with: ${command}\n`);
-  return false;
-}
-
-async function startProxy(deps: InitDeps, extraArgs: string[]): Promise<boolean> {
-  const started = await deps.prompter.suspend(() =>
-    deps.run(deps.portlessBin, ["proxy", "start", ...extraArgs], { inherit: true }),
+  const started = await deps.services.registry.startProxy(config.proxyPort, config.proxyHttps);
+  print(
+    started.ok
+      ? `Started the portless proxy on port ${config.proxyPort}.\n`
+      : `The portless proxy did not start: ${started.error.message}\n`,
   );
-  if (started.exitCode === 0) deps.print("The proxy is running.\n");
-  return started.exitCode === 0;
+  return started.ok;
 }
 
 function portTable(ports: DetectedPort[], homeDir: string): string[] {

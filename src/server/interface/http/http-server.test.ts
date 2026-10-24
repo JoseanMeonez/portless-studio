@@ -59,6 +59,7 @@ function fakeRegistry() {
       calls.push(`remove ${name}`);
       return ok(undefined);
     },
+    startProxy: async () => ok(undefined),
     installPortless: async () => {
       calls.push("install");
       return install.result;

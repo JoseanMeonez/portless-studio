@@ -122,6 +122,7 @@ export function createHttpServer(options: HttpServerOptions): HttpServer {
     if (pathname === API_PATHS.installPortless && method === "POST") {
       const result = await installPortless(options.registry);
       if (!result.ok) return sendError(res, result.error.code, result.error.message);
+      await options.studio.ensureProxy();
       return sendJson(res, 200, result.value);
     }
     if (pathname.startsWith(ALIAS_PREFIX) && (method === "PATCH" || method === "DELETE")) {

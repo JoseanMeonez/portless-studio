@@ -10,8 +10,9 @@ export type SettingsField = keyof StudioConfig;
 export type FieldErrors = Partial<Record<SettingsField, string>>;
 
 /** What the form edits: numbers stay text until saving, so half-typed values are allowed. */
-type Draft = Omit<StudioConfig, "port" | "scanIntervalMs" | "ignoredPorts"> & {
+type Draft = Omit<StudioConfig, "port" | "proxyPort" | "scanIntervalMs" | "ignoredPorts"> & {
   port: string;
+  proxyPort: string;
   scanSeconds: string;
   ignoredPorts: number[];
 };
@@ -27,6 +28,9 @@ const FIELDS = new Set<string>([
   "autoName",
   "openBrowser",
   "registerStudioAlias",
+  "startProxy",
+  "proxyPort",
+  "proxyHttps",
   "scanIntervalMs",
   "ignoredPorts",
   "ignoredProcesses",
@@ -142,6 +146,7 @@ function toDraft(config: StudioConfig): Draft {
   return {
     ...config,
     port: String(config.port),
+    proxyPort: String(config.proxyPort),
     scanSeconds: String(config.scanIntervalMs / 1000),
   };
 }
@@ -153,16 +158,19 @@ function toConfig(
   const errors: FieldErrors = {};
   const port = parsePort(draft.port);
   if (!port.ok) errors.port = PORT_MESSAGE;
+  const proxyPort = parsePort(draft.proxyPort);
+  if (!proxyPort.ok) errors.proxyPort = PORT_MESSAGE;
   const seconds = Number(draft.scanSeconds.trim());
   if (draft.scanSeconds.trim() === "" || !Number.isFinite(seconds) || seconds < 1) {
     errors.scanIntervalMs = SECONDS_MESSAGE;
   }
-  if (!port.ok || errors.scanIntervalMs) return { ok: false, errors };
+  if (!port.ok || !proxyPort.ok || errors.scanIntervalMs) return { ok: false, errors };
 
   const { scanSeconds: _seconds, ...rest } = draft;
   const parsed = parseConfig({
     ...rest,
     port: port.value,
+    proxyPort: proxyPort.value,
     scanIntervalMs: Math.round(seconds * 1000),
   });
   if (parsed.ok) return { ok: true, config: parsed.value };

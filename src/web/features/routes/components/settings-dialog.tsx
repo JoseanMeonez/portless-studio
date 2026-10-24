@@ -83,6 +83,32 @@ export function SettingsDialog({ form, onCopyPath, onClose }: SettingsDialogProp
           </fieldset>
 
           <fieldset className={styles.group}>
+            <legend className={styles.legend}>Proxy</legend>
+            <Switch
+              label="Start the portless proxy"
+              description="Studio starts it when it is not running, so the names open in the browser."
+              checked={draft.startProxy}
+              onChange={(value) => form.change("startProxy", value)}
+            />
+            <TextField
+              label="Proxy port"
+              mono
+              inputMode="numeric"
+              value={draft.proxyPort}
+              error={errors.proxyPort ?? null}
+              hint="1355 works on every system without a password. 443 drops the port from URLs but needs sudo once."
+              className={styles.short}
+              onChange={(event) => form.change("proxyPort", event.target.value)}
+            />
+            <Switch
+              label="Use HTTPS"
+              description="Off is recommended: browsers only trust the local certificate after extra system setup."
+              checked={draft.proxyHttps}
+              onChange={(value) => form.change("proxyHttps", value)}
+            />
+          </fieldset>
+
+          <fieldset className={styles.group}>
             <legend className={styles.legend}>Detection</legend>
             <TextField
               label="Scan interval"

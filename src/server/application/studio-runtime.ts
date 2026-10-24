@@ -65,7 +65,27 @@ export class StudioRuntime {
     if (this.#started) return;
     this.#started = true;
     this.#stopConfigWatch = this.#store.watch(() => void this.#reloadConfig());
-    void this.#reloadConfig().then(() => this.#reschedule());
+    void this.#reloadConfig().then(() => {
+      this.#reschedule();
+      void this.ensureProxy();
+    });
+  }
+
+  /**
+   * Starts the portless proxy when the config asks for it and it is not running, so names work
+   * without anyone running portless by hand. Called at start and after portless gets installed.
+   */
+  async ensureProxy(): Promise<void> {
+    const config = this.#config;
+    if (!config.startProxy) return;
+    const state = await this.#registry.readSnapshot();
+    if (!state.portless.installed || state.proxy.running) return;
+    const started = await this.#registry.startProxy(config.proxyPort, config.proxyHttps);
+    this.#log(
+      started.ok
+        ? `started the portless proxy on port ${config.proxyPort}`
+        : `could not start the portless proxy: ${started.error.message}`,
+    );
   }
 
   stop(): void {

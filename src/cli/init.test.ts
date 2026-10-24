@@ -57,6 +57,7 @@ type FakeOptions = {
   installed?: boolean;
   installFails?: boolean;
   proxyRunning?: boolean;
+  proxyStartFails?: boolean;
   ports?: DetectedPort[];
   /** Names that already exist, so creating them fails with name_taken. */
   taken?: string[];
@@ -64,11 +65,12 @@ type FakeOptions = {
 
 function fakeServices(options: FakeOptions = {}) {
   let installed = options.installed ?? true;
+  let proxy = { running: options.proxyRunning ?? false, port: 1355, https: false };
   let saved: StudioConfig | null = null;
   const calls: string[] = [];
   const taken = new Set(options.taken ?? []);
   const snapshot = (): Snapshot => ({
-    proxy: { running: options.proxyRunning ?? false, port: 443, https: true, tlds: ["localhost"] },
+    proxy: { ...proxy, tlds: ["localhost"] },
     portless: { installed, version: installed ? "0.15.11" : null },
     routes: [],
     detected: [],
@@ -86,6 +88,12 @@ function fakeServices(options: FakeOptions = {}) {
         return ok(undefined);
       },
       removeAlias: async () => ok(undefined),
+      startProxy: async (port, https) => {
+        calls.push(`proxy ${port} ${https}`);
+        if (options.proxyStartFails) return err({ code: "internal", message: "port in use" });
+        proxy = { running: true, port, https };
+        return ok(undefined);
+      },
       installPortless: async () => {
         calls.push("install portless");
         if (options.installFails) return err({ code: "install_failed", message: "npm exploded" });
@@ -152,14 +160,15 @@ describe("runInit with --yes", () => {
       "install portless",
       "alias app.acme 5173 false",
       "alias web.acme 4321 false",
+      "proxy 1355 false",
     ]);
     expect(fake.saved()).toEqual({ ...DEFAULT_CONFIG, autoName: true, openBrowser: true });
-    expect(h.commands).toEqual(["portless proxy start [inherit]"]);
+    expect(h.commands).toEqual([]);
     expect(h.serviceInstalls()).toBe(1);
     expect(summary).toEqual({
       configPath: "/home/dev/.config/portless-studio/config.json",
       namesCreated: 2,
-      url: "https://studio.localhost",
+      url: "http://studio.localhost:1355",
     });
     expect(h.lines.join("\n")).toContain("~/code/app-5173");
   });
@@ -179,7 +188,6 @@ describe("runInit with answers", () => {
       ["port", "5050"],
       ["open the browser", false],
       ["Name this port?", true],
-      ["Start the portless proxy now?", false],
     ]);
     const h = harness(fake, prompter);
 
@@ -191,77 +199,50 @@ describe("runInit with answers", () => {
       port: 5050,
       openBrowser: false,
     });
-    expect(fake.calls).toEqual(["alias app 5173 false", "alias app-5173 5173 false"]);
+    expect(fake.calls).toEqual([
+      "alias app 5173 false",
+      "alias app-5173 5173 false",
+      "proxy 1355 false",
+    ]);
     expect(h.commands).toEqual([]);
     expect(h.serviceInstalls()).toBe(0);
     expect(summary.namesCreated).toBe(1);
     const output = h.lines.join("\n");
     expect(output).toContain("app-5173");
     expect(output).toContain("portless-studio");
-    expect(output).toContain("443");
   });
 
-  it("starts the proxy with the terminal attached only after a yes", async () => {
+  it("starts the proxy on 1355 over HTTP without asking for anything", async () => {
     const fake = fakeServices({ proxyRunning: false });
     const prompter = scripted([
       ["auto mode", true],
       ["log in", false],
       ["port", "4949"],
       ["open the browser", true],
-      ["Start the portless proxy now?", true],
     ]);
     const h = harness(fake, prompter);
 
-    await runInit(h.deps);
+    const summary = await runInit(h.deps);
 
-    expect(h.commands).toEqual(["portless proxy start [inherit]"]);
+    expect(fake.calls).toEqual(["proxy 1355 false"]);
+    expect(h.commands).toEqual([]);
+    expect(summary.url).toBe("http://studio.localhost:1355");
   });
 
-  it("lets go of the terminal while the proxy asks for the password", async () => {
+  it("gives the plain URL when the proxy does not start", async () => {
+    const fake = fakeServices({ proxyRunning: false, proxyStartFails: true });
     const prompter = scripted([
       ["auto mode", true],
       ["log in", false],
       ["port", "4949"],
       ["open the browser", true],
-      ["Start the portless proxy now?", true],
     ]);
-    const h = harness(fakeServices({ proxyRunning: false }), prompter);
+    const h = harness(fake, prompter);
 
-    await runInit(h.deps);
+    const summary = await runInit(h.deps);
 
-    expect(prompter.events).toEqual(["suspend", "run", "resume"]);
-  });
-
-  it("offers port 1355 without sudo when the start on 443 fails", async () => {
-    const prompter = scripted([
-      ["auto mode", true],
-      ["log in", false],
-      ["port", "4949"],
-      ["open the browser", true],
-      ["Start the portless proxy now?", true],
-      ["port 1355", true],
-    ]);
-    const h = harness(fakeServices({ proxyRunning: false }), prompter, [1, 0]);
-
-    await runInit(h.deps);
-
-    expect(h.commands).toEqual([
-      "portless proxy start [inherit]",
-      "portless proxy start --port 1355 --https [inherit]",
-    ]);
-  });
-
-  it("gives the plain URL when the proxy is not running", async () => {
-    const prompter = scripted([
-      ["auto mode", true],
-      ["log in", false],
-      ["port", "4949"],
-      ["open the browser", true],
-      ["Start the portless proxy now?", false],
-    ]);
-    const h = harness(fakeServices({ proxyRunning: false }), prompter);
-
-    expect((await runInit(h.deps)).url).toBe("http://127.0.0.1:4949");
+    expect(summary.url).toBe("http://127.0.0.1:4949");
+    expect(h.lines.join("\n")).toContain("did not start: port in use");
   });
 
   it("does not ask about the proxy when it already runs, and names nothing on a no", async () => {

@@ -57,6 +57,26 @@ describe("settings", () => {
     expect(screen.queryByRole("dialog", { name: "Settings" })).toBeNull();
   });
 
+  it("edits the proxy settings, HTTP on 1355 by default", async () => {
+    const { user, gateway } = setup();
+    const updateConfig = vi.spyOn(gateway, "updateConfig");
+    const dialog = await openSettings(user);
+
+    const proxyPort = within(dialog).getByLabelText("Proxy port") as HTMLInputElement;
+    expect(proxyPort.value).toBe("1355");
+    const https = within(dialog).getByRole("switch", { name: "Use HTTPS" });
+    expect(https.getAttribute("aria-checked")).toBe("false");
+
+    await user.clear(proxyPort);
+    await user.type(proxyPort, "8443");
+    await user.click(https);
+    await user.click(within(dialog).getByRole("button", { name: "Save" }));
+
+    expect(updateConfig).toHaveBeenCalledWith(
+      expect.objectContaining({ startProxy: true, proxyPort: 8443, proxyHttps: true }),
+    );
+  });
+
   it("shows the server's invalid_config message next to the field it names", async () => {
     const { user, gateway } = setup();
     vi.spyOn(gateway, "updateConfig").mockResolvedValue(

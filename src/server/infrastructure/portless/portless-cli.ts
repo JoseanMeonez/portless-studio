@@ -38,6 +38,18 @@ export function removeAlias(cli: PortlessCli, name: string): Promise<Result<void
   return run(cli, ["alias", "--remove", name]);
 }
 
+/**
+ * `portless proxy start` on the given port. stdin is closed, so a port that would need sudo fails
+ * instead of waiting for a password nobody can type.
+ */
+export function startProxy(
+  cli: PortlessCli,
+  port: number,
+  https: boolean,
+): Promise<Result<void, AppError>> {
+  return run(cli, ["proxy", "start", "--port", String(port), https ? "--https" : "--no-tls"]);
+}
+
 /** Runs `portless --version`; a binary that cannot start counts as not installed. */
 export async function detectPortless(cli: PortlessCli): Promise<PortlessInstallation> {
   const outcome = await execute(cli.bin, ["--version"], { stateDir: cli.stateDir });

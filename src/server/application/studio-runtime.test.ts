@@ -47,13 +47,14 @@ function fakeScanner(ports: ListeningPort[]) {
   return scanner;
 }
 
-function fakeRegistry() {
+function fakeRegistry(proxyRunning = true) {
   const listeners = new Set<() => void>();
   const created: string[] = [];
+  const proxyStarts: string[] = [];
   let routes: Route[] = [];
   const registry: RouteRegistry = {
     readSnapshot: async (): Promise<PortlessState> => ({
-      proxy: { running: true, port: 1355, https: false, tlds: ["localhost"] },
+      proxy: { running: proxyRunning, port: 1355, https: false, tlds: ["localhost"] },
       portless: { installed: true, version: "1.0.0" },
       routes,
       readAt: 1,
@@ -70,8 +71,12 @@ function fakeRegistry() {
     },
     removeAlias: async () => ok(undefined),
     installPortless: async () => ok({ version: null, output: "" }),
+    startProxy: async (port, https) => {
+      proxyStarts.push(`${port} ${https}`);
+      return ok(undefined);
+    },
   };
-  return { registry, created, listeners };
+  return { registry, created, listeners, proxyStarts };
 }
 
 function aliasRoute(name: string, port: number): Route {
@@ -110,10 +115,16 @@ afterEach(() => {
   runtime = undefined;
 });
 
-function build(options: { store?: ReturnType<typeof memoryStore>; ports?: ListeningPort[] } = {}) {
+function build(
+  options: {
+    store?: ReturnType<typeof memoryStore>;
+    ports?: ListeningPort[];
+    proxyRunning?: boolean;
+  } = {},
+) {
   const store = options.store ?? memoryStore();
   const scanner = fakeScanner(options.ports ?? [node(5173, "app"), node(4949, "studio")]);
-  const fake = fakeRegistry();
+  const fake = fakeRegistry(options.proxyRunning);
   const lines: string[] = [];
   runtime = new StudioRuntime({
     registry: fake.registry,
@@ -125,6 +136,31 @@ function build(options: { store?: ReturnType<typeof memoryStore>; ports?: Listen
   });
   return { runtime, store, scanner, fake, lines };
 }
+
+describe("StudioRuntime proxy", () => {
+  it("starts the proxy without sudo when it is not running", async () => {
+    const { runtime, fake } = build({ proxyRunning: false });
+    runtime.start();
+    await vi.waitFor(() => expect(fake.proxyStarts).toEqual(["1355 false"]));
+  });
+
+  it("leaves a running proxy alone", async () => {
+    const { runtime, fake } = build({ proxyRunning: true });
+    runtime.start();
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    expect(fake.proxyStarts).toEqual([]);
+  });
+
+  it("does not start the proxy when the config turns it off", async () => {
+    const { runtime, fake } = build({
+      proxyRunning: false,
+      store: memoryStore({ ...FAST, startProxy: false }),
+    });
+    runtime.start();
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    expect(fake.proxyStarts).toEqual([]);
+  });
+});
 
 describe("StudioRuntime snapshot", () => {
   it("adds detected ports and auto mode to the portless state", async () => {

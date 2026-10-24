@@ -7,9 +7,9 @@ export function ProxyBanner() {
     <div className={styles.banner} role="status">
       <Icon name="warning" className={styles.icon} />
       <p>
-        <strong className={styles.strong}>The portless proxy is not running.</strong> These names
-        will not open until you start it with{" "}
-        <code className={styles.code}>portless proxy start</code>.
+        <strong className={styles.strong}>The portless proxy is not running.</strong> Studio starts
+        it on its own unless that is turned off in Settings; you can also run{" "}
+        <code className={styles.code}>portless proxy start --port 1355 --no-tls</code>.
       </p>
     </div>
   );

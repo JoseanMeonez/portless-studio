@@ -32,6 +32,7 @@ function registry(initial: Route[], fail = false) {
       readAt: 0,
     }),
     installPortless: async () => ok({ version: "1.0.0", output: "" }),
+    startProxy: async () => ok(undefined),
     watch: () => () => {},
     createAlias: async (name, port, force) => {
       calls.push(`create ${name} ${port} ${force}`);

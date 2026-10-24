@@ -20,8 +20,11 @@ dist/cli/index.js init`.
 - Checks that portless is installed and offers to install it with npm.
 - Asks for the basic settings (auto mode, start at login, port, open the browser) and saves them.
 - Finds the dev servers already running, suggests a name for each and names them in portless.
-- Starts the portless proxy, which asks for your password once, and can set Studio to start
-  when you log in.
+- Starts the portless proxy on port 1355 over HTTP, which needs no password, certificate or extra
+  tool on macOS, Windows or Linux, and can set Studio to start when you log in.
+
+Your apps then open at names like `http://web.myapp.localhost:1355`. Chrome, Edge and Firefox send
+every `*.localhost` name to your own machine by themselves, with no hosts file and no DNS setup.
 
 `init --yes` accepts every default without asking.
 
@@ -48,6 +51,9 @@ restart. Missing fields take their default.
 | `autoName` | `false` | Gives every new dev server a portless name automatically. |
 | `openBrowser` | `true` | Opens the browser when Studio starts. |
 | `registerStudioAlias` | `true` | Registers Studio itself in portless as `studio`. |
+| `startProxy` | `true` | Starts the portless proxy when Studio starts and it is not running. |
+| `proxyPort` | `1355` | Port of that proxy. 1355 needs no administrator rights anywhere; 443 removes the port from URLs but needs sudo once. |
+| `proxyHttps` | `false` | Serves the names over HTTPS. Browsers only trust the local certificate after extra system setup, so HTTP is the default. |
 | `scanIntervalMs` | `3000` | How often Studio looks for new listening ports, in milliseconds (at least 1000). |
 | `ignoredPorts` | `[]` | Ports never shown as detected and never named automatically. |
 | `ignoredProcesses` | `["code", "cursor", "discord", "slack", "spotify", "chrome", "firefox"]` | Process names whose ports are never shown. |

@@ -10,6 +10,18 @@ export type StudioConfig = {
   openBrowser: boolean;
   /** Register Studio itself in portless as `studio`. */
   registerStudioAlias: boolean;
+  /** Start the portless proxy when Studio starts and it is not running. */
+  startProxy: boolean;
+  /**
+   * Port for the proxy Studio starts. The default 1355 needs no administrator rights on any
+   * system; 443 gives URLs without a port but needs sudo once.
+   */
+  proxyPort: number;
+  /**
+   * Serve the names over HTTPS. Off by default: browsers only trust the local certificate after
+   * extra system setup, and plain HTTP on a `.localhost` name is already treated as secure.
+   */
+  proxyHttps: boolean;
   /** How often to look for new listening ports, in milliseconds. */
   scanIntervalMs: number;
   /** Ports never shown as detected and never named automatically. */
@@ -23,6 +35,9 @@ export const DEFAULT_CONFIG: StudioConfig = {
   autoName: false,
   openBrowser: true,
   registerStudioAlias: true,
+  startProxy: true,
+  proxyPort: 1355,
+  proxyHttps: false,
   scanIntervalMs: 3000,
   ignoredPorts: [],
   ignoredProcesses: ["code", "cursor", "discord", "slack", "spotify", "chrome", "firefox"],
@@ -41,7 +56,13 @@ export function parseConfig(input: unknown): Result<StudioConfig, string> {
   const raw = input as Record<string, unknown>;
   const config: StudioConfig = { ...DEFAULT_CONFIG };
 
-  for (const key of ["autoName", "openBrowser", "registerStudioAlias"] as const) {
+  for (const key of [
+    "autoName",
+    "openBrowser",
+    "registerStudioAlias",
+    "startProxy",
+    "proxyHttps",
+  ] as const) {
     const value = raw[key];
     if (value === undefined) continue;
     if (typeof value !== "boolean") return err(`"${key}" must be true or false.`);
@@ -51,6 +72,11 @@ export function parseConfig(input: unknown): Result<StudioConfig, string> {
   if (raw.port !== undefined) {
     if (!isPort(raw.port)) return err(`"port" must be a whole number from 1 to 65535.`);
     config.port = raw.port;
+  }
+
+  if (raw.proxyPort !== undefined) {
+    if (!isPort(raw.proxyPort)) return err(`"proxyPort" must be a whole number from 1 to 65535.`);
+    config.proxyPort = raw.proxyPort;
   }
 
   if (raw.scanIntervalMs !== undefined) {

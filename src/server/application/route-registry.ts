@@ -21,4 +21,6 @@ export interface RouteRegistry {
    * Fails with `install_in_progress` while another install runs, `install_failed` when npm fails.
    */
   installPortless(): Promise<Result<InstallPortlessResponse, AppError>>;
+  /** Starts the portless proxy in the background, never asking for a password. */
+  startProxy(port: number, https: boolean): Promise<Result<void, AppError>>;
 }

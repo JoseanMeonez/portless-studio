@@ -9,6 +9,7 @@ import {
   installPortless,
   type PortlessCli,
   removeAlias,
+  startProxy,
 } from "./portless-cli.ts";
 import { readProxyStatus, readRoutes } from "./state-files.ts";
 
@@ -139,6 +140,10 @@ export class PortlessRegistry implements RouteRegistry {
       return err(appError("name_taken", `"${name}" already points to port ${existing.port}.`));
     }
     return addAlias(this.#cli, name, port, force);
+  }
+
+  startProxy(port: number, https: boolean): Promise<Result<void, AppError>> {
+    return startProxy(this.#cli, port, https);
   }
 
   removeAlias(name: string): Promise<Result<void, AppError>> {

@@ -4,7 +4,6 @@ A local web dashboard for [portless](https://github.com/vercel-labs/portless). S
 alias portless is routing, open them, copy their URLs, and give a name to any port, from one page
 in your browser.
 
-![portless studio showing six routes](docs/screenshot.jpg)
 
 ## Quick start
 

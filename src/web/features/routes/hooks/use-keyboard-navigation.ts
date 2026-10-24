@@ -20,12 +20,14 @@ type KeyboardNavigationOptions = {
   onCreate: () => void;
   onFocusFilter: () => void;
   onToggleCommandMenu: () => void;
+  onOpenSettings: () => void;
   onEscape: () => void;
 };
 
 /**
  * Page-wide shortcuts for the routes list: j/k or arrows move, Enter or o opens, c copies,
- * r renames, Delete removes, n names a port, / filters, Cmd/Ctrl+K opens the command menu.
+ * r renames, Delete removes, n names a port, / filters, comma opens settings, Cmd/Ctrl+K opens
+ * the command menu.
  */
 export function useKeyboardNavigation(options: KeyboardNavigationOptions) {
   const [selected, setSelected] = useState(0);
@@ -96,6 +98,8 @@ export function useKeyboardNavigation(options: KeyboardNavigationOptions) {
           return run(current.onCreate);
         case "/":
           return run(current.onFocusFilter);
+        case ",":
+          return run(current.onOpenSettings);
         case "Escape":
           return current.onEscape();
       }

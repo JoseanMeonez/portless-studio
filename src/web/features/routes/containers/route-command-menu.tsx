@@ -11,6 +11,7 @@ type RouteCommandMenuProps = {
   onRename: (route: Route) => void;
   onToggleTheme: () => void;
   onFocusFilter: () => void;
+  onOpenSettings: () => void;
 };
 
 /** Cmd/Ctrl+K: jump to any route or run any action without leaving the keyboard. */
@@ -22,6 +23,7 @@ export function RouteCommandMenu({
   onRename,
   onToggleTheme,
   onFocusFilter,
+  onOpenSettings,
 }: RouteCommandMenuProps) {
   const actions = useRouteActions();
 
@@ -75,6 +77,14 @@ export function RouteCommandMenu({
       icon: "search",
       shortcut: <Kbd>/</Kbd>,
       onSelect: onFocusFilter,
+    },
+    {
+      id: "settings",
+      group: "Actions",
+      label: "Open settings",
+      icon: "settings",
+      shortcut: <Kbd>,</Kbd>,
+      onSelect: onOpenSettings,
     },
     { id: "theme", group: "Actions", label: "Toggle theme", icon: "moon", onSelect: onToggleTheme },
   ];

@@ -12,22 +12,27 @@ type DashboardHeaderProps = {
   /** Shown in the proxy pill's tooltip; null when unknown or not installed. */
   portlessVersion: string | null;
   connection: ConnectionState;
+  /** Auto mode names new dev servers by itself; the header says so while it is on. */
+  autoName: boolean;
   theme: "light" | "dark";
   modifierLabel: string;
   onToggleTheme: () => void;
   onOpenCommandMenu: () => void;
   onNamePort: () => void;
+  onOpenSettings: () => void;
 };
 
 export function DashboardHeader({
   proxy,
   portlessVersion,
   connection,
+  autoName,
   theme,
   modifierLabel,
   onToggleTheme,
   onOpenCommandMenu,
   onNamePort,
+  onOpenSettings,
 }: DashboardHeaderProps) {
   return (
     <header className={styles.header}>
@@ -52,6 +57,15 @@ export function DashboardHeader({
         <div className={styles.status}>
           {proxy ? <ProxyStatusPill proxy={proxy} portlessVersion={portlessVersion} /> : null}
           <ConnectionIndicator state={connection} />
+          {autoName ? (
+            <span
+              className={styles.autoMode}
+              title="New dev servers get their suggested name automatically"
+            >
+              <Icon name="zap" size={12} />
+              Auto mode on
+            </span>
+          ) : null}
         </div>
 
         <div className={styles.actions}>
@@ -74,6 +88,16 @@ export function DashboardHeader({
             title="Toggle theme"
           >
             <Icon name={theme === "dark" ? "sun" : "moon"} />
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            iconOnly
+            onClick={onOpenSettings}
+            aria-label="Settings"
+            title="Settings (,)"
+          >
+            <Icon name="settings" />
           </Button>
           <Button
             variant="primary"

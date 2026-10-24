@@ -3,7 +3,10 @@ import {
   HttpRoutesGateway,
   InMemoryRoutesGateway,
   type RoutesGateway,
+  SAMPLE_LATE_SERVER,
 } from "../features/routes/index.ts";
+
+const DEMO_LATE_SERVER_MS = 12_000;
 
 /**
  * `?demo` in the URL shows sample routes without a server; `?demo&noportless` starts with portless
@@ -13,9 +16,16 @@ export function createGateway(location: Pick<Location, "search">): RoutesGateway
   const params = new URLSearchParams(location.search);
   if (params.has("demo")) {
     const installed = !params.has("noportless");
-    return new InMemoryRoutesGateway(createSampleSnapshot(Date.now(), installed), Date.now, {
-      installDelayMs: 1500,
-    });
+    const gateway = new InMemoryRoutesGateway(
+      createSampleSnapshot(Date.now(), installed),
+      Date.now,
+      {
+        installDelayMs: 1500,
+      },
+    );
+    // Shows a new server appearing, which auto mode names when it is on.
+    setTimeout(() => gateway.startServer(SAMPLE_LATE_SERVER), DEMO_LATE_SERVER_MS);
+    return gateway;
   }
   return new HttpRoutesGateway();
 }

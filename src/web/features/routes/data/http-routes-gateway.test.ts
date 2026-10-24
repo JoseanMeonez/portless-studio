@@ -1,9 +1,11 @@
 import {
   API_PATHS,
+  type ConfigResponse,
   SNAPSHOT_EVENT,
   type Snapshot,
   TOKEN_HEADER,
 } from "../../../../core/api/contract.ts";
+import { DEFAULT_CONFIG } from "../../../../core/config/studio-config.ts";
 import { HttpRoutesGateway } from "./http-routes-gateway.ts";
 import type { ConnectionState } from "./routes-gateway.ts";
 
@@ -11,6 +13,8 @@ const snapshot: Snapshot = {
   proxy: { running: true, port: 443, https: true, tlds: ["localhost"] },
   portless: { installed: true, version: "0.4.2" },
   routes: [],
+  detected: [],
+  autoName: false,
   readAt: 1,
 };
 
@@ -114,6 +118,66 @@ describe("HttpRoutesGateway writes", () => {
       ok: false,
       error: { error: "install_failed", message: "npm exited with code 1." },
     });
+  });
+
+  it("reads the config without a token", async () => {
+    const body: ConfigResponse = { config: DEFAULT_CONFIG, path: "/home/dev/.studio.json" };
+    const { calls, fetch } = stubFetch(() => json(200, body));
+    const gateway = new HttpRoutesGateway({ fetch });
+
+    expect(await gateway.getConfig()).toEqual({ ok: true, value: body });
+    expect(calls.map((call) => [call.init.method, call.url])).toEqual([["GET", API_PATHS.config]]);
+  });
+
+  it("saves the config with PUT and the token, and returns what the server stored", async () => {
+    const config = { ...DEFAULT_CONFIG, autoName: true, ignoredPorts: [9229] };
+    const { calls, fetch } = stubFetch((url) =>
+      url === API_PATHS.session
+        ? json(200, { token: "secret" })
+        : json(200, { config, path: "/home/dev/.studio.json" }),
+    );
+    const gateway = new HttpRoutesGateway({ fetch });
+
+    expect(await gateway.updateConfig(config)).toEqual({
+      ok: true,
+      value: { config, path: "/home/dev/.studio.json" },
+    });
+    const put = calls.find((call) => call.url === API_PATHS.config);
+    expect(put?.init.method).toBe("PUT");
+    expect(put && header(put, TOKEN_HEADER)).toBe("secret");
+    expect(JSON.parse(String(put?.init.body))).toEqual(config);
+  });
+
+  it("returns invalid_config from the server as a failed result", async () => {
+    const error = { error: "invalid_config", message: `"port" must be a whole number.` };
+    const { fetch } = stubFetch((url) =>
+      url === API_PATHS.session ? json(200, { token: "secret" }) : json(400, error),
+    );
+    const gateway = new HttpRoutesGateway({ fetch });
+
+    expect(await gateway.updateConfig(DEFAULT_CONFIG)).toEqual({ ok: false, error });
+  });
+
+  it("ignores a detected port with POST and the token", async () => {
+    const { calls, fetch } = stubFetch((url) =>
+      url === API_PATHS.session
+        ? json(200, { token: "secret" })
+        : new Response(null, { status: 204 }),
+    );
+    const gateway = new HttpRoutesGateway({ fetch });
+
+    expect(await gateway.ignoreDetected(5173)).toEqual({ ok: true, value: null });
+    const ignore = calls.find((call) => call.url === API_PATHS.ignoreDetected(5173));
+    expect(ignore?.init.method).toBe("POST");
+    expect(ignore && header(ignore, TOKEN_HEADER)).toBe("secret");
+  });
+
+  it("reads a snapshot from an older server without detected ports", async () => {
+    const { detected: _detected, autoName: _autoName, ...older } = snapshot;
+    const { fetch } = stubFetch(() => json(200, older));
+    const gateway = new HttpRoutesGateway({ fetch });
+
+    expect(await gateway.getSnapshot()).toEqual({ ok: true, value: snapshot });
   });
 
   it("reports an unreachable server as an internal error instead of throwing", async () => {

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import type { DetectedPort } from "../../../../core/ports/detected-port.ts";
 import type { Route } from "../../../../core/routes/route.ts";
 import { modifierLabel } from "../../../shared/lib/keyboard.ts";
 import { useToast } from "../../../shared/ui/toast/use-toast.ts";
@@ -18,9 +19,11 @@ import { useNow } from "../hooks/use-now.ts";
 import { useRouteActions } from "../hooks/use-route-actions.ts";
 import { useRoutes } from "../hooks/use-routes.ts";
 import { AliasDialogContainer, type AliasDialogRequest } from "./alias-dialog-container.tsx";
+import { DetectedContainer } from "./detected-container.tsx";
 import { InstallPortlessContainer } from "./install-portless-container.tsx";
 import { RouteCommandMenu } from "./route-command-menu.tsx";
 import styles from "./routes-dashboard.module.css";
+import { SettingsDialogContainer } from "./settings-dialog-container.tsx";
 
 type RoutesDashboardProps = {
   theme: "light" | "dark";
@@ -28,27 +31,43 @@ type RoutesDashboardProps = {
 };
 
 const NO_ROUTES: Route[] = [];
+const NO_DETECTED: DetectedPort[] = [];
 
-/** The whole routes screen: header, filter, live list, dialogs and keyboard shortcuts. */
+/**
+ * The whole routes screen: header, filter, detected ports, live list, dialogs and keyboard
+ * shortcuts.
+ */
 export function RoutesDashboard({ theme, onToggleTheme }: RoutesDashboardProps) {
   const { snapshot, error, connection, reload } = useRoutes();
   const routes = snapshot?.routes ?? NO_ROUTES;
-  const filter = useFilter(routes);
+  // Optional chaining tolerates a server older than the `portless` field.
+  const portlessMissing = snapshot?.portless?.installed === false;
+  // Naming needs portless, so detected ports wait until it is installed.
+  const detected = portlessMissing ? NO_DETECTED : (snapshot?.detected ?? NO_DETECTED);
+  const filter = useFilter(routes, detected);
   const actions = useRouteActions();
   const toast = useToast();
   const now = useNow();
 
   const [dialog, setDialog] = useState<AliasDialogRequest | null>(null);
   const [commandMenuOpen, setCommandMenuOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [confirmingRemove, setConfirmingRemove] = useState<string | null>(null);
   const filterInput = useRef<HTMLInputElement>(null);
   const list = useRef<HTMLDivElement>(null);
   const modifier = modifierLabel();
 
-  // Optional chaining tolerates a server older than the `portless` field.
-  const portlessMissing = snapshot?.portless?.installed === false;
+  const hasRoutes = routes.length > 0;
+  const hasDetected = detected.length > 0;
   const routeAt = (index: number) => filter.visible[index];
   const openCreate = () => setDialog({ mode: "create" });
+  const openSettings = () => setSettingsOpen(true);
+  const nameDetected = (item: DetectedPort) =>
+    setDialog({
+      mode: "create",
+      port: item.port,
+      ...(item.suggestedName ? { name: item.suggestedName } : {}),
+    });
   const requestRename = (route: Route) => {
     if (route.kind === "alias") setDialog({ mode: "rename", route });
     else
@@ -72,7 +91,7 @@ export function RoutesDashboard({ theme, onToggleTheme }: RoutesDashboardProps) 
 
   const navigation = useKeyboardNavigation({
     itemCount: filter.visible.length,
-    enabled: dialog === null && !commandMenuOpen && snapshot !== null,
+    enabled: dialog === null && !commandMenuOpen && !settingsOpen && snapshot !== null,
     onOpen: (index) => withRoute(routeAt(index), actions.open),
     onCopy: (index) => withRoute(routeAt(index), (route) => void actions.copyUrl(route)),
     onRename: (index) => withRoute(routeAt(index), requestRename),
@@ -80,6 +99,7 @@ export function RoutesDashboard({ theme, onToggleTheme }: RoutesDashboardProps) 
     onCreate: openCreate,
     onFocusFilter: () => filterInput.current?.focus(),
     onToggleCommandMenu: () => setCommandMenuOpen((open) => !open),
+    onOpenSettings: openSettings,
     onEscape: () => setConfirmingRemove(null),
   });
   const selected = routeAt(navigation.selectedIndex) ?? null;
@@ -100,11 +120,13 @@ export function RoutesDashboard({ theme, onToggleTheme }: RoutesDashboardProps) 
         proxy={snapshot?.proxy ?? null}
         portlessVersion={snapshot?.portless?.version ?? null}
         connection={connection}
+        autoName={snapshot?.autoName ?? false}
         theme={theme}
         modifierLabel={modifier}
         onToggleTheme={onToggleTheme}
         onOpenCommandMenu={() => setCommandMenuOpen(true)}
         onNamePort={openCreate}
+        onOpenSettings={openSettings}
       />
 
       <main className={styles.main}>
@@ -121,14 +143,14 @@ export function RoutesDashboard({ theme, onToggleTheme }: RoutesDashboardProps) 
         ) : null}
         {!snapshot && !error ? <LoadingRows /> : null}
 
-        {snapshot && !portlessMissing && routes.length === 0 ? (
+        {snapshot && !portlessMissing && !hasRoutes && !hasDetected ? (
           <EmptyState
             onCopyCommand={(command) => void actions.copyCommand(command)}
             onNamePort={openCreate}
           />
         ) : null}
 
-        {snapshot && routes.length > 0 ? (
+        {snapshot && (hasRoutes || hasDetected) ? (
           <>
             <FilterBar
               query={filter.query}
@@ -139,8 +161,17 @@ export function RoutesDashboard({ theme, onToggleTheme }: RoutesDashboardProps) 
               onSortChange={filter.setSort}
               inputRef={filterInput}
             />
+            {filter.visibleDetected.length > 0 ? (
+              <DetectedContainer
+                visible={filter.visibleDetected}
+                totalCount={detected.length}
+                autoName={snapshot.autoName}
+                onName={nameDetected}
+              />
+            ) : null}
+            {hasRoutes && hasDetected ? <h2 className={styles.sectionTitle}>Routes</h2> : null}
             <div ref={list}>
-              {filter.visible.length > 0 ? (
+              {!hasRoutes ? null : filter.visible.length > 0 ? (
                 <RouteList
                   routes={filter.visible}
                   now={now}
@@ -157,6 +188,9 @@ export function RoutesDashboard({ theme, onToggleTheme }: RoutesDashboardProps) 
               ) : (
                 <NoMatches query={filter.query} onClear={() => setQuery("")} />
               )}
+              {!hasRoutes && filter.visibleDetected.length === 0 ? (
+                <NoMatches query={filter.query} onClear={() => setQuery("")} />
+              ) : null}
             </div>
             <ShortcutHints modifierLabel={modifier} />
           </>
@@ -171,6 +205,8 @@ export function RoutesDashboard({ theme, onToggleTheme }: RoutesDashboardProps) 
         />
       ) : null}
 
+      {settingsOpen ? <SettingsDialogContainer onClose={() => setSettingsOpen(false)} /> : null}
+
       {commandMenuOpen ? (
         <RouteCommandMenu
           routes={routes}
@@ -180,6 +216,7 @@ export function RoutesDashboard({ theme, onToggleTheme }: RoutesDashboardProps) 
           onRename={requestRename}
           onToggleTheme={onToggleTheme}
           onFocusFilter={() => filterInput.current?.focus()}
+          onOpenSettings={openSettings}
         />
       ) : null}
     </div>

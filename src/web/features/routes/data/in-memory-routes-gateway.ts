@@ -1,10 +1,17 @@
 import type {
   ApiError,
+  ConfigResponse,
   CreateAliasRequest,
   InstallPortlessResponse,
   RenameAliasRequest,
   Snapshot,
 } from "../../../../core/api/contract.ts";
+import {
+  DEFAULT_CONFIG,
+  parseConfig,
+  type StudioConfig,
+} from "../../../../core/config/studio-config.ts";
+import type { DetectedPort } from "../../../../core/ports/detected-port.ts";
 import { err, ok, type Result } from "../../../../core/result.ts";
 import { type Route, routeUrl } from "../../../../core/routes/route.ts";
 import { parsePort, parseRouteName } from "../../../../core/routes/route-name.ts";
@@ -14,7 +21,13 @@ export type InMemoryRoutesGatewayOptions = {
   /** How long the fake `npm install -g portless` takes. */
   installDelayMs?: number;
   installOutcome?: "success" | "failure";
+  /** How long auto mode waits before naming a newly detected port, like the server's next scan. */
+  autoNameDelayMs?: number;
+  /** Where the fake config file lives, shown in the settings panel. */
+  configPath?: string;
 };
+
+export const DEMO_CONFIG_PATH = "~/.portless-studio/config.json";
 
 /** Version the fake install reports. */
 export const DEMO_PORTLESS_VERSION = "0.4.2";
@@ -29,6 +42,10 @@ export class InMemoryRoutesGateway implements RoutesGateway {
   readonly #now: () => number;
   readonly #options: InMemoryRoutesGatewayOptions;
   #installing = false;
+  #config: StudioConfig;
+  // Every port listening on the fake machine; `snapshot.detected` is the part not named or ignored.
+  #listening: DetectedPort[];
+  #autoNameTimer: ReturnType<typeof setTimeout> | undefined;
 
   constructor(
     initial: Snapshot,
@@ -38,6 +55,8 @@ export class InMemoryRoutesGateway implements RoutesGateway {
     this.#snapshot = initial;
     this.#now = now;
     this.#options = options;
+    this.#config = { ...DEFAULT_CONFIG, autoName: initial.autoName };
+    this.#listening = [...initial.detected];
   }
 
   async getSnapshot(): Promise<Result<Snapshot, ApiError>> {
@@ -54,8 +73,16 @@ export class InMemoryRoutesGateway implements RoutesGateway {
 
   /** Replaces the whole state and notifies subscribers, as a server push would. */
   emit(snapshot: Snapshot): void {
-    this.#snapshot = snapshot;
-    for (const listener of this.#listeners) listener(snapshot);
+    this.#listening = [...snapshot.detected];
+    this.#config = { ...this.#config, autoName: snapshot.autoName };
+    this.#publish(snapshot);
+  }
+
+  /** A new dev server starts answering HTTP; auto mode names it after a moment. */
+  startServer(port: DetectedPort): void {
+    this.#listening = [...this.#listening.filter((item) => item.port !== port.port), port];
+    this.#update(this.#snapshot.routes);
+    if (this.#config.autoName) this.#scheduleAutoName([port.port]);
   }
 
   async createAlias(request: CreateAliasRequest): Promise<Result<null, ApiError>> {
@@ -134,8 +161,42 @@ export class InMemoryRoutesGateway implements RoutesGateway {
       });
     }
     const portless = { installed: true, version: DEMO_PORTLESS_VERSION };
-    this.emit({ ...this.#snapshot, portless, readAt: this.#now() });
+    this.#publish({ ...this.#snapshot, portless, readAt: this.#now() });
     return ok({ version: DEMO_PORTLESS_VERSION, output: "added 1 package in 1s" });
+  }
+
+  async getConfig(): Promise<Result<ConfigResponse, ApiError>> {
+    return ok(this.#configResponse());
+  }
+
+  async updateConfig(config: StudioConfig): Promise<Result<ConfigResponse, ApiError>> {
+    const parsed = parseConfig(config);
+    if (!parsed.ok) return err({ error: "invalid_config", message: parsed.error });
+    this.#config = parsed.value;
+    this.#update(this.#snapshot.routes);
+    return ok(this.#configResponse());
+  }
+
+  async ignoreDetected(port: number): Promise<Result<null, ApiError>> {
+    const ignoredPorts = [...new Set([...this.#config.ignoredPorts, port])].sort((a, b) => a - b);
+    this.#config = { ...this.#config, ignoredPorts };
+    this.#update(this.#snapshot.routes);
+    return ok(null);
+  }
+
+  #configResponse(): ConfigResponse {
+    return { config: this.#config, path: this.#options.configPath ?? DEMO_CONFIG_PATH };
+  }
+
+  /** Names the given ports with their suggestion, the way the server's auto mode does. */
+  #scheduleAutoName(ports: number[]): void {
+    clearTimeout(this.#autoNameTimer);
+    this.#autoNameTimer = setTimeout(async () => {
+      for (const detected of this.#snapshot.detected) {
+        if (!ports.includes(detected.port) || detected.suggestedName === null) continue;
+        await this.createAlias({ name: detected.suggestedName, port: detected.port });
+      }
+    }, this.#options.autoNameDelayMs ?? 1500);
   }
 
   #find(name: string): Route | undefined {
@@ -157,6 +218,25 @@ export class InMemoryRoutesGateway implements RoutesGateway {
   }
 
   #update(routes: Route[]): void {
-    this.emit({ ...this.#snapshot, routes, readAt: this.#now() });
+    const named = new Set(routes.map((route) => route.port));
+    const ignoredProcesses = this.#config.ignoredProcesses.map((name) => name.toLowerCase());
+    const detected = this.#listening.filter(
+      (item) =>
+        !named.has(item.port) &&
+        !this.#config.ignoredPorts.includes(item.port) &&
+        !ignoredProcesses.includes(item.processName.toLowerCase()),
+    );
+    this.#publish({
+      ...this.#snapshot,
+      routes,
+      detected,
+      autoName: this.#config.autoName,
+      readAt: this.#now(),
+    });
+  }
+
+  #publish(snapshot: Snapshot): void {
+    this.#snapshot = snapshot;
+    for (const listener of this.#listeners) listener(snapshot);
   }
 }

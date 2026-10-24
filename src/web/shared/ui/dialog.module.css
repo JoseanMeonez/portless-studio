@@ -13,11 +13,19 @@
 .panel {
   width: 100%;
   max-width: var(--dialog-width);
+  /* Tall content scrolls inside the panel instead of running past the bottom of the window. */
+  max-height: calc(100dvh - 14vh - var(--space-4));
+  overflow-y: auto;
+  overscroll-behavior: contain;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-xl);
   background: var(--color-bg);
   box-shadow: var(--shadow-overlay);
   animation: rise-in var(--duration-normal) var(--ease-out);
+}
+
+.large {
+  max-width: var(--dialog-width-lg);
 }
 
 .header {

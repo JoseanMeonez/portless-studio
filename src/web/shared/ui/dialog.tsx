@@ -6,11 +6,13 @@ type DialogProps = {
   title: string;
   description?: ReactNode;
   onClose: () => void;
+  /** `lg` for forms with many fields, like settings. */
+  size?: "md" | "lg";
   children: ReactNode;
 };
 
 /** A modal panel. Mount it to open it, unmount it to close it; focus returns to the opener. */
-export function Dialog({ title, description, onClose, children }: DialogProps) {
+export function Dialog({ title, description, onClose, size = "md", children }: DialogProps) {
   const panel = useRef<HTMLDivElement>(null);
   const titleId = useId();
   const descriptionId = useId();
@@ -28,7 +30,7 @@ export function Dialog({ title, description, onClose, children }: DialogProps) {
         aria-modal="true"
         aria-labelledby={titleId}
         aria-describedby={description ? descriptionId : undefined}
-        className={styles.panel}
+        className={[styles.panel, size === "lg" ? styles.large : ""].filter(Boolean).join(" ")}
       >
         <header className={styles.header}>
           <h2 id={titleId} className={styles.title}>

@@ -187,7 +187,7 @@ describe("command menu", () => {
 
 describe("other states", () => {
   it("teaches how to add a route when there are none", async () => {
-    setup({ ...createSampleSnapshot(NOW), routes: [] });
+    setup({ ...createSampleSnapshot(NOW), routes: [], detected: [] });
 
     expect(await screen.findByText("No routes yet")).toBeTruthy();
     expect(screen.getByText("portless myapp pnpm dev")).toBeTruthy();

@@ -1,6 +1,7 @@
 import {
   API_PATHS,
   type ApiError,
+  type ConfigResponse,
   type CreateAliasRequest,
   type InstallPortlessResponse,
   type RenameAliasRequest,
@@ -9,6 +10,7 @@ import {
   type Snapshot,
   TOKEN_HEADER,
 } from "../../../../core/api/contract.ts";
+import { parseConfig, type StudioConfig } from "../../../../core/config/studio-config.ts";
 import { err, ok, type Result } from "../../../../core/result.ts";
 import type { ConnectionListener, RoutesGateway, SnapshotListener } from "./routes-gateway.ts";
 
@@ -47,8 +49,9 @@ export class HttpRoutesGateway implements RoutesGateway {
   async getSnapshot(): Promise<Result<Snapshot, ApiError>> {
     const response = await this.#request(API_PATHS.snapshot, { method: "GET" });
     if (!response.ok) return response;
-    return isSnapshot(response.value)
-      ? ok(response.value)
+    const snapshot = toSnapshot(response.value);
+    return snapshot
+      ? ok(snapshot)
       : err({ error: "internal", message: "The server sent a snapshot this app cannot read." });
   }
 
@@ -111,6 +114,20 @@ export class HttpRoutesGateway implements RoutesGateway {
       version: typeof body?.version === "string" ? body.version : null,
       output: typeof body?.output === "string" ? body.output : "",
     });
+  }
+
+  async getConfig(): Promise<Result<ConfigResponse, ApiError>> {
+    const response = await this.#request(API_PATHS.config, { method: "GET" });
+    return response.ok ? readConfigResponse(response.value) : response;
+  }
+
+  async updateConfig(config: StudioConfig): Promise<Result<ConfigResponse, ApiError>> {
+    const response = await this.#send(API_PATHS.config, "PUT", config);
+    return response.ok ? readConfigResponse(response.value) : response;
+  }
+
+  ignoreDetected(port: number): Promise<Result<null, ApiError>> {
+    return this.#write(API_PATHS.ignoreDetected(port), "POST");
   }
 
   async #write(path: string, method: string, body?: unknown): Promise<Result<null, ApiError>> {
@@ -194,18 +211,32 @@ function parseJson(text: string): unknown {
 }
 
 function parseSnapshot(data: string): Snapshot | null {
-  const value = parseJson(data);
-  return isSnapshot(value) ? value : null;
+  return toSnapshot(parseJson(data));
 }
 
-function isSnapshot(value: unknown): value is Snapshot {
-  if (typeof value !== "object" || value === null) return false;
+/** Checks the parts the UI relies on; fields a server older than this app lacks get defaults. */
+function toSnapshot(value: unknown): Snapshot | null {
+  if (typeof value !== "object" || value === null) return null;
   const candidate = value as Partial<Snapshot>;
-  return (
+  const valid =
     Array.isArray(candidate.routes) &&
     typeof candidate.proxy === "object" &&
-    candidate.proxy !== null
-  );
+    candidate.proxy !== null;
+  if (!valid) return null;
+  return {
+    ...(candidate as Snapshot),
+    detected: Array.isArray(candidate.detected) ? candidate.detected : [],
+    autoName: candidate.autoName === true,
+  };
+}
+
+function readConfigResponse(value: unknown): Result<ConfigResponse, ApiError> {
+  const body = value as Partial<ConfigResponse> | null;
+  const config = parseConfig(body?.config);
+  if (!config.ok || typeof body?.path !== "string") {
+    return err({ error: "internal", message: "The server sent settings this app cannot read." });
+  }
+  return ok({ config: config.value, path: body.path });
 }
 
 function isApiError(value: unknown): value is ApiError {

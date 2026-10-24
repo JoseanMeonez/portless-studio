@@ -24,10 +24,14 @@ export function FilterBar({
   onSortChange,
   inputRef,
 }: FilterBarProps) {
+  const searching = query.trim() !== "";
+  // With no routes yet the filter only narrows detected ports, which count themselves.
   const count =
-    query.trim() === ""
-      ? `${totalCount} ${totalCount === 1 ? "route" : "routes"}`
-      : `${visibleCount} of ${totalCount}`;
+    totalCount === 0
+      ? ""
+      : searching
+        ? `${visibleCount} of ${totalCount}`
+        : `${totalCount} ${totalCount === 1 ? "route" : "routes"}`;
 
   return (
     <div className={styles.bar}>

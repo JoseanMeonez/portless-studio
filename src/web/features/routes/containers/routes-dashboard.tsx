@@ -17,6 +17,7 @@ import { NotificationsMenu } from "../components/notifications-menu.tsx";
 import { ProxyBanner } from "../components/proxy-banner.tsx";
 import { RouteList } from "../components/route-list.tsx";
 import type { RowConfirmation } from "../components/route-row.tsx";
+import type { MenuPoint } from "../components/row-menu-trigger.ts";
 import { ShortcutHints } from "../components/shortcut-hints.tsx";
 import { ShortcutsDialog } from "../components/shortcuts-dialog.tsx";
 import { StudioStopped } from "../components/studio-stopped.tsx";
@@ -28,6 +29,7 @@ import { useDoctor } from "../hooks/use-doctor.ts";
 import { useKeyboardNavigation } from "../hooks/use-keyboard-navigation.ts";
 import { type ItemTarget, parseFocus, useNotifications } from "../hooks/use-notifications.ts";
 import { useNow } from "../hooks/use-now.ts";
+import { useOpenWith } from "../hooks/use-open-with.ts";
 import { useRouteActions } from "../hooks/use-route-actions.ts";
 import { useRouteViews } from "../hooks/use-route-views.ts";
 import { useRoutes } from "../hooks/use-routes.ts";
@@ -39,6 +41,11 @@ import { HealthPanelContainer } from "./health-panel-container.tsx";
 import { InstallPortlessContainer } from "./install-portless-container.tsx";
 import { RouteCommandMenu } from "./route-command-menu.tsx";
 import styles from "./routes-dashboard.module.css";
+import {
+  RowMenuContainer,
+  type RowMenuRequest,
+  type RowMenuTarget,
+} from "./row-menu-container.tsx";
 import { SettingsDialogContainer } from "./settings-dialog-container.tsx";
 
 type RoutesDashboardProps = {
@@ -51,7 +58,7 @@ const NO_DETECTED: DetectedPort[] = [];
 
 /** Dialogs that ask for one name. */
 type NameRequest =
-  | { kind: "sshop-view" }
+  | { kind: "save-view" }
   | { kind: "rename-view" }
   | { kind: "rename-group"; groupId: string; name: string };
 
@@ -86,6 +93,8 @@ export function RoutesDashboard({ theme, onToggleTheme }: RoutesDashboardProps) 
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [naming, setNaming] = useState<NameRequest | null>(null);
   const [moving, setMoving] = useState<Route | null>(null);
+  const [rowMenu, setRowMenu] = useState<RowMenuRequest | null>(null);
+  const openWith = useOpenWith(rowMenu !== null);
   const [confirming, setConfirming] = useState<{ name: string; action: RowConfirmation } | null>(
     null,
   );
@@ -163,7 +172,7 @@ export function RoutesDashboard({ theme, onToggleTheme }: RoutesDashboardProps) 
     setNaming(null);
     if (!request) return;
     const { view, saved } = viewState;
-    if (request.kind === "sshop-view") {
+    if (request.kind === "save-view") {
       const { id: _id, name: _name, ...settings } = view;
       const id = await viewsConfig.addView({ ...settings, name });
       if (id) {
@@ -197,6 +206,16 @@ export function RoutesDashboard({ theme, onToggleTheme }: RoutesDashboardProps) 
     }
   };
   const closeViewMenu = useCallback((open: boolean) => setViewMenuOpen(open), []);
+  const routeMenu = (route: Route, point: MenuPoint) =>
+    setRowMenu({ target: routeMenuTarget(route), ...point });
+  const detectedMenu = (item: DetectedPort, point: MenuPoint) =>
+    setRowMenu({ target: detectedMenuTarget(item), ...point });
+  /** From the keyboard: the menu opens under the selected row. */
+  const selectedRowMenu = (route: Route) => {
+    const row = list.current?.querySelector('[aria-current="true"]');
+    const rect = row?.getBoundingClientRect();
+    routeMenu(route, rect ? { x: rect.left + 48, y: rect.bottom } : { x: 48, y: 120 });
+  };
 
   const overlayOpen =
     dialog !== null ||
@@ -206,7 +225,8 @@ export function RoutesDashboard({ theme, onToggleTheme }: RoutesDashboardProps) 
     viewMenuOpen ||
     shortcutsOpen ||
     naming !== null ||
-    moving !== null;
+    moving !== null ||
+    rowMenu !== null;
   const navigation = useKeyboardNavigation({
     itemCount: views.ordered.length,
     enabled: !overlayOpen && snapshot !== null,
@@ -215,6 +235,7 @@ export function RoutesDashboard({ theme, onToggleTheme }: RoutesDashboardProps) 
     onRename: (index) => withRoute(routeAt(index), requestRename),
     onRemove: (index) => withRoute(routeAt(index), requestRemove),
     onFavorite: (index) => withRoute(routeAt(index), toggleFavorite),
+    onRowMenu: (index) => withRoute(routeAt(index), selectedRowMenu),
     onCreate: openCreate,
     onFocusFilter: () => filterInput.current?.focus(),
     onToggleCommandMenu: () => setCommandMenuOpen((open) => !open),
@@ -387,7 +408,7 @@ export function RoutesDashboard({ theme, onToggleTheme }: RoutesDashboardProps) 
                   open={viewMenuOpen}
                   onOpenChange={closeViewMenu}
                   onSwitch={viewState.switchView}
-                  onSaveAs={() => setNaming({ kind: "sshop-view" })}
+                  onSaveAs={() => setNaming({ kind: "save-view" })}
                   onSaveChanges={() =>
                     void viewsConfig
                       .replaceView(viewState.saved.id, viewState.view)
@@ -413,6 +434,7 @@ export function RoutesDashboard({ theme, onToggleTheme }: RoutesDashboardProps) 
                 totalCount={detected.length}
                 autoName={snapshot.autoName}
                 onName={nameDetected}
+                onMenu={detectedMenu}
               />
             ) : null}
             {hasRoutes && hasDetected ? <h2 className={styles.sectionTitle}>Routes</h2> : null}
@@ -437,6 +459,7 @@ export function RoutesDashboard({ theme, onToggleTheme }: RoutesDashboardProps) 
                   onCancelConfirm={() => setConfirming(null)}
                   onToggleFavorite={toggleFavorite}
                   onMoveToGroup={setMoving}
+                  onMenu={routeMenu}
                   onRenameGroup={(groupId, name) =>
                     setNaming({ kind: "rename-group", groupId, name })
                   }
@@ -509,6 +532,16 @@ export function RoutesDashboard({ theme, onToggleTheme }: RoutesDashboardProps) 
         />
       ) : null}
 
+      {rowMenu && openWith.apps ? (
+        <RowMenuContainer
+          request={rowMenu}
+          apps={openWith.apps}
+          onOpenWith={(app, path) => void openWith.open(app, path)}
+          onCustomize={openSettings}
+          onClose={() => setRowMenu(null)}
+        />
+      ) : null}
+
       {commandMenuOpen ? (
         <RouteCommandMenu
           routes={routes}
@@ -527,7 +560,7 @@ export function RoutesDashboard({ theme, onToggleTheme }: RoutesDashboardProps) 
             setConfirming({ name: route.name, action: "stop" });
           }}
           onSwitchView={viewState.switchView}
-          onSaveView={() => setNaming({ kind: "sshop-view" })}
+          onSaveView={() => setNaming({ kind: "save-view" })}
           onToggleKind={toggleKind}
           onToggleTheme={onToggleTheme}
           onFocusFilter={() => filterInput.current?.focus()}
@@ -543,12 +576,24 @@ export function RoutesDashboard({ theme, onToggleTheme }: RoutesDashboardProps) 
   );
 }
 
+function routeMenuTarget(route: Route): RowMenuTarget {
+  return { label: route.name, url: route.url, path: route.project?.path ?? null };
+}
+
+function detectedMenuTarget(item: DetectedPort): RowMenuTarget {
+  return {
+    label: `port ${item.port}`,
+    url: `http://localhost:${item.port}`,
+    path: item.project?.path ?? item.cwd,
+  };
+}
+
 function withRoute(route: Route | undefined, action: (route: Route) => void) {
   if (route) action(route);
 }
 
 function nameDialogText(request: NameRequest, viewName: string) {
-  if (request.kind === "sshop-view") {
+  if (request.kind === "save-view") {
     return {
       title: "Save as new view",
       description: "Keeps the current grouping, sort and filters under a name.",

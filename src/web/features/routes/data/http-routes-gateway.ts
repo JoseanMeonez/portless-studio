@@ -3,9 +3,12 @@ import {
   type ApiError,
   type ConfigResponse,
   type CreateAliasRequest,
+  type CustomAppsResponse,
   type DoctorFixResponse,
   type DoctorReport,
   type InstallPortlessResponse,
+  type OpenWithApp,
+  type OpenWithRequest,
   type ProxyAction,
   type ProxyActionResponse,
   type RenameAliasRequest,
@@ -20,6 +23,7 @@ import {
 } from "../../../../core/api/contract.ts";
 import { parseConfig, type StudioConfig } from "../../../../core/config/studio-config.ts";
 import type { DoctorCheck } from "../../../../core/doctor/doctor-check.ts";
+import { type CustomApp, isCustomApp } from "../../../../core/projects/custom-app.ts";
 import { err, ok, type Result } from "../../../../core/result.ts";
 import type {
   ConnectionListener,
@@ -187,6 +191,27 @@ export class HttpRoutesGateway implements RoutesGateway {
     return this.#write(API_PATHS.stopProcess(pid), "POST");
   }
 
+  async listOpenWithApps(): Promise<Result<OpenWithApp[], ApiError>> {
+    const response = await this.#request(API_PATHS.openWithApps, { method: "GET" });
+    if (!response.ok) return response;
+    const apps = (response.value as { apps?: unknown } | null)?.apps;
+    return Array.isArray(apps) ? ok(apps.filter(isOpenWithApp)) : unreadable("apps");
+  }
+
+  openWith(request: OpenWithRequest): Promise<Result<null, ApiError>> {
+    return this.#write(API_PATHS.openWith, "POST", request);
+  }
+
+  async getCustomApps(): Promise<Result<CustomAppsResponse, ApiError>> {
+    const response = await this.#request(API_PATHS.customApps, { method: "GET" });
+    return response.ok ? readCustomApps(response.value) : response;
+  }
+
+  async updateCustomApps(apps: CustomApp[]): Promise<Result<CustomAppsResponse, ApiError>> {
+    const response = await this.#send(API_PATHS.customApps, "PUT", { apps });
+    return response.ok ? readCustomApps(response.value) : response;
+  }
+
   async #write(path: string, method: string, body?: unknown): Promise<Result<null, ApiError>> {
     const response = await this.#send(path, method, body);
     return response.ok ? ok(null) : response;
@@ -312,6 +337,25 @@ function readConfigResponse(value: unknown): Result<ConfigResponse, ApiError> {
     return err({ error: "internal", message: "The server sent settings this app cannot read." });
   }
   return ok({ config: config.value, path: body.path });
+}
+
+const APP_KINDS = new Set(["editor", "file-manager", "custom"]);
+
+function isOpenWithApp(value: unknown): value is OpenWithApp {
+  if (typeof value !== "object" || value === null) return false;
+  const app = value as Partial<OpenWithApp>;
+  return (
+    typeof app.id === "string" &&
+    typeof app.name === "string" &&
+    typeof app.kind === "string" &&
+    APP_KINDS.has(app.kind)
+  );
+}
+
+function readCustomApps(value: unknown): Result<CustomAppsResponse, ApiError> {
+  const body = value as Partial<CustomAppsResponse> | null;
+  if (!Array.isArray(body?.apps) || typeof body.path !== "string") return unreadable("apps");
+  return ok({ apps: body.apps.filter(isCustomApp), path: body.path });
 }
 
 function readChecks(value: unknown): DoctorCheck[] | null {

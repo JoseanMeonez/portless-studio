@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { Button } from "../../../shared/ui/button.tsx";
 import { Dialog } from "../../../shared/ui/dialog.tsx";
 import { Icon } from "../../../shared/ui/icons/icon.tsx";
@@ -15,10 +16,18 @@ type SettingsDialogProps = {
   projects: readonly string[];
   onCopyPath: (path: string) => void;
   onClose: () => void;
+  /** The open-with apps section, which loads and saves on its own. */
+  customApps?: ReactNode;
 };
 
 /** Every Studio setting, the same ones the JSON config file holds. */
-export function SettingsDialog({ form, projects, onCopyPath, onClose }: SettingsDialogProps) {
+export function SettingsDialog({
+  form,
+  projects,
+  onCopyPath,
+  onClose,
+  customApps,
+}: SettingsDialogProps) {
   const { load, draft, errors } = form;
   // Projects with an icon stay listed even when none of their servers runs now.
   const iconProjects = draft
@@ -192,6 +201,13 @@ export function SettingsDialog({ form, projects, onCopyPath, onClose }: Settings
               onChange={form.setProjectIcon}
             />
           </fieldset>
+
+          {customApps ? (
+            <fieldset className={styles.group}>
+              <legend className={styles.legend}>Open with</legend>
+              {customApps}
+            </fieldset>
+          ) : null}
 
           <fieldset className={styles.group}>
             <legend className={styles.legend}>Studio</legend>

@@ -10,6 +10,7 @@ import type { AppError } from "./application/app-error.ts";
 import type { AutoNamedStore } from "./application/auto-named-store.ts";
 import type { ConfigStore } from "./application/config-store.ts";
 import { createDoctorService, type DoctorService } from "./application/doctor.ts";
+import { OpenWith } from "./application/open-with.ts";
 import type { PortScanner } from "./application/port-scanner.ts";
 import type { ProcessOwner } from "./application/process-control.ts";
 import { controlProxy } from "./application/proxy-control.ts";
@@ -17,6 +18,14 @@ import type { RouteRegistry } from "./application/route-registry.ts";
 import { stopProcess } from "./application/stop-process.ts";
 import { StudioRuntime } from "./application/studio-runtime.ts";
 import type { StudioServiceControl } from "./application/studio-service.ts";
+import { systemAppCatalog } from "./infrastructure/apps/app-catalog.ts";
+import { createDetachedLauncher } from "./infrastructure/apps/detached-launcher.ts";
+import {
+  JsonCustomAppStore,
+  JsonRouteProjectStore,
+  openWithPathFor,
+  routeProjectsPathFor,
+} from "./infrastructure/apps/json-stores.ts";
 import {
   autoNamedPathFor,
   JsonAutoNamedStore,
@@ -61,6 +70,8 @@ export type StudioServices = {
   stopProcess(pid: string): Promise<Result<{ pid: number; port: number }, AppError>>;
   /** Restart and stop for Studio itself, when the CLI provides them. */
   studioService?: StudioServiceControl | undefined;
+  /** Opens project folders in editors and the file manager. */
+  openWith?: OpenWith | undefined;
 };
 
 export type StudioServicesOptions = {
@@ -105,6 +116,13 @@ export function createStudioServices(options: StudioServicesOptions = {}): Studi
     autoNamedStore: new JsonAutoNamedStore(autoNamedPathFor(configPath)),
     notifier,
     icons: new FaviconFetcher(),
+    routeProjectStore: new JsonRouteProjectStore(routeProjectsPathFor(configPath)),
+  });
+  const openWith = new OpenWith({
+    catalog: systemAppCatalog(),
+    launcher: createDetachedLauncher({ platform: process.platform }),
+    customApps: new JsonCustomAppStore(openWithPathFor(configPath)),
+    openableFolders: () => runtime.openableFolders(),
   });
   const uid = typeof process.getuid === "function" ? process.getuid() : null;
   const processes = new SystemProcessControl({
@@ -149,6 +167,7 @@ export function createStudioServices(options: StudioServicesOptions = {}): Studi
         selfPid: process.pid,
       }),
     studioService,
+    openWith,
   };
   runtimes.set(services, runtime);
   return services;
@@ -169,6 +188,13 @@ export type UninstallServices = {
 export function createUninstallServices(configPath = defaultConfigPath()): UninstallServices {
   const autoNamedPath = autoNamedPathFor(configPath);
   const recordPath = proxyStartRecordPathFor(configPath);
+  const studioPaths = [
+    configPath,
+    autoNamedPath,
+    recordPath,
+    routeProjectsPathFor(configPath),
+    openWithPathFor(configPath),
+  ];
   const processes = new SystemProcessControl({
     platform: process.platform,
     io: nodeSystemIo,
@@ -177,8 +203,8 @@ export function createUninstallServices(configPath = defaultConfigPath()): Unins
   });
   return {
     configDir: path.dirname(configPath),
-    configExists: [configPath, autoNamedPath, recordPath].some((file) => fs.existsSync(file)),
-    studioFiles: [configPath, autoNamedPath, recordPath].map((file) => path.basename(file)),
+    configExists: studioPaths.some((file) => fs.existsSync(file)),
+    studioFiles: studioPaths.map((file) => path.basename(file)),
     autoNamed: new JsonAutoNamedStore(autoNamedPath),
     proxyRecord: readProxyStartRecord(recordPath),
     forgetProxyRecord: () => fs.rmSync(recordPath, { force: true }),
@@ -236,6 +262,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     controlProxy: services.controlProxy,
     stopProcess: services.stopProcess,
     ...(services.studioService ? { studioService: services.studioService } : {}),
+    ...(services.openWith ? { openWith: services.openWith } : {}),
   });
 
   await new Promise<void>((resolve, reject) => {

@@ -1,8 +1,14 @@
 import type { ConfigResponse, Snapshot, StudioEvent } from "../../core/api/contract.ts";
 import { DEFAULT_CONFIG, parseConfig, type StudioConfig } from "../../core/config/studio-config.ts";
 import { type DetectedPort, projectOf } from "../../core/ports/detected-port.ts";
+import { itemProjectAt } from "../../core/projects/item-project.ts";
 import { err, ok, type Result } from "../../core/result.ts";
-import { healthFromProbe, type Route, type RouteHealth } from "../../core/routes/route.ts";
+import {
+  healthFromProbe,
+  type ItemProject,
+  type Route,
+  type RouteHealth,
+} from "../../core/routes/route.ts";
 import { parsePort } from "../../core/routes/route-name.ts";
 import { type AppError, appError } from "./app-error.ts";
 import {
@@ -18,6 +24,26 @@ import type { ListeningPort, PortScanner, ProbePort } from "./port-scanner.ts";
 import type { PortlessState, RouteRegistry } from "./route-registry.ts";
 import { EventLog, eventsBetween, type Observation } from "./studio-events.ts";
 import { SYSTEM_NOTIFICATION_KINDS, type SystemNotifier } from "./system-notifier.ts";
+
+/**
+ * The last project seen for each route name, so a route whose server is down still says where it
+ * ran. The default implementation is `route-projects.json` next to the config.
+ */
+export interface RouteProjectStore {
+  read(): Promise<Record<string, ItemProject>>;
+  write(projects: Record<string, ItemProject>): Promise<void>;
+}
+
+/** Keeps the projects in memory only; for tests and for `init`, which runs once. */
+export function memoryRouteProjectStore(): RouteProjectStore {
+  let projects: Record<string, ItemProject> = {};
+  return {
+    read: async () => projects,
+    write: async (next) => {
+      projects = next;
+    },
+  };
+}
 
 export type StudioRuntimeOptions = {
   registry: RouteRegistry;
@@ -39,6 +65,8 @@ export type StudioRuntimeOptions = {
   notifier?: SystemNotifier;
   /** Reads favicons; without it only icons set in the config are shown. */
   icons?: IconFetcher;
+  /** Remembers each route's last project across restarts; in memory when omitted. */
+  routeProjectStore?: RouteProjectStore;
 };
 
 type ScanResult = {
@@ -69,6 +97,11 @@ export class StudioRuntime {
   readonly #notifier: SystemNotifier | null;
   readonly #events = new EventLog();
   readonly #icons: IconResolver;
+  readonly #routeProjectStore: RouteProjectStore;
+  /** Last project seen per route name; null until read from the store. */
+  #routeProjects: Map<string, ItemProject> | null = null;
+  /** What the store last got, so an unchanged map is not written again. */
+  #savedRouteProjects: string | null = null;
   /** Names auto mode gave; null until read from the store. */
   #autoNamed: AutoNamedEntry[] | null = null;
   /** When each auto name's port was first seen closed, by name. */
@@ -104,6 +137,7 @@ export class StudioRuntime {
     this.#proxyPids = options.proxyPids ?? null;
     this.#autoNamedStore = options.autoNamedStore ?? memoryAutoNamedStore();
     this.#notifier = options.notifier ?? null;
+    this.#routeProjectStore = options.routeProjectStore ?? memoryRouteProjectStore();
     const noIcons: IconFetcher = {
       served: async () => null,
       remote: async () => null,
@@ -164,7 +198,7 @@ export class StudioRuntime {
     const config = await this.#currentConfig();
     const detected = await this.#detect(state, config, false);
     this.#lastDetected = JSON.stringify(detected);
-    const routes = this.#withDetails(state.routes);
+    const routes = await this.#detailedRoutes(state.routes);
     const snapshot: Snapshot = {
       proxy: state.proxy,
       portless: state.portless,
@@ -213,6 +247,23 @@ export class StudioRuntime {
       if (pid !== undefined) pids.set(pid, route.port);
     }
     return pids;
+  }
+
+  /**
+   * Folders Studio may open in an editor or the file manager: the project folder of every route
+   * (the last one seen while its server is down) and the folder of every detected port. The
+   * open-with endpoint accepts no other path.
+   */
+  async openableFolders(): Promise<Set<string>> {
+    const state = await this.#registry.readSnapshot();
+    const detected = await this.#detect(state, await this.#currentConfig(), false);
+    const routes = await this.#detailedRoutes(state.routes);
+    const folders = new Set<string>();
+    for (const item of [...routes, ...detected]) {
+      if (item.project?.path) folders.add(item.project.path);
+    }
+    for (const item of detected) if (item.cwd) folders.add(item.cwd);
+    return folders;
   }
 
   /** Calls `onChange` when routes, detected ports or the config change. Returns an unsubscribe. */
@@ -271,7 +322,16 @@ export class StudioRuntime {
     const excludedPorts = [this.#studioPort, state.proxy.port, ...scan.proxyPorts].filter(
       (port) => port !== null,
     );
-    return discoverPorts(cached, this.#projects, { config, routes: state.routes, excludedPorts });
+    const found = await discoverPorts(cached, this.#projects, {
+      config,
+      routes: state.routes,
+      excludedPorts,
+    });
+    return found.map((item) => {
+      if (item.cwd === null || !item.project) return item;
+      const project = itemProjectAt(this.#projects.read(item.cwd), item.cwd);
+      return project === null ? item : { ...item, project };
+    });
   }
 
   /** Reuses a scan younger than `maxAgeMs`, and shares one scan between concurrent callers. */
@@ -315,7 +375,8 @@ export class StudioRuntime {
       }
       detected = await this.#detect(state, config, false);
       const healthChanged = await this.#probeRoutes(state.routes);
-      this.#observe({ ...state, routes: this.#withDetails(state.routes), detected }, config);
+      const routes = await this.#detailedRoutes(state.routes);
+      this.#observe({ ...state, routes, detected }, config);
       if (healthChanged || JSON.stringify(detected) !== this.#lastDetected) this.#notify();
     } catch (error) {
       this.#log(`port scan failed: ${(error as Error).message}`);
@@ -325,15 +386,22 @@ export class StudioRuntime {
     }
   }
 
-  /** Adds the listening pid, its project and the last health to each route, when known. */
-  #withDetails(routes: Route[]): Route[] {
+  /**
+   * Adds the listening pid, its project and the last health to each route, when known. A route
+   * whose port has no readable process keeps the last project seen for its name.
+   */
+  async #detailedRoutes(routes: Route[]): Promise<Route[]> {
+    const remembered = await this.#loadRouteProjects();
     const listeners = new Map<number, ListeningPort>();
     for (const port of this.#scan?.ports ?? [])
       if (port.pid !== null) listeners.set(port.port, port);
-    return routes.map((route) => {
+    const detailed = routes.map((route) => {
       const listener = listeners.get(route.port);
       const health = this.#health.get(route.port);
-      const project = listener?.cwd ? projectOf(this.#projects.read(listener.cwd)) : null;
+      const cwd = listener?.cwd ?? null;
+      const seen = cwd === null ? null : itemProjectAt(this.#projects.read(cwd), cwd);
+      if (seen !== null) remembered.set(route.name, seen);
+      const project = cwd === null ? (remembered.get(route.name) ?? null) : seen;
       return {
         ...route,
         ...(listener?.pid == null ? {} : { listenerPid: listener.pid }),
@@ -341,6 +409,29 @@ export class StudioRuntime {
         ...(health === undefined ? {} : { health }),
       };
     });
+    await this.#saveRouteProjects(remembered, routes);
+    return detailed;
+  }
+
+  async #loadRouteProjects(): Promise<Map<string, ItemProject>> {
+    this.#routeProjects ??= new Map(
+      Object.entries(await this.#routeProjectStore.read().catch(() => ({}))),
+    );
+    return this.#routeProjects;
+  }
+
+  /** Drops routes that are gone and writes the file only when something changed. */
+  async #saveRouteProjects(projects: Map<string, ItemProject>, routes: Route[]): Promise<void> {
+    const names = new Set(routes.map((route) => route.name));
+    // An empty list is more likely a state read that failed than every route removed at once.
+    if (routes.length > 0)
+      for (const name of projects.keys()) if (!names.has(name)) projects.delete(name);
+    const next = JSON.stringify([...projects]);
+    if (next === this.#savedRouteProjects) return;
+    this.#savedRouteProjects = next;
+    await this.#routeProjectStore
+      .write(Object.fromEntries(projects))
+      .catch((error: Error) => this.#log(`could not save the route projects: ${error.message}`));
   }
 
   /** Adds each item's icon and one icon per project; see `IconResolver` for the order. */

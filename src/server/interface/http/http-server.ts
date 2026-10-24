@@ -4,6 +4,7 @@ import {
   type CreateAliasRequest,
   type DoctorFixResponse,
   type DoctorReport,
+  type OpenWithAppsResponse,
   type ProxyAction,
   type RenameAliasRequest,
   type Session,
@@ -15,6 +16,7 @@ import {
 import type { Result } from "../../../core/result.ts";
 import type { AppError } from "../../application/app-error.ts";
 import type { DoctorService } from "../../application/doctor.ts";
+import type { OpenWith } from "../../application/open-with.ts";
 import type { RouteRegistry } from "../../application/route-registry.ts";
 import {
   createAlias,
@@ -44,6 +46,8 @@ export type HttpServerOptions = {
   studioService?: StudioServiceControl;
   /** Stops a dev server by pid, after checking it is the user's and listens on a shown port. */
   stopProcess?: (pid: string) => Promise<Result<unknown, AppError>>;
+  /** Opens project folders in editors; without it the open-with endpoints answer `unsupported`. */
+  openWith?: OpenWith;
 };
 
 export type HttpServer = {
@@ -170,6 +174,9 @@ export function createHttpServer(options: HttpServerOptions): HttpServer {
       res.writeHead(204, { "Cache-Control": "no-store" }).end();
       return;
     }
+    if (pathname.startsWith(`${API_PATHS.openWith}/`) || pathname === API_PATHS.openWith) {
+      return handleOpenWith(req, res, pathname, method);
+    }
     if (pathname === API_PATHS.events && method === "GET") {
       await events.connect(res);
       return;
@@ -196,6 +203,36 @@ export function createHttpServer(options: HttpServerOptions): HttpServer {
       if (!body.ok) return sendBodyError(res, body.error);
       const result = await renameAlias(options.registry, name, toRenameRequest(body.value));
       return sendResult(res, result, 204);
+    }
+    sendError(res, "not_found", `No API endpoint for ${method} ${pathname}.`);
+  }
+
+  async function handleOpenWith(
+    req: IncomingMessage,
+    res: ServerResponse,
+    pathname: string,
+    method: string,
+  ): Promise<void> {
+    const openWith = options.openWith;
+    if (!openWith) return sendAppError(res, unsupported);
+    if (pathname === API_PATHS.openWithApps && method === "GET") {
+      const body: OpenWithAppsResponse = { apps: await openWith.apps() };
+      return sendJson(res, 200, body);
+    }
+    if (pathname === API_PATHS.openWith && method === "POST") {
+      const body = await readJsonBody(req);
+      if (!body.ok) return sendBodyError(res, body.error);
+      return sendResult(res, await openWith.open(body.value), 204);
+    }
+    if (pathname === API_PATHS.customApps && method === "GET") {
+      return sendJson(res, 200, await openWith.readCustomApps());
+    }
+    if (pathname === API_PATHS.customApps && method === "PUT") {
+      const body = await readJsonBody(req);
+      if (!body.ok) return sendBodyError(res, body.error);
+      const result = await openWith.updateCustomApps(body.value);
+      if (!result.ok) return sendAppError(res, result.error);
+      return sendJson(res, 200, result.value);
     }
     sendError(res, "not_found", `No API endpoint for ${method} ${pathname}.`);
   }

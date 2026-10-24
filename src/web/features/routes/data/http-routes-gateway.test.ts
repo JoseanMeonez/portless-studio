@@ -38,6 +38,50 @@ function stubFetch(handler: (url: string, init: RequestInit) => Response) {
 const header = (call: Call | undefined, name: string) =>
   (call?.init.headers as Record<string, string> | undefined)?.[name];
 
+describe("HttpRoutesGateway open with", () => {
+  it("lists apps, opens a folder with the token and keeps only well-formed apps", async () => {
+    const { calls, fetch } = stubFetch((url, init) => {
+      if (url === API_PATHS.session) return json(200, { token: "t" });
+      if (url === API_PATHS.openWithApps) {
+        return json(200, {
+          apps: [{ id: "zed", name: "Zed", kind: "editor" }, { id: 4 }, null],
+        });
+      }
+      if (url === API_PATHS.customApps) {
+        const apps = init.method === "PUT" ? JSON.parse(String(init.body)).apps : [];
+        return json(200, { apps, path: "/cfg/open-with.json" });
+      }
+      return new Response(null, { status: 204 });
+    });
+    const gateway = new HttpRoutesGateway({ fetch });
+
+    expect(await gateway.listOpenWithApps()).toEqual({
+      ok: true,
+      value: [{ id: "zed", name: "Zed", kind: "editor" }],
+    });
+    expect(await gateway.openWith({ appId: "zed", path: "/home/dev/acme" })).toEqual({
+      ok: true,
+      value: null,
+    });
+    const app = { name: "Helix", command: "foot hx {path}" };
+    expect(await gateway.updateCustomApps([app])).toEqual({
+      ok: true,
+      value: { apps: [app], path: "/cfg/open-with.json" },
+    });
+    expect(await gateway.getCustomApps()).toEqual({
+      ok: true,
+      value: { apps: [], path: "/cfg/open-with.json" },
+    });
+
+    const open = calls.find((call) => call.url === API_PATHS.openWith);
+    expect(open?.init.method).toBe("POST");
+    expect(header(open, TOKEN_HEADER)).toBe("t");
+    expect(JSON.parse(String(open?.init.body))).toEqual({ appId: "zed", path: "/home/dev/acme" });
+    const put = calls.find((call) => call.init.method === "PUT");
+    expect(header(put, TOKEN_HEADER)).toBe("t");
+  });
+});
+
 describe("HttpRoutesGateway writes", () => {
   it("fetches the session token once and sends it on every write", async () => {
     const { calls, fetch } = stubFetch((url) =>

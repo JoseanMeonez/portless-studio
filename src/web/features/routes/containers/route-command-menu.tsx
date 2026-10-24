@@ -132,7 +132,7 @@ export function RouteCommandMenu(props: RouteCommandMenuProps) {
         }),
       ),
     {
-      id: "sshop-view",
+      id: "save-view",
       group: "Views",
       label: "Save as new view…",
       icon: "layers",

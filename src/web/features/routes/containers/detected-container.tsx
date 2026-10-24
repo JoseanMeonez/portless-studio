@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { DetectedPort } from "../../../../core/ports/detected-port.ts";
 import { DetectedSection } from "../components/detected-section.tsx";
+import type { MenuPoint } from "../components/row-menu-trigger.ts";
 import { useAutoName } from "../hooks/use-auto-name.ts";
 import { useDetectedActions } from "../hooks/use-detected-actions.ts";
 import { useStopProcess } from "../hooks/use-stop-process.ts";
@@ -11,6 +12,8 @@ type DetectedContainerProps = {
   autoName: boolean;
   /** Opens the Name a port dialog prefilled with this port and its suggested name. */
   onName: (detected: DetectedPort) => void;
+  /** Opens the row menu (open with, copy path…) for this port. */
+  onMenu: (detected: DetectedPort, point: MenuPoint) => void;
 };
 
 export function DetectedContainer({
@@ -18,6 +21,7 @@ export function DetectedContainer({
   totalCount,
   autoName,
   onName,
+  onMenu,
 }: DetectedContainerProps) {
   const actions = useDetectedActions();
   const auto = useAutoName(autoName);
@@ -52,6 +56,7 @@ export function DetectedContainer({
       onRequestStop={(item) => setConfirmingStop(item.port)}
       onConfirmStop={(item) => void stop(item)}
       onCancelStop={() => setConfirmingStop(null)}
+      onMenu={onMenu}
     />
   );
 }

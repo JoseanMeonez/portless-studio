@@ -1,11 +1,12 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import type { ConfigResponse, Snapshot } from "../core/api/contract.ts";
-import { API_PATHS } from "../core/api/contract.ts";
+import type { ConfigResponse, OpenWithAppsResponse, Snapshot } from "../core/api/contract.ts";
+import { API_PATHS, TOKEN_HEADER } from "../core/api/contract.ts";
 import type { PortScanner } from "./application/port-scanner.ts";
 import {
   createStudioServices,
+  createUninstallServices,
   defaultConfigPath,
   type RunningServer,
   type StudioServices,
@@ -66,6 +67,33 @@ describe("createStudioServices", () => {
     const body = (await response.json()) as ConfigResponse;
     expect(body.path).toBe(configPath);
     expect(body.config.ignoredPorts).toEqual([9]);
+  });
+});
+
+describe("open with", () => {
+  it("keeps custom apps in open-with.json next to the config and lists them", async () => {
+    const configPath = path.join(dir, "studio.json");
+    const services = { ...createStudioServices({ stateDir: dir, configPath }), scanner };
+    running = await startServer({ port: 0, services });
+    const saved = await fetch(`${running.url}${API_PATHS.customApps}`, {
+      method: "PUT",
+      headers: { [TOKEN_HEADER]: running.token, "content-type": "application/json" },
+      body: JSON.stringify({ apps: [{ name: "Helix", command: "foot hx {path}" }] }),
+    });
+    expect(saved.status).toBe(200);
+    expect(JSON.parse(fs.readFileSync(path.join(dir, "open-with.json"), "utf8"))).toEqual({
+      customApps: [{ name: "Helix", command: "foot hx {path}" }],
+    });
+    const response = await fetch(`${running.url}${API_PATHS.openWithApps}`);
+    const apps = (await response.json()) as OpenWithAppsResponse;
+    expect(apps.apps.at(-1)).toEqual({ id: "custom-1", name: "Helix", kind: "custom" });
+  });
+
+  it("lets uninstall remove the files open-with and route projects write", () => {
+    const files = createUninstallServices(path.join(dir, "config.json")).studioFiles;
+    expect(files).toEqual(
+      expect.arrayContaining(["config.json", "route-projects.json", "open-with.json"]),
+    );
   });
 });
 

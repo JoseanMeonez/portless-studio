@@ -12,9 +12,11 @@ import {
 } from "../../../core/api/contract.ts";
 import { DEFAULT_CONFIG } from "../../../core/config/studio-config.ts";
 import type { DoctorCheck } from "../../../core/doctor/doctor-check.ts";
+import type { CustomApp } from "../../../core/projects/custom-app.ts";
 import { err, ok, type Result } from "../../../core/result.ts";
 import type { Route } from "../../../core/routes/route.ts";
 import type { AppError } from "../../application/app-error.ts";
+import { OpenWith } from "../../application/open-with.ts";
 import type { ListeningPort, PortScanner } from "../../application/port-scanner.ts";
 import type { PortlessState, RouteRegistry } from "../../application/route-registry.ts";
 import { StudioRuntime } from "../../application/studio-runtime.ts";
@@ -161,11 +163,34 @@ async function start(withWeb = true) {
     },
     log: () => {},
   });
+  let customApps: CustomApp[] = [];
+  const openWith = new OpenWith({
+    catalog: {
+      installed: async () => [
+        { id: "zed", name: "Zed", kind: "editor", command: { file: "zed", args: ["{path}"] } },
+      ],
+    },
+    launcher: {
+      launch: async (command) => {
+        operations.state.calls.push(`launch ${command.file} ${command.args.join(" ")}`);
+        return ok(undefined);
+      },
+    },
+    customApps: {
+      path: "/cfg/open-with.json",
+      read: async () => customApps,
+      write: async (apps) => {
+        customApps = apps;
+      },
+    },
+    openableFolders: () => studio.openableFolders(),
+  });
   http = createHttpServer({
     registry: fake.registry,
     studio,
     token: TOKEN,
     webDir: withWeb ? webDir : undefined,
+    openWith,
     ...operations.options,
   });
   await new Promise<void>((resolve) => http.server.listen(0, "127.0.0.1", resolve));
@@ -405,12 +430,58 @@ describe("stopping a dev server", () => {
   });
 });
 
+describe("open with", () => {
+  const body = (appId: string, folder: string) => JSON.stringify({ appId, path: folder });
+
+  it("lists the apps without the token", async () => {
+    const reply = await send("GET", API_PATHS.openWithApps);
+    expect(reply.status).toBe(200);
+    expect(json(reply)).toEqual({ apps: [{ id: "zed", name: "Zed", kind: "editor" }] });
+  });
+
+  it("opens the folder of a detected port with the token", async () => {
+    expect((await send("POST", API_PATHS.openWith, {}, body("zed", "/code/app"))).status).toBe(403);
+    expect(ops.state.calls).toEqual([]);
+    const reply = await send("POST", API_PATHS.openWith, write, body("zed", "/code/app"));
+    expect(reply.status).toBe(204);
+    expect(ops.state.calls).toEqual(["launch zed /code/app"]);
+  });
+
+  it("refuses folders Studio does not show and apps it does not know", async () => {
+    const outside = await send("POST", API_PATHS.openWith, write, body("zed", "/etc"));
+    expect(outside.status).toBe(403);
+    expect(json(outside)).toMatchObject({ error: "path_not_allowed" });
+    const unknown = await send("POST", API_PATHS.openWith, write, body("vim", "/code/app"));
+    expect(unknown.status).toBe(404);
+    expect(json(unknown)).toMatchObject({ error: "unknown_app" });
+    expect(ops.state.calls).toEqual([]);
+  });
+
+  it("reads and replaces the custom apps; the write needs the token", async () => {
+    const apps = JSON.stringify({ apps: [{ name: "Helix", command: "foot hx {path}" }] });
+    expect((await send("PUT", API_PATHS.customApps, {}, apps)).status).toBe(403);
+    const saved = await send("PUT", API_PATHS.customApps, write, apps);
+    expect(saved.status).toBe(200);
+    const read = await send("GET", API_PATHS.customApps);
+    expect(json(read)).toEqual({
+      apps: [{ name: "Helix", command: "foot hx {path}" }],
+      path: "/cfg/open-with.json",
+    });
+    const broken = JSON.stringify({ apps: [{ name: "x", command: "" }] });
+    expect((await send("PUT", API_PATHS.customApps, write, broken)).status).toBe(400);
+  });
+});
+
 describe("detected ports and config", () => {
   it("includes detected ports and auto mode in the snapshot", async () => {
     const snapshot = json(await send("GET", API_PATHS.snapshot)) as Snapshot;
     expect(snapshot.autoName).toBe(false);
     expect(snapshot.detected).toEqual([
-      { ...devServer, suggestedName: "app", project: { name: "app", worktree: null } },
+      {
+        ...devServer,
+        suggestedName: "app",
+        project: { name: "app", worktree: null, branch: null, path: "/code/app" },
+      },
     ]);
   });
 

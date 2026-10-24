@@ -9,7 +9,7 @@ import type { IconFetcher } from "./icon-resolver.ts";
 import type { ProjectInfoSource } from "./port-discovery.ts";
 import type { HttpProbe, ListeningPort, PortScanner, ProbePort } from "./port-scanner.ts";
 import type { PortlessState, RouteRegistry } from "./route-registry.ts";
-import { StudioRuntime } from "./studio-runtime.ts";
+import { memoryRouteProjectStore, StudioRuntime } from "./studio-runtime.ts";
 import type { SystemNotifier } from "./system-notifier.ts";
 
 const FAST: StudioConfig = { ...DEFAULT_CONFIG, scanIntervalMs: 10 };
@@ -157,6 +157,7 @@ function build(
     autoNamed?: ReturnType<typeof memoryAutoNamed>;
     notifier?: SystemNotifier;
     icons?: IconFetcher;
+    routeProjects?: ReturnType<typeof memoryRouteProjectStore>;
   } = {},
 ) {
   const store = options.store ?? memoryStore();
@@ -177,6 +178,7 @@ function build(
     ...(options.proxyPids ? { proxyPids: options.proxyPids } : {}),
     ...(options.notifier ? { notifier: options.notifier } : {}),
     ...(options.icons ? { icons: options.icons } : {}),
+    ...(options.routeProjects ? { routeProjectStore: options.routeProjects } : {}),
   });
   return { runtime, store, scanner, fake, lines, autoNamed };
 }
@@ -339,10 +341,60 @@ describe("StudioRuntime projects", () => {
     await fake.registry.createAlias("db", 5432, false);
     const routes = (await runtime.readSnapshot()).routes;
     expect(routes.map((route) => [route.name, route.project])).toEqual([
-      ["web", { name: "acme-monorepo", worktree: "falcon" }],
-      ["api", { name: "acme-monorepo", worktree: null }],
+      [
+        "web",
+        { name: "acme-monorepo", worktree: "falcon", branch: null, path: "/code/acme/falcon" },
+      ],
+      ["api", { name: "acme-monorepo", worktree: null, branch: null, path: "/code/main" }],
       ["db", undefined],
     ]);
+  });
+
+  it("keeps the last project of a route whose server stopped", async () => {
+    const { runtime, fake, scanner } = build({
+      ports: [node(3000, "acme/falcon")],
+      projects: repos,
+    });
+    await fake.registry.createAlias("web", 3000, false);
+    expect((await runtime.readSnapshot()).routes[0]?.project?.path).toBe("/code/acme/falcon");
+
+    scanner.ports = [];
+    await sleep(20);
+    expect((await runtime.readSnapshot()).routes[0]?.project).toEqual({
+      name: "acme-monorepo",
+      worktree: "falcon",
+      branch: null,
+      path: "/code/acme/falcon",
+    });
+  });
+
+  it("remembers the last project across restarts through its store", async () => {
+    const routeProjects = memoryRouteProjectStore();
+    const first = build({ ports: [node(3000, "acme/falcon")], projects: repos, routeProjects });
+    await first.fake.registry.createAlias("web", 3000, false);
+    await first.runtime.readSnapshot();
+    first.runtime.stop();
+
+    const second = build({ ports: [], projects: repos, routeProjects });
+    await second.fake.registry.createAlias("web", 3000, false);
+    const [route] = (await second.runtime.readSnapshot()).routes;
+    expect(route?.project?.worktree).toBe("falcon");
+    expect(await second.runtime.openableFolders()).toEqual(new Set(["/code/acme/falcon"]));
+  });
+
+  it("forgets the projects of routes that are gone", async () => {
+    const routeProjects = memoryRouteProjectStore();
+    const { runtime, fake } = build({
+      ports: [node(3000, "acme/falcon"), node(4000, "main")],
+      projects: repos,
+      routeProjects,
+    });
+    await fake.registry.createAlias("web", 3000, false);
+    await fake.registry.createAlias("api", 4000, false);
+    await runtime.readSnapshot();
+    await fake.registry.removeAlias("web");
+    await runtime.readSnapshot();
+    expect(Object.keys(await routeProjects.read())).toEqual(["api"]);
   });
 
   it("maps a detected port to its project and leaves loose folders without one", async () => {
@@ -352,9 +404,23 @@ describe("StudioRuntime projects", () => {
     });
     const detected = (await runtime.readSnapshot()).detected;
     expect(detected.map((item) => [item.port, item.project])).toEqual([
-      [5173, { name: "acme-monorepo", worktree: "research" }],
+      [
+        5173,
+        { name: "acme-monorepo", worktree: "research", branch: null, path: "/code/acme/research" },
+      ],
       [8000, undefined],
     ]);
+  });
+
+  it("lists the folders of routes and detected ports as the ones Studio may open", async () => {
+    const { runtime, fake } = build({
+      ports: [node(3000, "acme/falcon"), node(5173, "acme/research"), node(8000, "scratch")],
+      projects: repos,
+    });
+    await fake.registry.createAlias("web", 3000, false);
+    expect(await runtime.openableFolders()).toEqual(
+      new Set(["/code/acme/falcon", "/code/acme/research", "/code/scratch"]),
+    );
   });
 });
 

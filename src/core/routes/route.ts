@@ -42,6 +42,13 @@ export type ItemProject = {
   name: string;
   /** Folder of the linked git worktree, e.g. `falcon`; null in the main checkout. */
   worktree: string | null;
+  /** Checked-out git branch; null on a detached HEAD or outside git. Absent from older servers. */
+  branch?: string | null;
+  /**
+   * Folder the project lives in: the git root, else the package folder, else the process folder.
+   * Studio opens it in an editor or the file manager. Absent from older servers.
+   */
+  path?: string | null;
 };
 
 /** `up` answered below 500, `error` answered 5xx, `down` did not answer at all. */

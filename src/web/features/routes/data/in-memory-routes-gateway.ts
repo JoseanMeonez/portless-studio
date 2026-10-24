@@ -2,9 +2,12 @@ import type {
   ApiError,
   ConfigResponse,
   CreateAliasRequest,
+  CustomAppsResponse,
   DoctorFixResponse,
   DoctorReport,
   InstallPortlessResponse,
+  OpenWithApp,
+  OpenWithRequest,
   ProxyAction,
   ProxyActionResponse,
   RenameAliasRequest,
@@ -20,6 +23,11 @@ import {
 } from "../../../../core/config/studio-config.ts";
 import type { DoctorCheck } from "../../../../core/doctor/doctor-check.ts";
 import type { DetectedPort } from "../../../../core/ports/detected-port.ts";
+import {
+  type CustomApp,
+  customAppId,
+  parseCustomApps,
+} from "../../../../core/projects/custom-app.ts";
 import { projectIconKind } from "../../../../core/projects/project-icon.ts";
 import { err, ok, type Result } from "../../../../core/result.ts";
 import { type Route, routeUrl } from "../../../../core/routes/route.ts";
@@ -48,6 +56,14 @@ export type InMemoryRoutesGatewayOptions = {
 };
 
 export const DEMO_CONFIG_PATH = "~/.portless-studio/config.json";
+const DEMO_OPEN_WITH_PATH = "~/.portless-studio/open-with.json";
+
+/** What the fake machine has installed. */
+const DEMO_APPS: readonly OpenWithApp[] = [
+  { id: "vscode", name: "VS Code", kind: "editor" },
+  { id: "zed", name: "Zed", kind: "editor" },
+  { id: "file-manager", name: "File manager", kind: "file-manager" },
+];
 
 /** Version the fake install reports. */
 export const DEMO_PORTLESS_VERSION = "0.4.2";
@@ -70,6 +86,10 @@ export class InMemoryRoutesGateway implements RoutesGateway {
   #listening: DetectedPort[];
   #autoNameTimer: ReturnType<typeof setTimeout> | undefined;
   #proxyOwner: "you" | "root";
+  /** Folders opened through `openWith`, in order; tests read them. */
+  readonly openedWith: OpenWithRequest[] = [];
+  /** Apps added in Settings. */
+  customApps: CustomApp[] = [];
 
   constructor(
     initial: Snapshot,
@@ -317,6 +337,44 @@ export class InMemoryRoutesGateway implements RoutesGateway {
     });
     this.#update(routes);
     return ok(null);
+  }
+
+  async listOpenWithApps(): Promise<Result<OpenWithApp[], ApiError>> {
+    const custom = this.customApps.map((app, index) => ({
+      id: customAppId(index),
+      name: app.name,
+      kind: "custom" as const,
+    }));
+    return ok([...DEMO_APPS, ...custom]);
+  }
+
+  /** Records the request; like the server, only folders of shown items and known apps pass. */
+  async openWith(request: OpenWithRequest): Promise<Result<null, ApiError>> {
+    const { routes, detected } = this.#snapshot;
+    const folders = new Set<string>();
+    for (const item of [...routes, ...detected])
+      if (item.project?.path) folders.add(item.project.path);
+    for (const item of detected) if (item.cwd) folders.add(item.cwd);
+    if (!folders.has(request.path)) {
+      return err({ error: "path_not_allowed", message: "Studio only opens the folders it shows." });
+    }
+    const apps = await this.listOpenWithApps();
+    if (!apps.ok || !apps.value.some((app) => app.id === request.appId)) {
+      return err({ error: "unknown_app", message: "That app is not on this machine anymore." });
+    }
+    this.openedWith.push({ ...request });
+    return ok(null);
+  }
+
+  async getCustomApps(): Promise<Result<CustomAppsResponse, ApiError>> {
+    return ok({ apps: this.customApps, path: DEMO_OPEN_WITH_PATH });
+  }
+
+  async updateCustomApps(apps: CustomApp[]): Promise<Result<CustomAppsResponse, ApiError>> {
+    const parsed = parseCustomApps(apps);
+    if (!parsed.ok) return err({ error: "invalid_request", message: parsed.error });
+    this.customApps = parsed.value;
+    return ok({ apps: this.customApps, path: DEMO_OPEN_WITH_PATH });
   }
 
   /** The checks the demo machine fails, built from the fake state like the server's doctor. */

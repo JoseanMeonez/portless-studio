@@ -4,8 +4,10 @@ import { Badge } from "../../../shared/ui/badge.tsx";
 import { Button } from "../../../shared/ui/button.tsx";
 import { Icon } from "../../../shared/ui/icons/icon.tsx";
 import { ItemIcon } from "../../../shared/ui/item-icon.tsx";
+import { ProjectLocation } from "./project-location.tsx";
 import { RouteHealthDot } from "./route-health-dot.tsx";
 import styles from "./route-row.module.css";
+import { type MenuPoint, rowMenuTrigger } from "./row-menu-trigger.ts";
 import { TunnelLinks } from "./tunnel-links.tsx";
 
 export type RouteRowProps = {
@@ -27,6 +29,8 @@ export type RouteRowProps = {
   onCancelConfirm: () => void;
   onToggleFavorite: () => void;
   onMoveToGroup: () => void;
+  /** Right-click or Ctrl+click: the menu with open with, copy path and more. */
+  onMenu: (point: MenuPoint) => void;
 };
 
 export type RowConfirmation = "remove" | "stop";
@@ -47,6 +51,7 @@ export function RouteRow({
   onCancelConfirm,
   onToggleFavorite,
   onMoveToGroup,
+  onMenu,
 }: RouteRowProps) {
   const uptime = formatUptime(route.registeredAt, now);
   const isAlias = route.kind === "alias";
@@ -58,6 +63,7 @@ export function RouteRow({
       data-selected={selected || undefined}
       onPointerDown={onSelect}
       onFocus={onSelect}
+      {...rowMenuTrigger(onMenu)}
     >
       <RouteHealthDot route={route} />
 
@@ -80,6 +86,7 @@ export function RouteRow({
           ) : null}
         </span>
         <span className={styles.url}>{route.url.replace(/^https?:\/\//, "")}</span>
+        <ProjectLocation project={route.project} />
       </div>
 
       <div className={styles.meta}>

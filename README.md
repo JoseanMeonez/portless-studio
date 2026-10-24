@@ -65,6 +65,11 @@ restart. Missing fields take their default.
 
 The `--port`, `--no-open` and `--no-register` flags win over the file for one run.
 
+Apps you add to the Open with menu live in `open-with.json` next to the config file, as
+`{ "customApps": [{ "name": "Neovim", "command": "kitty --directory {path} nvim" }] }`.
+`{path}` is the project folder; without it the folder goes last. Studio runs the command
+directly, not through a shell.
+
 portless replaces port numbers with names: `portless api pnpm dev` serves your app at
 `https://api.localhost`. It has no interface of its own, so when you run ten dev servers across
 several projects you have to remember which names exist. portless studio shows them live.
@@ -85,6 +90,13 @@ several projects you have to remember which names exist. portless studio shows t
 - **Project icons:** each row and project group shows the favicon its server serves, else a
   favicon in the project folder (`public/favicon.svg`, `app/icon.png`, `static/favicon.ico`), else
   the project's initials. Set an emoji or an image per project in Settings.
+- **Where each server runs:** every row shows its git branch, the linked worktree and the project
+  folder (shortened with `~`, the full path on hover). A route whose server is down keeps the last
+  place it ran, also after Studio restarts.
+- **Open with:** right-click a row, Ctrl+click (Cmd+click) it, or press `.` or `Shift+F10` on the
+  selected one to open its folder in an editor found on this machine (VS Code, Cursor, Zed,
+  WebStorm, IntelliJ IDEA, Sublime Text), reveal it in the file manager, copy its path or URL, or
+  open it in the browser. Add your own apps in Settings.
 - **Favorites:** the star on a row, or `f`, pins it above every group in every view.
 - **Remembered state:** the view, search, filters and sort sit in the page URL, so a reload, a
   bookmark or the Back button keeps them. Closed groups and the selected row are remembered in
@@ -119,6 +131,7 @@ several projects you have to remember which names exist. portless studio shows t
 | `r` | Rename an alias |
 | `Delete` | Remove an alias |
 | `f` | Pin or unpin as favorite |
+| `.` or `Shift+F10` | Open with, copy path and more |
 | `n` | Name a port |
 | `v` | Next view |
 | `Shift+V` | Open the view menu |

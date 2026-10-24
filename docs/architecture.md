@@ -25,7 +25,7 @@ The top level says what the project is about; each folder below it says what it 
 | --- | --- | --- |
 | `src/core` | Domain types and rules shared by both sides: what a route is, how a name is validated, the HTTP API contract. No IO, no React, no Node APIs. | nothing outside `core` |
 | `src/server/application` | Use cases (list routes, name a port, remove an alias, install portless) and the `RouteRegistry` port they depend on. | `core` |
-| `src/server/infrastructure` | Adapters that implement ports. Today only `portless`: reads the state directory, watches it, shells out to the CLI for writes, detects the binary with `portless --version` and installs it with `npm install -g portless`. | `core`, `application` |
+| `src/server/infrastructure` | Adapters that implement ports: `portless` reads the state directory, watches it, shells out to the CLI for writes, detects the binary with `portless --version` and installs it with `npm install -g portless`; `system` scans ports and reads processes; `config` keeps Studio's files; `apps` finds and starts editors for the open-with menu. | `core`, `application` |
 | `src/server/interface/http` | The HTTP server: routing, request guards, JSON and server-sent events, static files. | `core`, `application` |
 | `src/server/main.ts` | Composition root: builds the adapters and wires them into the HTTP server. | everything in `server` |
 | `src/cli` | The `portless-studio` command: parses flags, starts the server, opens the browser. | `server` |
@@ -120,6 +120,44 @@ last HTTP probe of that port (`up` below 500, `error` for 5xx, `down` when nothi
 Detected ports carry `project` too. Routes are probed on the scan loop only while a browser
 watches.
 
+## Where each row runs
+
+Each route and detected port carries `project.branch` and `project.path` next to `name` and
+`worktree` (`ItemProject`, `core/routes/route.ts`), built by `itemProjectAt`
+(`core/projects/item-project.ts`) from what `ProjectInfoSource` reads. `path` is the git root, else
+the package folder, else the process folder. The row shows the branch, the worktree and the path
+shortened with `~`.
+
+A route whose port has no readable process keeps the last project seen for its name. `StudioRuntime`
+keeps those in memory and in `route-projects.json` next to the config, as
+`{ "routeProjects": { "<route name>": ItemProject } }` (port `RouteProjectStore`, adapter
+`infrastructure/apps/json-stores.ts`), so they survive a restart. Entries of routes that no longer
+exist are dropped.
+
+## Open with
+
+Right-click, Ctrl+click (Cmd+click on macOS), `.` or `Shift+F10` on a row opens a menu with Open in
+browser, Copy URL, Copy path, Reveal in the file manager and an Open with submenu.
+`application/open-with.ts` holds the use case and three ports:
+
+| Port | Default implementation | What it does |
+| --- | --- | --- |
+| `AppCatalog` | `infrastructure/apps/app-catalog.ts` | Finds VS Code, VS Code Insiders, Cursor, Zed, WebStorm, IntelliJ IDEA and Sublime Text without starting them: their command on PATH (with `PATHEXT` on Windows), app bundles in `/Applications` and `~/Applications` opened with `open -a` on macOS, and the usual install folders under `%LOCALAPPDATA%` and `%ProgramFiles%` on Windows. The file manager is `xdg-open` on Linux, `open -R` (Finder) on macOS and `explorer /select,"<path>"` on Windows. |
+| `AppLauncher` | `infrastructure/apps/detached-launcher.ts` | Starts the program detached with an argument list and no shell. Windows `.cmd` shims go through `cmd.exe /d /s /c` with every word quoted, and a folder containing `"` or `%` is refused there. |
+| `CustomAppStore` | `infrastructure/apps/json-stores.ts` | The apps added in Settings, in `open-with.json` next to the config. |
+
+Custom apps live in their own file, not in the config, so the config schema and its validation
+stay as they are; the page saves them with their own button. A custom command is split into words
+by `splitCommand` (`core/projects/custom-app.ts`): spaces separate, quotes group, nothing else is
+special, and `{path}` is replaced inside a word after splitting, so a folder with spaces or shell
+characters stays one argument.
+
+`POST /api/open-with` takes `{ appId, path }` and needs the token. `path` must be exactly one of
+`StudioRuntime.openableFolders()`: the project folder of a route (current or remembered) or of a
+detected port, or a detected port's folder. Anything else answers `path_not_allowed` (403), and an
+unknown app `unknown_app` (404). `GET /api/open-with/apps` lists the apps, and
+`GET`/`PUT /api/open-with/custom-apps` reads and replaces the custom ones.
+
 ## Project icons
 
 `application/icon-resolver.ts` picks each route's and detected port's `icon`, in this order: the
@@ -210,7 +248,8 @@ port and belongs to the current user.
 
 On the web side, `RoutesGateway` also has `getConfig()`, `updateConfig(config)`,
 `ignoreDetected(port)`, `getDoctor()`, `runDoctorFix(id)`, `controlProxy(action)`,
-`controlStudio(action)` and `stopProcess(pid)`.
+`controlStudio(action)`, `stopProcess(pid)`, `listOpenWithApps()`, `openWith(request)`,
+`getCustomApps()` and `updateCustomApps(apps)`.
 
 ## Uninstall
 

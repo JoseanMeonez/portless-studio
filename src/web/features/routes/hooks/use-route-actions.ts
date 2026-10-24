@@ -12,6 +12,8 @@ export type RouteActions = {
   copyUrl: (route: Route) => Promise<void>;
   copyCommand: (command: string) => Promise<void>;
   copyPath: (path: string) => Promise<void>;
+  /** Copies any URL, e.g. the localhost one of a detected port. */
+  copyLink: (url: string) => Promise<void>;
   /** Errors come back to the caller, which shows them next to the form fields. */
   createAlias: (request: CreateAliasRequest) => Promise<Result<null, ApiError>>;
   renameAlias: (route: Route, newName: string) => Promise<Result<null, ApiError>>;
@@ -40,6 +42,7 @@ export function useRouteActions(): RouteActions {
       copyUrl: (route) => copy(route.url, "Copied URL"),
       copyCommand: (command) => copy(command, "Copied command"),
       copyPath: (path) => copy(path, "Copied path"),
+      copyLink: (url) => copy(url, "Copied URL"),
       createAlias: async (request) => {
         const result = await gateway.createAlias(request);
         if (result.ok) {

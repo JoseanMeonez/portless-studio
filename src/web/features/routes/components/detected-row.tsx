@@ -4,6 +4,8 @@ import { Button } from "../../../shared/ui/button.tsx";
 import { Icon } from "../../../shared/ui/icons/icon.tsx";
 import { ItemIcon } from "../../../shared/ui/item-icon.tsx";
 import styles from "./detected-row.module.css";
+import { ProjectLocation } from "./project-location.tsx";
+import { type MenuPoint, rowMenuTrigger } from "./row-menu-trigger.ts";
 
 type DetectedRowProps = {
   detected: DetectedPort;
@@ -15,6 +17,8 @@ type DetectedRowProps = {
   onRequestStop: () => void;
   onConfirmStop: () => void;
   onCancelStop: () => void;
+  /** Right-click or Ctrl+click: the menu with open with, copy path and more. */
+  onMenu: (point: MenuPoint) => void;
 };
 
 /** One port that answers HTTP but has no name: what runs there and the name Studio suggests. */
@@ -26,10 +30,11 @@ export function DetectedRow({
   onRequestStop,
   onConfirmStop,
   onCancelStop,
+  onMenu,
 }: DetectedRowProps) {
   const { port, pid, processName, cwd, suggestedName } = detected;
   return (
-    <li className={styles.row} data-port={port}>
+    <li className={styles.row} data-port={port} {...rowMenuTrigger(onMenu)}>
       <span className={styles.port}>:{port}</span>
 
       <div className={styles.info}>
@@ -59,6 +64,7 @@ export function DetectedRow({
             </>
           ) : null}
         </span>
+        <ProjectLocation project={detected.project} showPath={false} />
       </div>
 
       {confirmingStop ? (

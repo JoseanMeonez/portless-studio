@@ -19,6 +19,8 @@ type KeyboardNavigationOptions = {
   onRename: (index: number) => void;
   onRemove: (index: number) => void;
   onFavorite: (index: number) => void;
+  /** Opens the row menu of the selected row (open with, copy path…). */
+  onRowMenu: (index: number) => void;
   onCreate: () => void;
   onFocusFilter: () => void;
   onToggleCommandMenu: () => void;
@@ -55,6 +57,7 @@ export function useKeyboardNavigation(options: KeyboardNavigationOptions) {
 
       const shortcut = findShortcut(event.key, false);
       if (!shortcut) return;
+      if (event.key === "F10" && !event.shiftKey) return;
       const target = event.target;
       const inListField = target instanceof HTMLElement && target.hasAttribute(LIST_KEYS_ATTRIBUTE);
       const typing = isEditableTarget(target);
@@ -85,6 +88,7 @@ export function useKeyboardNavigation(options: KeyboardNavigationOptions) {
         rename: () => current.onRename(index),
         remove: () => current.onRemove(index),
         favorite: () => current.onFavorite(index),
+        "row-menu": () => current.onRowMenu(index),
         "name-port": current.onCreate,
         "next-view": current.onNextView,
         "view-menu": current.onOpenViewMenu,

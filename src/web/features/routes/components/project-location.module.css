@@ -1,0 +1,28 @@
+.location {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-0-5) var(--space-2);
+  min-width: 0;
+  color: var(--color-text-tertiary);
+  font-size: var(--text-xs);
+}
+
+.part {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-width: 0;
+  max-width: 100%;
+}
+
+.icon {
+  flex-shrink: 0;
+}
+
+.text {
+  overflow: hidden;
+  font-family: var(--font-mono);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

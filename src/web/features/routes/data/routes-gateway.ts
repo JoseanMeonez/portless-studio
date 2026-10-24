@@ -2,9 +2,12 @@ import type {
   ApiError,
   ConfigResponse,
   CreateAliasRequest,
+  CustomAppsResponse,
   DoctorFixResponse,
   DoctorReport,
   InstallPortlessResponse,
+  OpenWithApp,
+  OpenWithRequest,
   ProxyAction,
   ProxyActionResponse,
   RenameAliasRequest,
@@ -14,6 +17,7 @@ import type {
   StudioEvent,
 } from "../../../../core/api/contract.ts";
 import type { StudioConfig } from "../../../../core/config/studio-config.ts";
+import type { CustomApp } from "../../../../core/projects/custom-app.ts";
 import type { Result } from "../../../../core/result.ts";
 
 /** Whether live updates are flowing. `reconnecting` means the last snapshot may be stale. */
@@ -62,4 +66,12 @@ export interface RoutesGateway {
   controlStudio(action: StudioAction): Promise<Result<StudioActionResponse, ApiError>>;
   /** Stops the dev server with this pid, if it is the user's and serves a shown port. */
   stopProcess(pid: number): Promise<Result<null, ApiError>>;
+  /** Editors and the file manager found on the server's machine, then the custom apps. */
+  listOpenWithApps(): Promise<Result<OpenWithApp[], ApiError>>;
+  /** Opens a project folder Studio shows; `path_not_allowed` for any other folder. */
+  openWith(request: OpenWithRequest): Promise<Result<null, ApiError>>;
+  /** The apps added in Settings and the file they live in. */
+  getCustomApps(): Promise<Result<CustomAppsResponse, ApiError>>;
+  /** Replaces the custom apps; fails with `invalid_request` naming the entry it rejects. */
+  updateCustomApps(apps: CustomApp[]): Promise<Result<CustomAppsResponse, ApiError>>;
 }

@@ -3,6 +3,7 @@ import type { Route } from "../../../../core/routes/route.ts";
 import { GroupHeader } from "./group-header.tsx";
 import styles from "./route-list.module.css";
 import { RouteRow, type RowConfirmation } from "./route-row.tsx";
+import type { MenuPoint } from "./row-menu-trigger.ts";
 
 /** A block of rows. An empty label renders its rows without a header. */
 export type RouteSection = {
@@ -35,6 +36,7 @@ type RouteListProps = {
   onCancelConfirm: () => void;
   onToggleFavorite: (route: Route) => void;
   onMoveToGroup: (route: Route) => void;
+  onMenu: (route: Route, point: MenuPoint) => void;
   onRenameGroup: (groupId: string, name: string) => void;
   onDeleteGroup: (groupId: string, name: string) => void;
 };
@@ -63,6 +65,7 @@ export function RouteList(props: RouteListProps) {
           onCancelConfirm={props.onCancelConfirm}
           onToggleFavorite={() => props.onToggleFavorite(route)}
           onMoveToGroup={() => props.onMoveToGroup(route)}
+          onMenu={(point) => props.onMenu(route, point)}
         />
       );
     });

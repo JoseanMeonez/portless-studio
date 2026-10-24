@@ -5,6 +5,7 @@ import { Icon } from "../../../shared/ui/icons/icon.tsx";
 import { Switch } from "../../../shared/ui/switch.tsx";
 import { DetectedRow } from "./detected-row.tsx";
 import styles from "./detected-section.module.css";
+import type { MenuPoint } from "./row-menu-trigger.ts";
 
 type DetectedSectionProps = {
   /** The detected ports the filter leaves visible. */
@@ -22,6 +23,7 @@ type DetectedSectionProps = {
   onRequestStop: (detected: DetectedPort) => void;
   onConfirmStop: (detected: DetectedPort) => void;
   onCancelStop: () => void;
+  onMenu: (detected: DetectedPort, point: MenuPoint) => void;
 };
 
 /** Dev servers found on this machine that portless does not know yet, ready to be named. */
@@ -39,6 +41,7 @@ export function DetectedSection({
   onRequestStop,
   onConfirmStop,
   onCancelStop,
+  onMenu,
 }: DetectedSectionProps) {
   const suggested = detected.filter((item) => item.suggestedName !== null).length;
   const count =
@@ -83,6 +86,7 @@ export function DetectedSection({
             onIgnore={() => onIgnore(item)}
             onRequestStop={() => onRequestStop(item)}
             onConfirmStop={() => onConfirmStop(item)}
+            onMenu={(point) => onMenu(item, point)}
             onCancelStop={onCancelStop}
           />
         ))}

@@ -32,6 +32,26 @@ type SampleRoute = {
 const ACME = "acme-monorepo";
 const AVE = "shop-admin";
 
+// Where each checkout lives on the fake machine: the main one and two linked worktrees.
+const ACME_MAIN: ItemProject = {
+  name: ACME,
+  worktree: null,
+  branch: "main",
+  path: "/home/dev/code/acme",
+};
+const ACME_RESEARCH: ItemProject = {
+  name: ACME,
+  worktree: "research",
+  branch: "feat/ACME-42-search",
+  path: "/home/dev/code/acme-research",
+};
+const ACME_FALCON: ItemProject = {
+  name: ACME,
+  worktree: "falcon",
+  branch: "fix/dark-mode",
+  path: "/home/dev/code/acme-falcon",
+};
+
 const SAMPLE_ROUTES: SampleRoute[] = [
   {
     name: "web.acme",
@@ -41,7 +61,7 @@ const SAMPLE_ROUTES: SampleRoute[] = [
     listenerPid: 48_219,
     answer: { status: 200, latencyMs: 12 },
     upFor: 2 * HOUR + 14 * MINUTE,
-    project: { name: ACME, worktree: null },
+    project: ACME_MAIN,
     tunnels: [
       { provider: "tailscale", url: "https://web-acme.tail2f9c.ts.net" },
       { provider: "ngrok", url: "https://4f1c-web-acme.ngrok-free.app" },
@@ -55,7 +75,7 @@ const SAMPLE_ROUTES: SampleRoute[] = [
     listenerPid: 48_246,
     answer: { status: 200, latencyMs: 4 },
     upFor: 2 * HOUR + 13 * MINUTE,
-    project: { name: ACME, worktree: null },
+    project: ACME_MAIN,
   },
   {
     name: "docs",
@@ -65,7 +85,7 @@ const SAMPLE_ROUTES: SampleRoute[] = [
     listenerPid: 51_009,
     answer: { status: 500, latencyMs: 31 },
     upFor: 26 * MINUTE,
-    project: { name: ACME, worktree: "research" },
+    project: ACME_RESEARCH,
   },
   {
     name: "storybook",
@@ -75,7 +95,7 @@ const SAMPLE_ROUTES: SampleRoute[] = [
     listenerPid: 50_121,
     answer: { status: 200, latencyMs: 8 },
     upFor: 3 * 24 * HOUR + 4 * HOUR,
-    project: { name: ACME, worktree: "falcon" },
+    project: ACME_FALCON,
     tunnels: [{ provider: "cloudflare", url: "https://storybook-demo.trycloudflare.com" }],
   },
   { name: "db", port: 5432, kind: "alias", upFor: 9 * 24 * HOUR, answer: null },
@@ -90,15 +110,20 @@ export const SAMPLE_DETECTED: readonly DetectedPort[] = [
     processName: "ng",
     cwd: "/home/dev/code/shop-admin/otter",
     suggestedName: "otter.shop-admin",
-    project: { name: AVE, worktree: "otter" },
+    project: {
+      name: AVE,
+      worktree: "otter",
+      branch: "feat/SHOP-7-orders",
+      path: "/home/dev/code/shop-admin/otter",
+    },
   },
   {
     port: 4321,
     pid: 60_912,
     processName: "node",
-    cwd: "/home/dev/code/acme/apps/blog",
+    cwd: "/home/dev/code/acme-falcon/apps/blog",
     suggestedName: "blog.acme",
-    project: { name: ACME, worktree: "falcon" },
+    project: ACME_FALCON,
   },
   {
     port: 5173,
@@ -106,7 +131,7 @@ export const SAMPLE_DETECTED: readonly DetectedPort[] = [
     processName: "node",
     cwd: "/home/dev/code/acme/apps/app",
     suggestedName: "app.acme",
-    project: { name: ACME, worktree: null },
+    project: ACME_MAIN,
   },
   { port: 8000, pid: 62_003, processName: "python3", cwd: null, suggestedName: null },
 ];
@@ -116,9 +141,9 @@ export const SAMPLE_LATE_SERVER: DetectedPort = {
   port: 8787,
   pid: 63_150,
   processName: "workerd",
-  cwd: "/home/dev/code/acme/apps/edge",
+  cwd: "/home/dev/code/acme-research/apps/edge",
   suggestedName: "edge.acme",
-  project: { name: ACME, worktree: "research" },
+  project: ACME_RESEARCH,
 };
 
 /**

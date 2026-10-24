@@ -16,6 +16,7 @@ export type ShortcutId =
   | "rename"
   | "remove"
   | "favorite"
+  | "row-menu"
   | "name-port"
   | "next-view"
   | "view-menu"
@@ -107,6 +108,15 @@ export const SHORTCUTS: readonly Shortcut[] = [
     label: "Pin or unpin as favorite",
     keys: ["f"],
     combos: [["F"]],
+    needsSelection: true,
+  },
+  {
+    id: "row-menu",
+    group: "Actions",
+    label: "Open with, copy path and more",
+    // F10 counts only with Shift; the keyboard hook checks it.
+    keys: [".", "ContextMenu", "F10"],
+    combos: [["."], ["Shift", "F10"]],
     needsSelection: true,
   },
   { id: "name-port", group: "Actions", label: "Name a port", keys: ["n"], combos: [["N"]] },

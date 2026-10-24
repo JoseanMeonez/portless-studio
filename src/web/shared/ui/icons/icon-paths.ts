@@ -1,10 +1,13 @@
 // Stroke icons drawn on a 24x24 grid, one path string per icon (several subpaths allowed).
 export const ICON_PATHS = {
   activity: "M3 12h4l3-8 4 16 3-8h4",
+  branch:
+    "M6 3v12M18 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM18 9a9 9 0 0 1-9 9",
   bell: "M6 16v-5a6 6 0 1 1 12 0v5l1.5 2h-15L6 16Zm4 4.5a2.2 2.2 0 0 0 4 0",
   arrowUpRight: "M7 17 17 7M8 7h9v9",
   check: "m5 12.5 4.5 4.5L19 7.5",
   chevronDown: "m6 9 6 6 6-6",
+  chevronRight: "m9 6 6 6-6 6",
   command:
     "M9 9V6a3 3 0 1 0-3 3h3Zm0 0h6m-6 0v6m6-6V6a3 3 0 1 1 3 3h-3Zm0 0v6m0 0h3a3 3 0 1 1-3 3v-3Zm0 0H9m0 0v3a3 3 0 1 1-3-3h3Z",
   copy: "M8 8V5.5A1.5 1.5 0 0 1 9.5 4h9A1.5 1.5 0 0 1 20 5.5v9a1.5 1.5 0 0 1-1.5 1.5H16M5.5 8h9A1.5 1.5 0 0 1 16 9.5v9a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 4 18.5v-9A1.5 1.5 0 0 1 5.5 8Z",

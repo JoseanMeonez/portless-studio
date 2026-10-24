@@ -1,6 +1,7 @@
 import type { StudioConfig } from "../config/studio-config.ts";
 import type { DoctorCheck } from "../doctor/doctor-check.ts";
 import type { DetectedPort } from "../ports/detected-port.ts";
+import type { CustomApp } from "../projects/custom-app.ts";
 import type { ProxyStatus, Route } from "../routes/route.ts";
 
 /**
@@ -34,6 +35,12 @@ export const API_PATHS = {
   studio: (action: StudioAction) => `/api/studio/${action}`,
   /** POST: stops a dev server listening on a detected or routed port. */
   stopProcess: (pid: number) => `/api/processes/${pid}/stop`,
+  /** GET: the editors found on this machine, the file manager and the custom apps. */
+  openWithApps: "/api/open-with/apps",
+  /** POST `OpenWithRequest`: opens a folder Studio knows with one of those apps. */
+  openWith: "/api/open-with",
+  /** GET returns `CustomAppsResponse`; PUT replaces the list (a write, needs the token). */
+  customApps: "/api/open-with/custom-apps",
 } as const;
 
 export type ProxyAction = "start" | "stop" | "restart";
@@ -120,6 +127,35 @@ export type InstallPortlessResponse = {
   output: string;
 };
 
+/** `editor` and `file-manager` were found on this machine; `custom` were added in Settings. */
+export type OpenWithAppKind = "editor" | "file-manager" | "custom";
+
+export type OpenWithApp = {
+  /** Stable for this machine, e.g. `vscode`, `zed`, `file-manager`, `custom-1`. */
+  id: string;
+  name: string;
+  kind: OpenWithAppKind;
+};
+
+/** GET /api/open-with/apps */
+export type OpenWithAppsResponse = {
+  apps: OpenWithApp[];
+};
+
+/** POST /api/open-with */
+export type OpenWithRequest = {
+  appId: string;
+  /** Must be the project folder of a route or detected port Studio shows, or showed before. */
+  path: string;
+};
+
+/** GET and PUT /api/open-with/custom-apps; PUT sends only `apps`. */
+export type CustomAppsResponse = {
+  apps: CustomApp[];
+  /** Where the JSON file lives, so people can edit it by hand. */
+  path: string;
+};
+
 /** GET /api/doctor */
 export type DoctorReport = {
   checks: DoctorCheck[];
@@ -173,6 +209,10 @@ export type ApiErrorCode =
   | "unsupported"
   /** A system command failed; the message carries what it printed. */
   | "command_failed"
+  /** No app with that id was found on this machine or among the custom apps. */
+  | "unknown_app"
+  /** The folder is not one Studio shows, so it will not open it. */
+  | "path_not_allowed"
   | "internal";
 
 /** Body of every non-2xx response. */

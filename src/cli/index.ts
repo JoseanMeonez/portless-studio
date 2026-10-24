@@ -3,6 +3,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
+import { API_PATHS, type Snapshot } from "../core/api/contract.ts";
 import { DEFAULT_CONFIG, type StudioConfig } from "../core/config/studio-config.ts";
 import type { Result } from "../core/result.ts";
 import type { ConfigStore } from "../server/application/config-store.ts";
@@ -16,9 +17,10 @@ import {
   type StartOverrides,
 } from "./cli-args.ts";
 import { runCommand } from "./command-runner.ts";
-import { editConfig, printConfig } from "./config-command.ts";
+import { editConfig, printConfig, printConfigJson } from "./config-command.ts";
 import { runDoctorCommand } from "./doctor-command.ts";
 import { runInit } from "./init.ts";
+import { runListCommand } from "./list-command.ts";
 import {
   installService,
   resolveServiceEntry,
@@ -26,6 +28,9 @@ import {
   serviceStatus,
   uninstallService,
 } from "./login-service.ts";
+import { createMcpServer, serveStdio } from "./mcp/mcp-server.ts";
+import { createStudioClient, resolveStudioUrl, type StudioClient } from "./mcp/studio-client.ts";
+import { AGENT_INSTRUCTIONS, createStudioTools } from "./mcp/studio-tools.ts";
 import { openBrowser } from "./open-browser.ts";
 import { createDefaultsPrompter, createTerminalPrompter } from "./prompter.ts";
 import {
@@ -60,12 +65,19 @@ async function main(): Promise<void> {
       return;
     case "config": {
       const { configStore } = createStudioServices();
-      if (options.edit) await editConfig(configStore, process.env.EDITOR, runCommand, print);
+      if (options.json) process.exitCode = await printConfigJson(configStore, print);
+      else if (options.edit) await editConfig(configStore, process.env.EDITOR, runCommand, print);
       else await printConfig(configStore, print);
       return;
     }
     case "doctor":
-      await doctor();
+      await doctor(options.json);
+      return;
+    case "list":
+      await list(options.json);
+      return;
+    case "mcp":
+      await mcp();
       return;
     case "start":
       await start(options.overrides);
@@ -73,14 +85,58 @@ async function main(): Promise<void> {
   }
 }
 
-async function doctor(): Promise<void> {
+/** Talks to the Studio named by `PORTLESS_STUDIO_URL`, or the one on the configured port. */
+async function studioClient(): Promise<StudioClient> {
+  const config = await readConfig(createStudioServices().configStore);
+  const url = resolveStudioUrl(process.env.PORTLESS_STUDIO_URL, config.port);
+  if (!url.ok) {
+    console.error(`Error: ${url.error}`);
+    process.exit(1);
+  }
+  return createStudioClient(url.value);
+}
+
+async function list(json: boolean): Promise<void> {
+  const client = await studioClient();
+  const code = await runListCommand({
+    json,
+    print,
+    readFromStudio: async () => {
+      const snapshot = await client.read(API_PATHS.snapshot);
+      return snapshot.ok ? { ok: true, value: snapshot.value as Snapshot } : snapshot;
+    },
+    readLocally: async () => {
+      const services = createStudioServices();
+      const state = await services.registry.readSnapshot();
+      return { proxy: state.proxy, routes: state.routes, detected: await services.detectPorts() };
+    },
+  });
+  // The local fallback may leave scan timers behind; the list is all this command does.
+  process.exit(code);
+}
+
+/** stdout carries only protocol messages; warnings go to stderr through `console.error`. */
+async function mcp(): Promise<void> {
+  const client = await studioClient();
+  const server = createMcpServer({
+    name: "portless-studio",
+    version: readVersion(),
+    instructions: AGENT_INSTRUCTIONS,
+    tools: createStudioTools(client),
+  });
+  console.error(`portless-studio mcp: talking to Studio at ${client.baseUrl}`);
+  await serveStdio(server, process.stdin, process.stdout);
+  process.exit(0);
+}
+
+async function doctor(json: boolean): Promise<void> {
   const env = await serviceEnv();
   const studioService = createStudioServiceControl({
     env: env.ok ? env.value : null,
     exitSelf: async () => {},
   });
   const services = createStudioServices({ studioService });
-  const code = await runDoctorCommand(() => services.doctor.check(), print);
+  const code = await runDoctorCommand(() => services.doctor.check(), print, { json });
   // The services may hold timers or watchers; the report is all doctor does.
   process.exit(code);
 }

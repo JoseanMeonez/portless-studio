@@ -73,4 +73,16 @@ describe("runDoctorCommand", () => {
       ),
     ).toBe(0);
   });
+
+  it("prints the checks and overall status as JSON with --json, keeping the exit code", async () => {
+    const lines: string[] = [];
+    const code = await runDoctorCommand(
+      async () => [PORTLESS, TWO_PROXIES],
+      (line) => lines.push(line),
+      { json: true },
+    );
+    expect(code).toBe(1);
+    expect(lines).toHaveLength(1);
+    expect(JSON.parse(lines[0] ?? "")).toEqual({ status: "fail", checks: [PORTLESS, TWO_PROXIES] });
+  });
 });

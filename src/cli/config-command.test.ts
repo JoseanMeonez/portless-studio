@@ -5,7 +5,7 @@ import { DEFAULT_CONFIG, type StudioConfig } from "../core/config/studio-config.
 import { ok } from "../core/result.ts";
 import type { ConfigStore } from "../server/application/config-store.ts";
 import type { CommandRunner } from "./command-runner.ts";
-import { editConfig, printConfig } from "./config-command.ts";
+import { editConfig, printConfig, printConfigJson } from "./config-command.ts";
 
 let dir: string;
 
@@ -31,6 +31,19 @@ function store(file: string): ConfigStore & { writes: StudioConfig[] } {
     watch: () => () => {},
   };
 }
+
+describe("printConfigJson", () => {
+  it("prints only the config and its path as one JSON document", async () => {
+    const lines: string[] = [];
+    const file = path.join(dir, "config.json");
+    expect(await printConfigJson(store(file), (line) => lines.push(line))).toBe(0);
+    expect(lines).toHaveLength(1);
+    expect(JSON.parse(lines[0] ?? "")).toEqual({
+      config: { ...DEFAULT_CONFIG, port: 5050 },
+      path: file,
+    });
+  });
+});
 
 describe("printConfig", () => {
   it("prints the path and the current config as JSON", async () => {

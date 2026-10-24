@@ -1,5 +1,5 @@
 import { DEFAULT_CONFIG } from "../core/config/studio-config.ts";
-import { DEFAULT_PORT, parseCliArgs, resolveStartSettings } from "./cli-args.ts";
+import { DEFAULT_PORT, HELP, parseCliArgs, resolveStartSettings } from "./cli-args.ts";
 
 describe("parseCliArgs", () => {
   it("starts the server with no subcommand and no overrides", () => {
@@ -30,7 +30,10 @@ describe("parseCliArgs", () => {
   });
 
   it("reads doctor and refuses flags it does not take", () => {
-    expect(parseCliArgs(["doctor"])).toEqual({ ok: true, value: { command: "doctor" } });
+    expect(parseCliArgs(["doctor"])).toEqual({
+      ok: true,
+      value: { command: "doctor", json: false },
+    });
     expect(parseCliArgs(["doctor", "--port", "1"])).toMatchObject({ ok: false });
   });
 
@@ -61,12 +64,41 @@ describe("parseCliArgs", () => {
   it("reads config and config --edit", () => {
     expect(parseCliArgs(["config"])).toEqual({
       ok: true,
-      value: { command: "config", edit: false },
+      value: { command: "config", edit: false, json: false },
     });
     expect(parseCliArgs(["config", "--edit"])).toEqual({
       ok: true,
-      value: { command: "config", edit: true },
+      value: { command: "config", edit: true, json: false },
     });
+  });
+
+  it("reads --json on doctor, config and list", () => {
+    expect(parseCliArgs(["doctor", "--json"])).toEqual({
+      ok: true,
+      value: { command: "doctor", json: true },
+    });
+    expect(parseCliArgs(["config", "--json"])).toEqual({
+      ok: true,
+      value: { command: "config", edit: false, json: true },
+    });
+    expect(parseCliArgs(["config", "--edit", "--json"])).toMatchObject({ ok: false });
+    expect(parseCliArgs(["list"])).toEqual({ ok: true, value: { command: "list", json: false } });
+    expect(parseCliArgs(["list", "--json"])).toEqual({
+      ok: true,
+      value: { command: "list", json: true },
+    });
+    expect(parseCliArgs(["init", "--json"])).toMatchObject({ ok: false });
+  });
+
+  it("reads mcp and refuses flags it does not take", () => {
+    expect(parseCliArgs(["mcp"])).toEqual({ ok: true, value: { command: "mcp" } });
+    expect(parseCliArgs(["mcp", "--json"])).toMatchObject({ ok: false });
+  });
+
+  it("lists mcp and list in the help", () => {
+    expect(HELP).toContain("portless-studio mcp");
+    expect(HELP).toContain("portless-studio list [--json]");
+    expect(HELP).toContain("PORTLESS_STUDIO_URL");
   });
 
   it("rejects an unknown subcommand", () => {

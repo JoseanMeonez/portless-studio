@@ -20,10 +20,12 @@ export function formatDoctorReport(checks: readonly DoctorCheck[]): string {
 export async function runDoctorCommand(
   check: () => Promise<DoctorCheck[]>,
   print: (line: string) => void,
+  options: { json?: boolean } = {},
 ): Promise<number> {
   const checks = await check();
-  print(formatDoctorReport(checks));
-  return overallStatus(checks) === "fail" ? 1 : 0;
+  const status = overallStatus(checks);
+  print(options.json ? JSON.stringify({ status, checks }, null, 2) : formatDoctorReport(checks));
+  return status === "fail" ? 1 : 0;
 }
 
 function summary(checks: readonly DoctorCheck[]): string {

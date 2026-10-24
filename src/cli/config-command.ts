@@ -1,4 +1,5 @@
 import * as fs from "node:fs";
+import type { ConfigResponse } from "../core/api/contract.ts";
 import type { ConfigStore } from "../server/application/config-store.ts";
 import type { CommandRunner } from "./command-runner.ts";
 
@@ -12,6 +13,21 @@ export async function printConfig(store: ConfigStore, print: (line: string) => v
   }
   print(JSON.stringify(read.value, null, 2));
   if (!fs.existsSync(store.path)) print("(The file is not created yet; these are the defaults.)");
+}
+
+/** `portless-studio config --json`: the same `{ config, path }` shape `GET /api/config` answers. */
+export async function printConfigJson(
+  store: ConfigStore,
+  print: (line: string) => void,
+): Promise<number> {
+  const read = await store.read();
+  if (!read.ok) {
+    print(JSON.stringify({ error: read.error.message, path: store.path }, null, 2));
+    return 1;
+  }
+  const response: ConfigResponse = { config: read.value, path: store.path };
+  print(JSON.stringify(response, null, 2));
+  return 0;
 }
 
 /**

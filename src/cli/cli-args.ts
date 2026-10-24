@@ -16,8 +16,10 @@ export type CliOptions =
   | { command: "start"; overrides: StartOverrides }
   | { command: "init"; yes: boolean }
   | { command: "service"; action: ServiceAction }
-  | { command: "config"; edit: boolean }
-  | { command: "doctor" };
+  | { command: "config"; edit: boolean; json: boolean }
+  | { command: "doctor"; json: boolean }
+  | { command: "list"; json: boolean }
+  | { command: "mcp" };
 
 export type StartSettings = { port: number; open: boolean; register: boolean };
 
@@ -32,6 +34,10 @@ Usage:
   portless-studio config [--edit]     Print the config file, or open it in $EDITOR
   portless-studio doctor              Check portless, the proxy and Studio, and say how to fix
                                       what is wrong (exit code 1 when something fails)
+  portless-studio list [--json]       List named routes and ports without a name, from the running
+                                      Studio (or read directly when it is not running)
+  portless-studio mcp                 Run an MCP server on stdio so AI agents can list, name and
+                                      stop dev servers through the running Studio (docs/mcp.md)
 
 Options:
   --port <n>       Port for the dashboard, on 127.0.0.1 (default from the config, ${DEFAULT_PORT};
@@ -39,6 +45,7 @@ Options:
   --no-open        Do not open the browser
   --no-register    Do not register the "studio" portless alias for the dashboard
   -y, --yes        With init: accept every default without asking
+  --json           With doctor, config and list: print JSON for scripts and agents
   -h, --help       Show this help
   -v, --version    Show the version
 
@@ -46,9 +53,10 @@ Environment:
   PORTLESS_STATE_DIR   portless state directory (default ~/.portless)
   PORTLESS_BIN         portless binary used to create and remove aliases (default: portless)
   EDITOR               Editor that \`config --edit\` opens
+  PORTLESS_STUDIO_URL  Studio that \`mcp\` and \`list\` talk to (default http://127.0.0.1:<port>)
 `;
 
-const SUBCOMMANDS = new Set(["init", "service", "config", "doctor"]);
+const SUBCOMMANDS = new Set(["init", "service", "config", "doctor", "list", "mcp"]);
 const SERVICE_ACTIONS = new Set<string>(["install", "uninstall", "status"]);
 
 /** Turns command-line arguments into options, or a message saying what is wrong with them. */
@@ -72,8 +80,14 @@ export function parseCliArgs(argv: string[]): Result<CliOptions, string> {
   if (values.version) return ok({ command: "version" });
 
   if (subcommand === "init") return ok({ command: "init", yes: values.yes === true });
-  if (subcommand === "config") return ok({ command: "config", edit: values.edit === true });
-  if (subcommand === "doctor") return ok({ command: "doctor" });
+  const json = values.json === true;
+  if (subcommand === "config") {
+    if (values.edit && json) return err("Use either --edit or --json, not both.");
+    return ok({ command: "config", edit: values.edit === true, json });
+  }
+  if (subcommand === "doctor") return ok({ command: "doctor", json });
+  if (subcommand === "list") return ok({ command: "list", json });
+  if (subcommand === "mcp") return ok({ command: "mcp" });
   if (subcommand === "service") {
     const action = positionals[0];
     if (action === undefined || !SERVICE_ACTIONS.has(action) || positionals.length > 1) {
@@ -111,19 +125,22 @@ function parseFlags(args: string[], subcommand: string | null) {
     help: { type: "boolean", short: "h" },
     version: { type: "boolean", short: "v" },
   } as const;
+  const json = { type: "boolean" } as const;
   const options: ParseArgsOptionsConfig =
     subcommand === "init"
       ? { ...common, yes: { type: "boolean", short: "y" } }
       : subcommand === "config"
-        ? { ...common, edit: { type: "boolean" } }
-        : subcommand === "service" || subcommand === "doctor"
-          ? common
-          : {
-              ...common,
-              port: { type: "string" },
-              open: { type: "boolean" },
-              register: { type: "boolean" },
-            };
+        ? { ...common, edit: { type: "boolean" }, json }
+        : subcommand === "doctor" || subcommand === "list"
+          ? { ...common, json }
+          : subcommand === "service" || subcommand === "mcp"
+            ? common
+            : {
+                ...common,
+                port: { type: "string" },
+                open: { type: "boolean" },
+                register: { type: "boolean" },
+              };
   const { values, positionals } = parseArgs({
     args,
     options,
@@ -137,6 +154,7 @@ function parseFlags(args: string[], subcommand: string | null) {
       version?: boolean;
       yes?: boolean;
       edit?: boolean;
+      json?: boolean;
       port?: string;
       open?: boolean;
       register?: boolean;

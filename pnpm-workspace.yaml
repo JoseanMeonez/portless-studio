@@ -1,0 +1,2 @@
+# Only install releases that are at least 14 days old.
+minimumReleaseAge: 20160

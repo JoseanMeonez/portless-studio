@@ -13,12 +13,20 @@ describe("isAllowedHost", () => {
     expect(isAllowedHost(host)).toBe(true);
   });
 
-  it.each([undefined, "", "evil.com", "localhost.evil.com", "127.0.0.2", "10.0.0.1:4321", "a b"])(
-    "rejects %s",
-    (host) => {
-      expect(isAllowedHost(host)).toBe(false);
-    },
-  );
+  it.each([
+    undefined,
+    "",
+    "evil.com",
+    "localhost.evil.com",
+    "127.0.0.2",
+    "10.0.0.1:4321",
+    "a b",
+    "evil.com:80@x.localhost",
+    "127.1",
+    "2130706433",
+  ])("rejects %s", (host) => {
+    expect(isAllowedHost(host)).toBe(false);
+  });
 });
 
 describe("isSameOrigin", () => {

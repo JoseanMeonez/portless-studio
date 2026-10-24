@@ -102,6 +102,13 @@ describe("removeAlias", () => {
     expect(registry.calls).toEqual([]);
   });
 
+  it("never passes a stored name that is not a valid route name to the CLI", async () => {
+    const registry = new FakeRegistry([route("a&calc", 5432, "alias")]);
+    const result = await removeAlias(registry, "a&calc");
+    expect(result).toMatchObject({ ok: false, error: { code: "invalid_name" } });
+    expect(registry.calls).toEqual([]);
+  });
+
   it("rejects an app route with not_an_alias", async () => {
     const registry = new FakeRegistry([route("web", 3000, "app")]);
     const result = await removeAlias(registry, "web");

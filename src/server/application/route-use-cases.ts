@@ -76,5 +76,14 @@ async function findAlias(registry: RouteRegistry, name: string): Promise<Result<
       appError("not_an_alias", `"${name}" belongs to a running app; only aliases can change.`),
     );
   }
+  // The stored name goes to the portless CLI, which runs through cmd.exe on Windows.
+  if (!parseRouteName(route.name).ok) {
+    return err(
+      appError(
+        "invalid_name",
+        `"${route.name}" is not a valid name; remove it with the portless CLI.`,
+      ),
+    );
+  }
   return ok(route);
 }

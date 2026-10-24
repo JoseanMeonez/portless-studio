@@ -31,10 +31,10 @@ export function hasToken(header: string | string[] | undefined, token: string): 
   return given.length === expected.length && timingSafeEqual(given, expected);
 }
 
+// `name[:port]` or `[ipv6][:port]` only; `new URL` would also accept userinfo and numeric IPs.
+const HOST_HEADER = /^(\[[0-9a-f:.]+\]|[a-z0-9.-]+)(?::\d{1,5})?$/i;
+
 function hostnameOf(host: string): string | null {
-  try {
-    return new URL(`http://${host}`).hostname.toLowerCase();
-  } catch {
-    return null;
-  }
+  const match = HOST_HEADER.exec(host);
+  return match?.[1]?.toLowerCase() ?? null;
 }

@@ -1,5 +1,6 @@
 import { createServer, type Server } from "node:http";
 import { type AddressInfo, createServer as createTcpServer } from "node:net";
+import { STUDIO_HEADER } from "../../../core/api/contract.ts";
 import type { ListeningPort } from "../../application/port-scanner.ts";
 import { probeHttp, SystemPortScanner } from "./system-port-scanner.ts";
 
@@ -29,6 +30,13 @@ describe("probeHttp", () => {
   it("is true for a server that answers HTTP, whatever the status", async () => {
     const port = await listen(createServer((_req, res) => res.writeHead(403).end()));
     expect(await probeHttp(port, 800)).toBe(true);
+  });
+
+  it("is false for another Portless Studio, so it is never named as a dev server", async () => {
+    const port = await listen(
+      createServer((_req, res) => res.writeHead(200, { [STUDIO_HEADER]: "1" }).end()),
+    );
+    expect(await probeHttp(port, 800)).toBe(false);
   });
 
   it("is false for a closed port", async () => {

@@ -69,6 +69,23 @@ adapter is one implementation of it. The port has five methods:
 The portless adapter caches the `portless --version` result for 30 seconds, so reads and polling
 do not start a process each time; an install clears the cache.
 
+Two more ports feed port detection and settings:
+
+| Port | Default implementation | What it does |
+| --- | --- | --- |
+| `PortScanner` (`application/port-scanner.ts`) | `infrastructure/system`: `/proc` on Linux, `lsof` on macOS, `netstat` and `tasklist` on Windows | Lists listening ports with their process and folder, and probes whether a port answers HTTP. |
+| `ConfigStore` (`application/config-store.ts`) | `infrastructure/config/json-config-store.ts` | Reads, writes and watches the JSON config file. |
+
+`StudioRuntime` (`application/studio-runtime.ts`) ties them together. It scans every
+`scanIntervalMs` while a browser is watching or auto mode is on, builds the full `Snapshot`
+(portless state plus detected ports), and, in auto mode, names each new dev server through
+`RouteRegistry.createAlias`. A detected port must answer HTTP, have no route, not be ignored, not be
+another Studio (they send `x-portless-studio`), and run on a known runtime (`node`, `python`, `bun`
+and similar) or from a binary built inside the project.
+
+On the web side, `RoutesGateway` also has `getConfig()`, `updateConfig(config)` and
+`ignoreDetected(port)`.
+
 ## Security
 
 The server listens on `127.0.0.1` only. Every request must carry a `Host` that is loopback or a

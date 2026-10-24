@@ -31,6 +31,7 @@ describe("ProjectInfoReader", () => {
       repoName: "acme",
       folderName: "web",
       worktreeName: null,
+      rootDir: path.join(dir, "acme"),
     });
   });
 
@@ -46,6 +47,7 @@ describe("ProjectInfoReader", () => {
       repoName: "ave",
       folderName: "falcon",
       worktreeName: "falcon",
+      rootDir: cwd,
     });
   });
 
@@ -56,6 +58,7 @@ describe("ProjectInfoReader", () => {
       repoName: null,
       folderName: "demo",
       worktreeName: null,
+      rootDir: null,
     });
   });
 

@@ -48,9 +48,20 @@ export async function discoverPorts(
   // Probes run in parallel; a port that never answers costs its timeout once, not per port.
   const answers = await Promise.all(candidates.map((port) => scanner.answersHttp(port.port)));
   return candidates
-    .filter((_, index) => answers[index])
+    .filter((port, index) => answers[index] && isDevServer(port, projects))
     .map((port) => toDetected(port, projects))
     .sort((a, b) => a.port - b.port);
+}
+
+// Interpreters dev servers run on. Anything else counts only when it was built inside the
+// project, like `target/debug/api`, so editors, chat apps and background tools stay out.
+const DEV_RUNTIME = /^(node|nodejs|bun|deno|python\d*(\.\d+)?|ruby|php|java|dotnet)$/i;
+
+function isDevServer(port: ListeningPort, projects: ProjectInfoSource): boolean {
+  if (!port.executable) return true;
+  if (DEV_RUNTIME.test(port.processName)) return true;
+  const root = port.cwd === null ? null : projects.read(port.cwd).rootDir;
+  return Boolean(root) && port.executable.startsWith(`${root}/`);
 }
 
 function toDetected(port: ListeningPort, projects: ProjectInfoSource): DetectedPort {

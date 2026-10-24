@@ -1,4 +1,5 @@
 import { request } from "node:http";
+import { STUDIO_HEADER } from "../../../core/api/contract.ts";
 import type { ListeningPort, PortScanner } from "../../application/port-scanner.ts";
 import { listLinuxPorts } from "./linux-ports.ts";
 import { listMacosPorts } from "./macos-ports.ts";
@@ -70,7 +71,10 @@ export class SystemPortScanner implements PortScanner {
   }
 }
 
-/** True when anything on loopback answers `HEAD /` with an HTTP response, whatever its status. */
+/**
+ * True when anything on loopback answers `HEAD /` with an HTTP response, whatever its status,
+ * unless the response comes from a Portless Studio.
+ */
 export async function probeHttp(port: number, timeoutMs = PROBE_TIMEOUT_MS): Promise<boolean> {
   for (const host of LOOPBACK_HOSTS) {
     if (await probeHost(host, port, timeoutMs)) return true;
@@ -84,7 +88,7 @@ function probeHost(host: string, port: number, timeoutMs: number): Promise<boole
     const req = request(options, (res) => {
       res.resume();
       req.destroy();
-      resolve(true);
+      resolve(res.headers[STUDIO_HEADER] === undefined);
     });
     req.on("timeout", () => req.destroy());
     req.on("error", () => resolve(false));

@@ -26,6 +26,8 @@ export type ProjectInfo = {
    * checkouts of the same app get different names.
    */
   worktreeName: string | null;
+  /** Folder of the git root, or of the package.json when there is no git. */
+  rootDir?: string | null;
 };
 
 /**

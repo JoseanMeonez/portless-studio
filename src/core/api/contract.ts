@@ -24,6 +24,9 @@ export const API_PATHS = {
 
 export const SNAPSHOT_EVENT = "snapshot";
 
+/** Sent on every Studio response, so one Studio never lists another as a dev server. */
+export const STUDIO_HEADER = "x-portless-studio";
+
 /** Header that carries the per-run token on every write request. */
 export const TOKEN_HEADER = "x-portless-studio-token";
 

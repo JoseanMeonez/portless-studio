@@ -4,6 +4,7 @@ import {
   type CreateAliasRequest,
   type RenameAliasRequest,
   type Session,
+  STUDIO_HEADER,
   TOKEN_HEADER,
 } from "../../../core/api/contract.ts";
 import type { Result } from "../../../core/result.ts";
@@ -45,6 +46,7 @@ export function createHttpServer(options: HttpServerOptions): HttpServer {
   const staticFiles = options.webDir ? new StaticFiles(options.webDir) : null;
 
   const server = createServer((req, res) => {
+    res.setHeader(STUDIO_HEADER, "1");
     res.setHeader("X-Content-Type-Options", "nosniff");
     res.setHeader("Referrer-Policy", "no-referrer");
     handle(req, res).catch(() => {

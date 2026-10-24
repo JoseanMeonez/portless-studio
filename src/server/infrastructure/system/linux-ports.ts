@@ -45,6 +45,10 @@ export async function listLinuxPorts(io: SystemIo): Promise<ListeningPort[]> {
       pid,
       processName: pid === null ? "" : readProcessName(io, pid),
       cwd: pid === null ? null : readCwd(io, pid),
+      executable:
+        pid === null
+          ? null
+          : (io.readLink(`/proc/${pid}/exe`)?.replace(DELETED_SUFFIX, "") ?? null),
     });
   }
   return [...byPort.values()].sort((a, b) => a.port - b.port);

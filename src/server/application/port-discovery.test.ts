@@ -45,7 +45,32 @@ const route = (port: number): Route => ({
   tunnels: [],
 });
 
+const withExe = (port: number, executable: string, cwd: string) => ({
+  ...listening(port, executable.split("/").pop() ?? "", cwd),
+  executable,
+});
+
+const rootedProjects: ProjectInfoSource = {
+  read: (cwd): ProjectInfo => ({ ...projects.read(cwd), rootDir: "/code/acme" }),
+};
+
 describe("discoverPorts", () => {
+  it("drops desktop apps and tools, keeps runtimes and binaries built in the project", async () => {
+    const { scanner } = fakeScanner([
+      withExe(5173, "/usr/bin/node", "/code/acme/apps/web"),
+      withExe(7438, "/home/me/.local/bin/engram", "/code/acme"),
+      withExe(6768, "/opt/orca/orca-ide", "/code/acme"),
+      withExe(8080, "/code/acme/target/debug/api", "/code/acme"),
+      withExe(8000, "/usr/bin/python3.12", "/code/acme"),
+    ]);
+    const detected = await discoverPorts(scanner, rootedProjects, {
+      config: { ...DEFAULT_CONFIG, ignoredProcesses: [] },
+      routes: [],
+      excludedPorts: [],
+    });
+    expect(detected.map((port) => port.port)).toEqual([5173, 8000, 8080]);
+  });
+
   it("keeps HTTP ports and suggests a name from the project folder", async () => {
     const { scanner } = fakeScanner([
       listening(5173, "node", "/code/acme/apps/web"),

@@ -72,10 +72,16 @@ describe("listLinuxPorts", () => {
     const ports = await listLinuxPorts(fakeProc());
     expect(ports).toEqual(
       expect.arrayContaining([
-        { port: 5173, pid: 100, processName: "node", cwd: "/home/ana/acme/apps/app" },
-        { port: 4321, pid: 200, processName: "ng", cwd: null },
-        { port: 3306, pid: null, processName: "", cwd: null },
-        { port: 4977, pid: null, processName: "", cwd: null },
+        {
+          port: 5173,
+          pid: 100,
+          processName: "node",
+          cwd: "/home/ana/acme/apps/app",
+          executable: "/home/ana/.nvm/versions/node/v24.1.0/bin/node",
+        },
+        { port: 4321, pid: 200, processName: "ng", cwd: null, executable: null },
+        { port: 3306, pid: null, processName: "", cwd: null, executable: null },
+        { port: 4977, pid: null, processName: "", cwd: null, executable: null },
       ]),
     );
   });

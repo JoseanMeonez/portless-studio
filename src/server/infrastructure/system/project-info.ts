@@ -34,18 +34,25 @@ export class ProjectInfoReader implements ProjectInfoSource {
       repoName: null,
       folderName: path.basename(cwd) || null,
       worktreeName: null,
+      rootDir: null,
     };
     let dir = cwd;
     while (dir !== this.#home) {
-      info.packageName ??= readPackageName(dir);
+      const packageName = readPackageName(dir);
+      if (info.packageName === null && packageName !== null) {
+        info.packageName = packageName;
+        info.rootDir = dir;
+      }
       const git = gitKind(dir);
       if (git === "repository") {
         info.repoName = path.basename(dir);
+        info.rootDir = dir;
         break;
       }
       if (git !== null) {
         info.repoName = path.basename(git.mainRepo);
         info.worktreeName = path.basename(dir);
+        info.rootDir = dir;
         break;
       }
       const parent = path.dirname(dir);

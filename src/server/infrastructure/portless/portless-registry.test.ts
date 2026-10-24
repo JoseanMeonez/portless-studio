@@ -128,16 +128,28 @@ describe("PortlessRegistry", () => {
     expect((await registry.readSnapshot()).routes).toEqual([]);
   });
 
-  posixOnly("maps a name conflict to name_taken without color codes", async () => {
-    writeRoutes([{ hostname: "db.localhost", port: 5432, pid: 0 }]);
-    const result = await new PortlessRegistry({ stateDir: dir, bin }).createAlias("db", 1, false);
-    expect(result).toEqual({
-      ok: false,
-      error: {
-        code: "name_taken",
-        message: '"db.localhost" is a static alias. Use --force to replace it.',
-      },
-    });
+  posixOnly(
+    "refuses a name another port already has, because portless would replace it",
+    async () => {
+      writeRoutes([{ hostname: "web.localhost", port: 1500, pid: 0 }]);
+      const registry = new PortlessRegistry({ stateDir: dir, bin });
+      const result = await registry.createAlias("web", 5199, false);
+      expect(result).toEqual({
+        ok: false,
+        error: { code: "name_taken", message: '"web" already points to port 1500.' },
+      });
+      expect((await registry.readSnapshot()).routes.map((r) => r.port)).toEqual([1500]);
+    },
+  );
+
+  posixOnly("treats naming a port again with the same name as done", async () => {
+    writeRoutes([{ hostname: "web.localhost", port: 1500, pid: 0 }]);
+    const result = await new PortlessRegistry({ stateDir: dir, bin }).createAlias(
+      "web",
+      1500,
+      false,
+    );
+    expect(result).toEqual({ ok: true, value: undefined });
   });
 
   posixOnly("passes --force through", async () => {

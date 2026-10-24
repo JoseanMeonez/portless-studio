@@ -6,6 +6,11 @@ export interface Prompter {
   confirm(question: string, defaultYes?: boolean): Promise<boolean>;
   /** A text question; an empty answer takes `defaultValue`. */
   ask(question: string, defaultValue: string): Promise<string>;
+  /**
+   * Releases the terminal while `task` runs, so a child process such as `sudo` reads the keyboard
+   * on its own, then takes it back.
+   */
+  suspend<T>(task: () => Promise<T>): Promise<T>;
   close(): void;
 }
 
@@ -14,14 +19,27 @@ export function createTerminalPrompter(
   input: NodeJS.ReadableStream,
   output: NodeJS.WritableStream,
 ): Prompter {
-  const rl = createInterface({ input, output });
-  rl.on("SIGINT", () => {
-    rl.close();
-    output.write("\nCancelled.\n");
-    process.exit(130);
-  });
+  const open = () => {
+    const created = createInterface({ input, output });
+    created.on("SIGINT", () => {
+      created.close();
+      output.write("\nCancelled.\n");
+      process.exit(130);
+    });
+    return created;
+  };
+  let rl = open();
 
   return {
+    async suspend(task) {
+      // An open readline keeps the terminal in raw mode and reads keystrokes meant for the child.
+      rl.close();
+      try {
+        return await task();
+      } finally {
+        rl = open();
+      }
+    },
     async confirm(question, defaultYes = true) {
       const hint = defaultYes ? "(Y/n)" : "(y/N)";
       for (;;) {
@@ -43,6 +61,7 @@ export function createTerminalPrompter(
 /** Answers every question with its default, for `init --yes`, printing each one. */
 export function createDefaultsPrompter(print: (line: string) => void): Prompter {
   return {
+    suspend: (task) => task(),
     async confirm(question, defaultYes = true) {
       print(`? ${question} ${defaultYes ? "yes" : "no"}`);
       return defaultYes;

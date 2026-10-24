@@ -130,7 +130,14 @@ export class PortlessRegistry implements RouteRegistry {
     }
   }
 
-  createAlias(name: string, port: number, force: boolean): Promise<Result<void, AppError>> {
+  async createAlias(name: string, port: number, force: boolean): Promise<Result<void, AppError>> {
+    // `portless alias` silently replaces an existing alias, so the conflict check lives here.
+    const proxy = readProxyStatus(this.#stateDir);
+    const existing = readRoutes(this.#stateDir, proxy).find((route) => route.name === name);
+    if (existing && !force) {
+      if (existing.port === port) return ok(undefined);
+      return err(appError("name_taken", `"${name}" already points to port ${existing.port}.`));
+    }
     return addAlias(this.#cli, name, port, force);
   }
 

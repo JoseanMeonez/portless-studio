@@ -1,6 +1,7 @@
 import { DEFAULT_CONFIG, type StudioConfig } from "../core/config/studio-config.ts";
 import type { DetectedPort } from "../core/ports/detected-port.ts";
 import type { Result } from "../core/result.ts";
+import { routeUrl } from "../core/routes/route.ts";
 import { parsePort, parseRouteName } from "../core/routes/route-name.ts";
 import type { ConfigStore } from "../server/application/config-store.ts";
 import type { RouteRegistry } from "../server/application/route-registry.ts";
@@ -63,9 +64,10 @@ export async function runInit(deps: InitDeps): Promise<InitSummary> {
   );
 
   let namesCreated = 0;
+  let proxyRunning = false;
   if (portlessReady) {
     namesCreated = await nameDetectedPorts(deps);
-    await offerProxyStart(deps);
+    proxyRunning = await offerProxyStart(deps);
   } else {
     print("Skipping port names and the proxy until portless is installed.\n");
   }
@@ -80,9 +82,7 @@ export async function runInit(deps: InitDeps): Promise<InitSummary> {
   const summary: InitSummary = {
     configPath: services.configStore.path,
     namesCreated,
-    url: config.registerStudioAlias
-      ? `https://${STUDIO_ALIAS}.localhost`
-      : `http://127.0.0.1:${port}`,
+    url: await studioUrl(deps, config.registerStudioAlias && proxyRunning, port),
   };
   print("");
   print("All set.");
@@ -199,12 +199,20 @@ async function createName(
     : { ok: false, error: second.error.message };
 }
 
-async function offerProxyStart(deps: InitDeps): Promise<void> {
+/** The name only works through a running proxy; otherwise the plain loopback URL is the one that opens. */
+async function studioUrl(deps: InitDeps, viaProxy: boolean, port: number): Promise<string> {
+  if (!viaProxy) return `http://127.0.0.1:${port}`;
+  const { proxy } = await deps.services.registry.readSnapshot();
+  return routeUrl(`${STUDIO_ALIAS}.${proxy.tlds[0] ?? "localhost"}`, proxy);
+}
+
+/** Returns whether the proxy runs at the end. */
+async function offerProxyStart(deps: InitDeps): Promise<boolean> {
   const { print } = deps;
   const { proxy } = await deps.services.registry.readSnapshot();
   if (proxy.running) {
     print("The portless proxy is running.\n");
-    return;
+    return true;
   }
 
   print("The portless proxy is what serves the .localhost names in your browser.");
@@ -213,14 +221,28 @@ async function offerProxyStart(deps: InitDeps): Promise<void> {
   const command = `${deps.portlessBin} proxy start`;
   if (!(await deps.prompter.confirm("Start the portless proxy now?"))) {
     print(`Start it later with: ${command}\n`);
-    return;
+    return false;
   }
-  const started = await deps.run(deps.portlessBin, ["proxy", "start"], { inherit: true });
-  print(
-    started.exitCode === 0
-      ? "The proxy is running.\n"
-      : `The proxy did not start. Run it yourself with: ${command}\n`,
+  if (await startProxy(deps, [])) return true;
+
+  print("");
+  print("The proxy could not take port 443. It can run on port 1355 without sudo instead;");
+  print("the names then open with the port, like https://studio.localhost:1355.");
+  if (!(await deps.prompter.confirm("Start it on port 1355 without sudo?"))) {
+    print(`Start it later with: ${command}\n`);
+    return false;
+  }
+  if (await startProxy(deps, ["--port", "1355", "--https"])) return true;
+  print(`The proxy did not start. Run it yourself with: ${command}\n`);
+  return false;
+}
+
+async function startProxy(deps: InitDeps, extraArgs: string[]): Promise<boolean> {
+  const started = await deps.prompter.suspend(() =>
+    deps.run(deps.portlessBin, ["proxy", "start", ...extraArgs], { inherit: true }),
   );
+  if (started.exitCode === 0) deps.print("The proxy is running.\n");
+  return started.exitCode === 0;
 }
 
 function portTable(ports: DetectedPort[], homeDir: string): string[] {

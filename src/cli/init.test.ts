@@ -9,9 +9,10 @@ import { createDefaultsPrompter, type Prompter } from "./prompter.ts";
 type Answer = [question: string, answer: boolean | string];
 
 /** Answers each question in order and fails the test when a question is not the expected one. */
-function scripted(answers: Answer[]): Prompter & { asked: string[] } {
+function scripted(answers: Answer[]): Prompter & { asked: string[]; events: string[] } {
   const queue = [...answers];
   const asked: string[] = [];
+  const events: string[] = [];
   const next = (question: string) => {
     asked.push(question);
     const entry = queue.shift();
@@ -21,6 +22,13 @@ function scripted(answers: Answer[]): Prompter & { asked: string[] } {
   };
   return {
     asked,
+    events,
+    suspend: async (task) => {
+      events.push("suspend");
+      const result = await task();
+      events.push("resume");
+      return result;
+    },
     confirm: async (question) => {
       const answer = next(question);
       if (typeof answer !== "boolean") throw new Error(`Expected yes/no for: ${question}`);
@@ -99,12 +107,17 @@ function fakeServices(options: FakeOptions = {}) {
   return { services, calls, saved: () => saved };
 }
 
-function harness(fake: ReturnType<typeof fakeServices>, prompter: Prompter) {
+function harness(
+  fake: ReturnType<typeof fakeServices>,
+  prompter: Prompter & { events?: string[] },
+  exitCodes: number[] = [],
+) {
   const lines: string[] = [];
   const commands: string[] = [];
   const run: CommandRunner = async (command, args, runOptions) => {
     commands.push(`${command} ${args.join(" ")}${runOptions?.inherit ? " [inherit]" : ""}`);
-    return { exitCode: 0, output: "", missing: false };
+    prompter.events?.push("run");
+    return { exitCode: exitCodes.shift() ?? 0, output: "", missing: false };
   };
   let serviceInstalls = 0;
   const deps: InitDeps = {
@@ -202,6 +215,53 @@ describe("runInit with answers", () => {
     await runInit(h.deps);
 
     expect(h.commands).toEqual(["portless proxy start [inherit]"]);
+  });
+
+  it("lets go of the terminal while the proxy asks for the password", async () => {
+    const prompter = scripted([
+      ["auto mode", true],
+      ["log in", false],
+      ["port", "4949"],
+      ["open the browser", true],
+      ["Start the portless proxy now?", true],
+    ]);
+    const h = harness(fakeServices({ proxyRunning: false }), prompter);
+
+    await runInit(h.deps);
+
+    expect(prompter.events).toEqual(["suspend", "run", "resume"]);
+  });
+
+  it("offers port 1355 without sudo when the start on 443 fails", async () => {
+    const prompter = scripted([
+      ["auto mode", true],
+      ["log in", false],
+      ["port", "4949"],
+      ["open the browser", true],
+      ["Start the portless proxy now?", true],
+      ["port 1355", true],
+    ]);
+    const h = harness(fakeServices({ proxyRunning: false }), prompter, [1, 0]);
+
+    await runInit(h.deps);
+
+    expect(h.commands).toEqual([
+      "portless proxy start [inherit]",
+      "portless proxy start --port 1355 --https [inherit]",
+    ]);
+  });
+
+  it("gives the plain URL when the proxy is not running", async () => {
+    const prompter = scripted([
+      ["auto mode", true],
+      ["log in", false],
+      ["port", "4949"],
+      ["open the browser", true],
+      ["Start the portless proxy now?", false],
+    ]);
+    const h = harness(fakeServices({ proxyRunning: false }), prompter);
+
+    expect((await runInit(h.deps)).url).toBe("http://127.0.0.1:4949");
   });
 
   it("does not ask about the proxy when it already runs, and names nothing on a no", async () => {

@@ -3,7 +3,9 @@
 Agents such as Claude Code and Cursor start dev servers for you, and each one lands on a random
 port. `portless-studio mcp` lets those agents see and control what Studio sees: list routes and
 unnamed ports, give a port a name like `web.myapp`, rename or remove it, stop a dev server, check
-the setup and start or stop the proxy.
+the setup and start or stop the proxy. They can also run commands in Studio terminals, so you
+watch a dev server's logs in the dashboard while the agent reads them too, and bring Studio to the
+front showing what they are talking about.
 
 It is an [MCP](https://modelcontextprotocol.io) server, the protocol agents use to call outside
 tools. It runs over stdio: the agent starts `portless-studio mcp` as a child process and talks to
@@ -82,12 +84,22 @@ prints as the command.
 | `proxy`               | Starts, stops or restarts the portless proxy (`action`)                |
 | `get_config`          | Reads Studio's settings and the path of the config file                |
 | `set_auto_name`       | Turns automatic naming of new dev servers on or off (`enabled`)        |
+| `run_in_terminal`     | Runs a command in a Studio terminal (`command`, `project` or `cwd`, optional `name`, `name_port`, `title`) and names the port it opens |
+| `list_terminals`      | Terminals: id, folder, command, running or exit code, the port named   |
+| `read_terminal`       | Output as plain text (`id`, optional `from`, `max_bytes`), with the offset to read from next |
+| `send_to_terminal`    | Types into a terminal (`id`, `text`, `enter` defaults to true)          |
+| `stop_terminal`       | Stops a terminal's command; needs `confirm: true`                      |
+| `focus_studio`        | Brings Studio to the front showing a route, project, terminal or `port:<n>` (`target`) |
 
 Every tool answers with one summary line followed by the data as compact JSON.
 
 `stop_server` ends a process, so it refuses to run unless the agent passes `confirm: true`; the
 description tells the agent to ask you first. Studio still only stops your own user's processes
 that listen on a port it shows.
+
+`run_in_terminal` runs in a folder the agent names, as you; the agent can already do that in its
+own shell, and Studio shows you what runs. `stop_terminal` asks for `confirm: true` like
+`stop_server`. Terminals, how commands run and the limits are in docs/terminals.md.
 
 ## Instructions for your agent
 
@@ -107,8 +119,13 @@ http://web.myapp.localhost:1355. Use the `portless-studio` MCP tools for them:
   are told apart. Rename a generic name with `rename_route`.
 - To find which ports a git worktree uses, call `list_routes` and `list_detected_ports` and
   filter by the `worktree` field.
+- Start dev servers with `run_in_terminal`, or `portless-studio run -- <command>` from a shell,
+  never in your own background shell, so I can watch them in Studio. Read their output with
+  `read_terminal`.
+- When I ask to see a server, its logs or Studio, call `focus_studio` with the route, project or
+  terminal id.
 - Give me the route URL, not `localhost:<port>`.
-- Ask me before calling `stop_server`.
+- Ask me before calling `stop_server` or `stop_terminal`.
 ```
 
 ## The same data from a terminal or script
@@ -119,6 +136,8 @@ The CLI prints JSON too, without an MCP client:
 portless-studio list --json     # routes and ports without a name
 portless-studio doctor --json   # health checks; exit code 1 when one fails
 portless-studio config --json   # settings and the config file path
+portless-studio run -- pnpm dev # run in a Studio terminal, print its output, name its port
+portless-studio open web.myapp  # bring Studio to the front showing a route, project or terminal
 ```
 
 `list` reads from the running Studio. When Studio is not running it reads portless and scans the

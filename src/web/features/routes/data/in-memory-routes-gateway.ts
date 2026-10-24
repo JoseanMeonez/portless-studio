@@ -5,6 +5,8 @@ import type {
   CustomAppsResponse,
   DoctorFixResponse,
   DoctorReport,
+  FocusAck,
+  FocusEvent,
   InstallPortlessResponse,
   OpenWithApp,
   OpenWithRequest,
@@ -35,6 +37,7 @@ import { parsePort, parseRouteName } from "../../../../core/routes/route-name.ts
 import type {
   ConnectionListener,
   EventListener,
+  FocusListener,
   RoutesGateway,
   SnapshotListener,
 } from "./routes-gateway.ts";
@@ -76,6 +79,9 @@ export class InMemoryRoutesGateway implements RoutesGateway {
   #snapshot: Snapshot;
   readonly #listeners = new Set<SnapshotListener>();
   readonly #eventListeners = new Set<EventListener>();
+  readonly #focusListeners = new Set<FocusListener>();
+  /** What pages answered to focus requests, in order; tests read them. */
+  readonly focusAcks: FocusAck[] = [];
   #events: StudioEvent[] = [];
   #eventCount = 0;
   readonly #now: () => number;
@@ -112,8 +118,10 @@ export class InMemoryRoutesGateway implements RoutesGateway {
     listener: SnapshotListener,
     onConnectionChange?: ConnectionListener,
     onEvent?: EventListener,
+    onFocus?: FocusListener,
   ): () => void {
     this.#listeners.add(listener);
+    if (onFocus) this.#focusListeners.add(onFocus);
     onConnectionChange?.("open");
     if (onEvent) {
       this.#eventListeners.add(onEvent);
@@ -123,7 +131,18 @@ export class InMemoryRoutesGateway implements RoutesGateway {
     return () => {
       this.#listeners.delete(listener);
       if (onEvent) this.#eventListeners.delete(onEvent);
+      if (onFocus) this.#focusListeners.delete(onFocus);
     };
+  }
+
+  /** Asks open pages to show a target and come forward, as `portless-studio open` does. */
+  focus(event: FocusEvent): void {
+    for (const listener of this.#focusListeners) listener(event);
+  }
+
+  async acknowledgeFocus(ack: FocusAck): Promise<Result<null, ApiError>> {
+    this.focusAcks.push(ack);
+    return ok(null);
   }
 
   /** Sends a notification, as the server does for a notable change. */

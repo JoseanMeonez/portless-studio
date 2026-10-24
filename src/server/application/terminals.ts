@@ -1,0 +1,573 @@
+import type {
+  CreateTerminalRequest,
+  TerminalOutputChunk,
+  TerminalOutputResponse,
+} from "../../core/api/contract.ts";
+import type { DetectedPort } from "../../core/ports/detected-port.ts";
+import { err, ok, type Result } from "../../core/result.ts";
+import type { Route } from "../../core/routes/route.ts";
+import { OutputBuffer } from "../../core/terminals/output-buffer.ts";
+import type { TerminalInfo, TerminalMode, TerminalNaming } from "../../core/terminals/terminal.ts";
+import { type AppError, appError } from "./app-error.ts";
+
+/** A running command, as the spawner started it. */
+export interface TerminalProcess {
+  readonly pid: number | null;
+  write(text: string): void;
+  /** Ctrl+C: through the pseudo-terminal, or SIGINT to the process group with pipes. */
+  interrupt(): void;
+  /** SIGTERM to the process group; the whole process tree on Windows. */
+  terminate(): void;
+  /** SIGKILL to the process group; the whole process tree on Windows. */
+  kill(): void;
+  onData(listener: (text: string) => void): void;
+  /** Called once, with the exit code, or null when a signal ended it. */
+  onExit(listener: (exitCode: number | null) => void): void;
+}
+
+export type SpawnRequest = {
+  /** null starts the user's interactive shell. */
+  command: string | null;
+  cwd: string;
+  cols: number;
+  rows: number;
+  /** Added to Studio's own environment. */
+  env: Record<string, string>;
+};
+
+/** Starts commands; `infrastructure/terminal` has the pseudo-terminal and pipe versions. */
+export interface TerminalSpawner {
+  readonly mode: TerminalMode;
+  spawn(request: SpawnRequest): Promise<TerminalProcess>;
+}
+
+/** The file system questions the manager asks about folders. */
+export interface TerminalFolders {
+  /** The folder as an absolute, normalized path when it is an existing directory, else null. */
+  directory(path: string): string | null;
+  /** Whether `child` is `parent` or inside it. */
+  contains(parent: string, child: string): boolean;
+}
+
+/** What the manager needs from the rest of Studio: what it shows, and naming ports. */
+export interface TerminalWorkspace {
+  /** Project folders of the routes and detected ports Studio shows or showed. */
+  openableFolders(): Promise<Set<string>>;
+  snapshot(): Promise<{ routes: Route[]; detected: DetectedPort[] }>;
+  /** Calls `onChange` after routes or detected ports change; Studio scans while subscribed. */
+  watch(onChange: () => void): () => void;
+  createAlias(name: string, port: number): Promise<Result<void, AppError>>;
+  renameAlias(from: string, to: string): Promise<Result<void, AppError>>;
+}
+
+export type TerminalWatcher = {
+  onOutput(chunk: TerminalOutputChunk): void;
+  onStatus(info: TerminalInfo): void;
+};
+
+export type TerminalManagerOptions = {
+  spawner: TerminalSpawner;
+  workspace: TerminalWorkspace;
+  folders: TerminalFolders;
+  now?: () => number;
+  /** Characters of output kept per terminal; older output is dropped. */
+  maxOutputChars?: number;
+  /** Wait between Ctrl+C, SIGTERM and SIGKILL. */
+  graceMs?: number;
+  maxTerminals?: number;
+  /** How long `run` waits for the command to open a port before giving up naming it. */
+  namingTimeoutMs?: number;
+};
+
+/** Who asks: `trusted` is a local program (CLI, MCP server), not a browser page. */
+export type RequestOrigin = { trusted: boolean };
+
+const DEFAULT_MAX_OUTPUT = 2 * 1024 * 1024;
+const DEFAULT_GRACE_MS = 3_000;
+const DEFAULT_MAX_TERMINALS = 32;
+const DEFAULT_NAMING_TIMEOUT_MS = 3 * 60_000;
+const DEFAULT_COLS = 120;
+const DEFAULT_ROWS = 30;
+const MAX_COMMAND_CHARS = 8 * 1024;
+const MAX_TITLE_CHARS = 60;
+
+type Entry = {
+  info: TerminalInfo;
+  request: SpawnRequest;
+  buffer: OutputBuffer;
+  process: TerminalProcess | null;
+  stopTimers: NodeJS.Timeout[];
+  watchers: Set<TerminalWatcher>;
+  /** Ports in use when naming started; a new port is one not in here. */
+  baseline: Set<number> | null;
+  namingTimer: NodeJS.Timeout | undefined;
+};
+
+/**
+ * The terminals Studio runs. Each keeps its last `maxOutputChars` of output, numbered so a client
+ * can resume where it stopped. From a page, commands run only in folders Studio shows; a local
+ * program may pick any folder, which the page may then use too. See docs/terminals.md.
+ */
+export class TerminalManager {
+  readonly #spawner: TerminalSpawner;
+  readonly #workspace: TerminalWorkspace;
+  readonly #folders: TerminalFolders;
+  readonly #now: () => number;
+  readonly #maxOutput: number;
+  readonly #graceMs: number;
+  readonly #maxTerminals: number;
+  readonly #namingTimeoutMs: number;
+  readonly #entries = new Map<string, Entry>();
+  readonly #watchers = new Set<() => void>();
+  /** Folders a local program ran a terminal in. */
+  readonly #trustedFolders = new Set<string>();
+  #nextId = 1;
+  #stopWorkspaceWatch: (() => void) | undefined;
+  #naming = false;
+
+  constructor(options: TerminalManagerOptions) {
+    this.#spawner = options.spawner;
+    this.#workspace = options.workspace;
+    this.#folders = options.folders;
+    this.#now = options.now ?? Date.now;
+    this.#maxOutput = options.maxOutputChars ?? DEFAULT_MAX_OUTPUT;
+    this.#graceMs = options.graceMs ?? DEFAULT_GRACE_MS;
+    this.#maxTerminals = options.maxTerminals ?? DEFAULT_MAX_TERMINALS;
+    this.#namingTimeoutMs = options.namingTimeoutMs ?? DEFAULT_NAMING_TIMEOUT_MS;
+  }
+
+  get mode(): TerminalMode {
+    return this.#spawner.mode;
+  }
+
+  list(): TerminalInfo[] {
+    return [...this.#entries.values()].map((entry) => ({ ...entry.info }));
+  }
+
+  get(id: string): TerminalInfo | null {
+    const entry = this.#entries.get(id);
+    return entry ? { ...entry.info } : null;
+  }
+
+  /** Calls `onChange` when a terminal starts, ends, is named or closes. */
+  watch(onChange: () => void): () => void {
+    this.#watchers.add(onChange);
+    return () => this.#watchers.delete(onChange);
+  }
+
+  async create(
+    request: CreateTerminalRequest,
+    origin: RequestOrigin,
+  ): Promise<Result<TerminalInfo, AppError>> {
+    if (this.#entries.size >= this.#maxTerminals) {
+      return err(
+        appError(
+          "too_many_terminals",
+          `Studio already runs ${this.#maxTerminals} terminals. Close one first.`,
+        ),
+      );
+    }
+    const command = readCommand(request.command);
+    if (!command.ok) return command;
+    const cwd = await this.#resolveFolder(request, origin);
+    if (!cwd.ok) return cwd;
+    if (origin.trusted) this.#trustedFolders.add(cwd.value);
+
+    const id = `t${this.#nextId++}`;
+    const cols = readSize(request.cols, DEFAULT_COLS);
+    const rows = readSize(request.rows, DEFAULT_ROWS);
+    const naming = readNaming(request.name);
+    const title = (request.title?.trim() || command.value || "shell").slice(0, MAX_TITLE_CHARS);
+    const entry: Entry = {
+      info: {
+        id,
+        title,
+        cwd: cwd.value,
+        command: command.value ?? "",
+        project: await this.#projectOf(cwd.value),
+        status: "running",
+        exitCode: null,
+        startedAt: this.#now(),
+        endedAt: null,
+        pid: null,
+        mode: this.#spawner.mode,
+        cols,
+        rows,
+        nextSeq: 0,
+        naming,
+      },
+      request: {
+        command: command.value,
+        cwd: cwd.value,
+        cols,
+        rows,
+        env: {
+          TERM: "xterm-256color",
+          COLUMNS: String(cols),
+          LINES: String(rows),
+          PORTLESS_STUDIO_TERMINAL: id,
+        },
+      },
+      buffer: new OutputBuffer(this.#maxOutput),
+      process: null,
+      stopTimers: [],
+      watchers: new Set(),
+      baseline: null,
+      namingTimer: undefined,
+    };
+    if (naming) entry.baseline = await this.#portsInUse();
+    const started = await this.#spawn(entry);
+    if (!started.ok) return started;
+    this.#entries.set(id, entry);
+    if (naming) this.#startNaming(entry);
+    this.#changed();
+    return ok({ ...entry.info });
+  }
+
+  input(id: string, text: string): Result<void, AppError> {
+    const entry = this.#entries.get(id);
+    if (!entry) return notFound(id);
+    if (!entry.process || entry.info.status !== "running") return notRunning(entry);
+    entry.process.write(text);
+    return ok(undefined);
+  }
+
+  /** Ctrl+C now; SIGTERM, then SIGKILL, each after `graceMs` while the command still runs. */
+  stop(id: string): Result<TerminalInfo, AppError> {
+    const entry = this.#entries.get(id);
+    if (!entry) return notFound(id);
+    if (!entry.process || entry.info.status !== "running") return ok({ ...entry.info });
+    this.#escalate(entry, entry.process);
+    return ok({ ...entry.info });
+  }
+
+  /** Runs the same command again; stops the current one first and waits for it to end. */
+  async restart(id: string): Promise<Result<TerminalInfo, AppError>> {
+    const entry = this.#entries.get(id);
+    if (!entry) return notFound(id);
+    const current = entry.process;
+    if (current && entry.info.status === "running") {
+      const ended = new Promise<void>((resolve) => current.onExit(() => resolve()));
+      this.#escalate(entry, current);
+      await ended;
+    }
+    this.#append(entry, `\r\n[Studio] restarted: ${entry.info.command || "shell"}\r\n`);
+    const started = await this.#spawn(entry);
+    if (!started.ok) return started;
+    entry.info = { ...entry.info, status: "running", exitCode: null, endedAt: null };
+    entry.info.startedAt = this.#now();
+    this.#publishStatus(entry);
+    return ok({ ...entry.info });
+  }
+
+  /** Closes the terminal; its command, if still running, is killed. */
+  remove(id: string): Result<void, AppError> {
+    const entry = this.#entries.get(id);
+    if (!entry) return notFound(id);
+    this.#entries.delete(id);
+    this.#clearTimers(entry);
+    if (entry.process && entry.info.status === "running") entry.process.kill();
+    entry.process = null;
+    entry.watchers.clear();
+    this.#updateNamingWatch();
+    this.#changed();
+    return ok(undefined);
+  }
+
+  read(id: string, from: number, maxChars?: number): Result<TerminalOutputResponse, AppError> {
+    const entry = this.#entries.get(id);
+    if (!entry) return notFound(id);
+    const slice = entry.buffer.read(from, maxChars);
+    return ok({ terminal: { ...entry.info }, ...slice });
+  }
+
+  /** Sends the kept output from `from` to `watcher` right away, then everything new. */
+  subscribe(id: string, from: number, watcher: TerminalWatcher): Result<() => void, AppError> {
+    const entry = this.#entries.get(id);
+    if (!entry) return notFound(id);
+    const backlog = entry.buffer.read(from);
+    if (backlog.data !== "") watcher.onOutput({ seq: backlog.from, data: backlog.data });
+    entry.watchers.add(watcher);
+    return ok(() => entry.watchers.delete(watcher));
+  }
+
+  /** Studio is stopping: every command gets SIGTERM and SIGKILL right away. */
+  closeAll(): void {
+    for (const entry of this.#entries.values()) {
+      this.#clearTimers(entry);
+      if (entry.process && entry.info.status === "running") {
+        entry.process.terminate();
+        entry.process.kill();
+      }
+    }
+    this.#stopWorkspaceWatch?.();
+    this.#stopWorkspaceWatch = undefined;
+  }
+
+  async #spawn(entry: Entry): Promise<Result<void, AppError>> {
+    let child: TerminalProcess;
+    try {
+      child = await this.#spawner.spawn(entry.request);
+    } catch (error) {
+      return err(appError("command_failed", `Could not start it: ${(error as Error).message}`));
+    }
+    entry.process = child;
+    entry.info.pid = child.pid;
+    entry.info.mode = this.#spawner.mode;
+    child.onData((text) => {
+      if (entry.process === child) this.#append(entry, text);
+    });
+    child.onExit((exitCode) => {
+      if (entry.process !== child) return;
+      this.#clearTimers(entry);
+      entry.process = null;
+      this.#append(
+        entry,
+        `\r\n[Studio] ${exitCode === null ? "stopped by a signal" : `exited with code ${exitCode}`}\r\n`,
+      );
+      entry.info = { ...entry.info, status: "exited", exitCode, endedAt: this.#now() };
+      if (entry.info.naming?.state === "waiting") {
+        this.#setNaming(entry, {
+          state: "failed",
+          message: "The command ended before it opened a port.",
+        });
+      }
+      this.#publishStatus(entry);
+    });
+    return ok(undefined);
+  }
+
+  #escalate(entry: Entry, child: TerminalProcess): void {
+    this.#clearTimers(entry);
+    child.interrupt();
+    const steps = [() => child.terminate(), () => child.kill()];
+    steps.forEach((step, index) => {
+      const timer = setTimeout(
+        () => {
+          if (entry.process === child) step();
+        },
+        this.#graceMs * (index + 1),
+      );
+      entry.stopTimers.push(timer);
+    });
+  }
+
+  #append(entry: Entry, text: string): void {
+    const seq = entry.buffer.end;
+    entry.info.nextSeq = entry.buffer.append(text);
+    for (const watcher of entry.watchers) watcher.onOutput({ seq, data: text });
+  }
+
+  #publishStatus(entry: Entry): void {
+    const info = { ...entry.info };
+    for (const watcher of entry.watchers) watcher.onStatus(info);
+    this.#changed();
+  }
+
+  #clearTimers(entry: Entry): void {
+    for (const timer of entry.stopTimers) clearTimeout(timer);
+    entry.stopTimers = [];
+  }
+
+  #changed(): void {
+    for (const watcher of this.#watchers) watcher();
+  }
+
+  async #resolveFolder(
+    request: CreateTerminalRequest,
+    origin: RequestOrigin,
+  ): Promise<Result<string, AppError>> {
+    if (typeof request.project === "string" && request.project !== "" && !request.cwd) {
+      const folder = await this.#projectFolder(request.project);
+      if (folder === null) {
+        return err(appError("not_found", `Studio shows no project named "${request.project}".`));
+      }
+      return ok(folder);
+    }
+    if (typeof request.cwd !== "string" || request.cwd === "") {
+      return err(appError("invalid_request", "Give the folder to run in (cwd) or a project."));
+    }
+    if (!isAbsolute(request.cwd)) {
+      return err(appError("invalid_request", "The folder must be an absolute path."));
+    }
+    const folder = this.#folders.directory(request.cwd);
+    if (folder === null) {
+      return err(appError("path_not_allowed", `${request.cwd} is not a folder on this machine.`));
+    }
+    if (origin.trusted || this.#trustedFolders.has(folder)) return ok(folder);
+    const allowed = await this.#workspace.openableFolders();
+    if (allowed.has(folder)) return ok(folder);
+    return err(
+      appError(
+        "path_not_allowed",
+        "Terminals run only in project folders Studio shows. Start it from the CLI to use another folder.",
+      ),
+    );
+  }
+
+  async #projectFolder(name: string): Promise<string | null> {
+    const { routes, detected } = await this.#workspace.snapshot();
+    for (const item of [...routes, ...detected]) {
+      const path = item.project?.path;
+      if (item.project?.name === name && path) return this.#folders.directory(path);
+    }
+    return null;
+  }
+
+  async #projectOf(cwd: string): Promise<string | null> {
+    const { routes, detected } = await this.#workspace.snapshot();
+    let best: { name: string; length: number } | null = null;
+    for (const item of [...routes, ...detected]) {
+      const path = item.project?.path;
+      if (!item.project || !path || !this.#folders.contains(path, cwd)) continue;
+      if (!best || path.length > best.length)
+        best = { name: item.project.name, length: path.length };
+    }
+    return best?.name ?? null;
+  }
+
+  async #portsInUse(): Promise<Set<number>> {
+    const { routes, detected } = await this.#workspace.snapshot();
+    return new Set([...routes.map((route) => route.port), ...detected.map((port) => port.port)]);
+  }
+
+  #startNaming(entry: Entry): void {
+    entry.namingTimer = setTimeout(() => {
+      if (entry.info.naming?.state !== "waiting") return;
+      this.#setNaming(entry, {
+        state: "failed",
+        message: `No new port opened in ${entry.info.cwd} within ${Math.round(this.#namingTimeoutMs / 1000)} s.`,
+      });
+      this.#publishStatus(entry);
+    }, this.#namingTimeoutMs);
+    entry.namingTimer.unref?.();
+    this.#updateNamingWatch();
+  }
+
+  #waitingEntries(): Entry[] {
+    return [...this.#entries.values()].filter((entry) => entry.info.naming?.state === "waiting");
+  }
+
+  /** Watches the workspace, which keeps Studio scanning, only while a terminal waits for a port. */
+  #updateNamingWatch(): void {
+    const waiting = this.#waitingEntries().length > 0;
+    if (waiting && !this.#stopWorkspaceWatch) {
+      this.#stopWorkspaceWatch = this.#workspace.watch(() => void this.#nameNewPorts());
+    } else if (!waiting && this.#stopWorkspaceWatch) {
+      this.#stopWorkspaceWatch();
+      this.#stopWorkspaceWatch = undefined;
+    }
+  }
+
+  async #nameNewPorts(): Promise<void> {
+    if (this.#naming) return;
+    this.#naming = true;
+    try {
+      const { routes, detected } = await this.#workspace.snapshot();
+      for (const entry of this.#waitingEntries()) await this.#nameFor(entry, routes, detected);
+    } finally {
+      this.#naming = false;
+      this.#updateNamingWatch();
+    }
+  }
+
+  async #nameFor(entry: Entry, routes: Route[], detected: DetectedPort[]): Promise<void> {
+    const baseline = entry.baseline ?? new Set<number>();
+    const naming = entry.info.naming;
+    if (!naming) return;
+    const cwd = entry.info.cwd;
+    const isNew = (port: number) => !baseline.has(port);
+
+    const port = detected.find(
+      (item) => isNew(item.port) && item.cwd !== null && this.#folders.contains(cwd, item.cwd),
+    );
+    if (port) {
+      const name = naming.requested ?? port.suggestedName;
+      if (name === null) {
+        this.#finishNaming(entry, port.port, null, "Studio has no name to suggest for it.");
+        return;
+      }
+      const created = await this.#workspace.createAlias(name, port.port);
+      this.#finishNaming(entry, port.port, created.ok ? name : null, errorText(created));
+      return;
+    }
+    // Auto mode may name the port before this terminal does.
+    const route = routes.find((item) => {
+      const path = item.project?.path;
+      return (
+        isNew(item.port) &&
+        !!path &&
+        (this.#folders.contains(cwd, path) || this.#folders.contains(path, cwd))
+      );
+    });
+    if (!route) return;
+    const wanted = naming.requested;
+    if (wanted === null || wanted === route.name || route.kind !== "alias") {
+      this.#finishNaming(entry, route.port, route.name, undefined);
+      return;
+    }
+    const renamed = await this.#workspace.renameAlias(route.name, wanted);
+    this.#finishNaming(entry, route.port, renamed.ok ? wanted : null, errorText(renamed));
+  }
+
+  #finishNaming(entry: Entry, port: number, name: string | null, message?: string): void {
+    clearTimeout(entry.namingTimer);
+    this.#setNaming(
+      entry,
+      name === null
+        ? { state: "failed", port, ...(message ? { message } : {}) }
+        : { state: "named", port, name },
+    );
+    this.#publishStatus(entry);
+  }
+
+  #setNaming(entry: Entry, change: Partial<TerminalNaming>): void {
+    const naming = entry.info.naming;
+    if (!naming) return;
+    entry.info = { ...entry.info, naming: { ...naming, ...change } };
+  }
+}
+
+function readCommand(value: unknown): Result<string | null, AppError> {
+  if (value === undefined || value === null) return ok(null);
+  if (typeof value !== "string") return err(appError("invalid_request", "command must be text."));
+  const command = value.trim();
+  if (command.length > MAX_COMMAND_CHARS) {
+    return err(appError("invalid_request", "The command is too long."));
+  }
+  return ok(command === "" ? null : command);
+}
+
+function readSize(value: unknown, fallback: number): number {
+  const size = Number(value);
+  return Number.isInteger(size) && size >= 10 && size <= 1000 ? size : fallback;
+}
+
+function readNaming(value: CreateTerminalRequest["name"]): TerminalNaming | null {
+  if (value === true) return { state: "waiting", requested: null, name: null, port: null };
+  if (typeof value === "string" && value.trim() !== "") {
+    return { state: "waiting", requested: value.trim(), name: null, port: null };
+  }
+  return null;
+}
+
+function isAbsolute(path: string): boolean {
+  return path.startsWith("/") || /^[a-zA-Z]:[\\/]/.test(path) || path.startsWith("\\\\");
+}
+
+function errorText(result: Result<void, AppError>): string | undefined {
+  return result.ok ? undefined : result.error.message;
+}
+
+function notFound(id: string): Result<never, AppError> {
+  return err(appError("not_found", `No terminal has the id "${id}".`));
+}
+
+function notRunning(entry: Entry): Result<never, AppError> {
+  return err(
+    appError(
+      "terminal_not_running",
+      `The command in ${entry.info.id} already ended. Restart it first.`,
+    ),
+  );
+}

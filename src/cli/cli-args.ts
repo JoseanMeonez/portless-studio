@@ -20,7 +20,9 @@ export type CliOptions =
   | { command: "config"; edit: boolean; json: boolean }
   | { command: "doctor"; json: boolean }
   | { command: "list"; json: boolean }
-  | { command: "mcp" };
+  | { command: "mcp" }
+  | { command: "run"; cwd: string | null; name: string | null; argv: string[] }
+  | { command: "open"; target: string | null };
 
 export type StartSettings = { port: number; open: boolean; register: boolean };
 
@@ -41,6 +43,12 @@ Usage:
                                       Studio (or read directly when it is not running)
   portless-studio mcp                 Run an MCP server on stdio so AI agents can list, name and
                                       stop dev servers through the running Studio (docs/mcp.md)
+  portless-studio run [--name <name>] [--cwd <dir>] -- <command...>
+                                      Run a command in a Studio terminal, name the port it
+                                      opens and print its output here until Ctrl+C, which stops
+                                      it (docs/terminals.md)
+  portless-studio open [target]       Bring Studio to the front showing a route, project,
+                                      terminal id or port:<n>
 
 Options:
   --port <n>       Port for the dashboard, on 127.0.0.1 (default from the config, ${DEFAULT_PORT};
@@ -49,6 +57,8 @@ Options:
   --no-register    Do not register the "studio" portless alias for the dashboard
   -y, --yes        With init and uninstall: accept every default without asking
   --json           With doctor, config and list: print JSON for scripts and agents
+  --name <name>    With run: name for the port the command opens (default: the suggested one)
+  --cwd <dir>      With run: folder to run in (default: the current folder)
   -h, --help       Show this help
   -v, --version    Show the version
 
@@ -56,10 +66,21 @@ Environment:
   PORTLESS_STATE_DIR   portless state directory (default ~/.portless)
   PORTLESS_BIN         portless binary used to create and remove aliases (default: portless)
   EDITOR               Editor that \`config --edit\` opens
-  PORTLESS_STUDIO_URL  Studio that \`mcp\` and \`list\` talk to (default http://127.0.0.1:<port>)
+  PORTLESS_STUDIO_URL  Studio that \`mcp\`, \`list\`, \`run\` and \`open\` talk to
+                       (default http://127.0.0.1:<port>)
 `;
 
-const SUBCOMMANDS = new Set(["init", "uninstall", "service", "config", "doctor", "list", "mcp"]);
+const SUBCOMMANDS = new Set([
+  "init",
+  "uninstall",
+  "service",
+  "config",
+  "doctor",
+  "list",
+  "mcp",
+  "run",
+  "open",
+]);
 const SERVICE_ACTIONS = new Set<string>(["install", "uninstall", "status"]);
 
 /** Turns command-line arguments into options, or a message saying what is wrong with them. */
@@ -92,6 +113,22 @@ export function parseCliArgs(argv: string[]): Result<CliOptions, string> {
   if (subcommand === "doctor") return ok({ command: "doctor", json });
   if (subcommand === "list") return ok({ command: "list", json });
   if (subcommand === "mcp") return ok({ command: "mcp" });
+  if (subcommand === "run") {
+    if (positionals.length === 0) {
+      return err('Give the command to run after "--", e.g. portless-studio run -- pnpm dev');
+    }
+    if (values.name !== undefined && values.name.trim() === "") return err("--name needs a name.");
+    return ok({
+      command: "run",
+      cwd: values.cwd ?? null,
+      name: values.name?.trim() ?? null,
+      argv: positionals,
+    });
+  }
+  if (subcommand === "open") {
+    if (positionals.length > 1) return err('Give one target to "open", e.g. web.myapp or t2.');
+    return ok({ command: "open", target: positionals[0] ?? null });
+  }
   if (subcommand === "service") {
     const action = positionals[0];
     if (action === undefined || !SERVICE_ACTIONS.has(action) || positionals.length > 1) {
@@ -137,19 +174,21 @@ function parseFlags(args: string[], subcommand: string | null) {
         ? { ...common, edit: { type: "boolean" }, json }
         : subcommand === "doctor" || subcommand === "list"
           ? { ...common, json }
-          : subcommand === "service" || subcommand === "mcp"
+          : subcommand === "service" || subcommand === "mcp" || subcommand === "open"
             ? common
-            : {
-                ...common,
-                port: { type: "string" },
-                open: { type: "boolean" },
-                register: { type: "boolean" },
-              };
+            : subcommand === "run"
+              ? { ...common, name: { type: "string" }, cwd: { type: "string" } }
+              : {
+                  ...common,
+                  port: { type: "string" },
+                  open: { type: "boolean" },
+                  register: { type: "boolean" },
+                };
   const { values, positionals } = parseArgs({
     args,
     options,
     allowNegative: true,
-    allowPositionals: subcommand === "service",
+    allowPositionals: subcommand === "service" || subcommand === "run" || subcommand === "open",
   });
   return {
     positionals,
@@ -162,6 +201,8 @@ function parseFlags(args: string[], subcommand: string | null) {
       port?: string;
       open?: boolean;
       register?: boolean;
+      name?: string;
+      cwd?: string;
     },
   };
 }

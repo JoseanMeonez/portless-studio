@@ -527,12 +527,25 @@ export class StudioRuntime {
 
   /** Studio's page showing the event's item: through its own route when it has one. */
   #studioUrl(routes: readonly Route[], event: StudioEvent, config: StudioConfig): string {
+    const { route, port: targetPort } = event.target;
+    const focus = route ?? (targetPort === undefined ? null : `port:${targetPort}`);
+    return this.#pageUrl(routes, config, focus === null ? {} : { focus });
+  }
+
+  /**
+   * A link to Studio's page with `query` added, e.g. `{ terminal: "t2" }`: through Studio's own
+   * route when it has one, else `localhost` and its port.
+   */
+  async pageUrl(query: Record<string, string>): Promise<string> {
+    const state = await this.#registry.readSnapshot();
+    return this.#pageUrl(state.routes, await this.#currentConfig(), query);
+  }
+
+  #pageUrl(routes: readonly Route[], config: StudioConfig, query: Record<string, string>): string {
     const port = this.#studioPort ?? config.port;
     const own = routes.find((route) => route.port === port);
     const url = new URL(own?.url ?? `http://localhost:${port}`);
-    const { route, port: targetPort } = event.target;
-    const focus = route ?? (targetPort === undefined ? null : `port:${targetPort}`);
-    if (focus !== null) url.searchParams.set("focus", focus);
+    for (const [key, value] of Object.entries(query)) url.searchParams.set(key, value);
     return url.toString();
   }
 

@@ -6,6 +6,9 @@ import {
   type CustomAppsResponse,
   type DoctorFixResponse,
   type DoctorReport,
+  FOCUS_EVENT,
+  type FocusAck,
+  type FocusEvent,
   type InstallPortlessResponse,
   type OpenWithApp,
   type OpenWithRequest,
@@ -28,6 +31,7 @@ import { err, ok, type Result } from "../../../../core/result.ts";
 import type {
   ConnectionListener,
   EventListener,
+  FocusListener,
   RoutesGateway,
   SnapshotListener,
 } from "./routes-gateway.ts";
@@ -77,6 +81,7 @@ export class HttpRoutesGateway implements RoutesGateway {
     listener: SnapshotListener,
     onConnectionChange?: ConnectionListener,
     onEvent?: EventListener,
+    onFocus?: FocusListener,
   ): () => void {
     let source: EventSource | null = null;
     let retryTimer: ReturnType<typeof setTimeout> | undefined;
@@ -96,6 +101,10 @@ export class HttpRoutesGateway implements RoutesGateway {
       source.addEventListener(STUDIO_EVENT, (event) => {
         const studioEvent = toStudioEvent(parseJson((event as MessageEvent<string>).data));
         if (studioEvent) onEvent?.(studioEvent);
+      });
+      source.addEventListener(FOCUS_EVENT, (event) => {
+        const focus = toFocusEvent(parseJson((event as MessageEvent<string>).data));
+        if (focus) onFocus?.(focus);
       });
       // We reconnect ourselves: the browser gives up for good after some server errors.
       source.onerror = () => {
@@ -118,6 +127,10 @@ export class HttpRoutesGateway implements RoutesGateway {
       source?.close();
       source = null;
     };
+  }
+
+  acknowledgeFocus(ack: FocusAck): Promise<Result<null, ApiError>> {
+    return this.#write(API_PATHS.focusAck, "POST", ack);
   }
 
   createAlias(request: CreateAliasRequest): Promise<Result<null, ApiError>> {
@@ -328,6 +341,14 @@ function toStudioEvent(value: unknown): StudioEvent | null {
     typeof event.target === "object" &&
     event.target !== null;
   return valid ? (event as StudioEvent) : null;
+}
+
+function toFocusEvent(value: unknown): FocusEvent | null {
+  if (typeof value !== "object" || value === null) return null;
+  const event = value as Partial<FocusEvent>;
+  return typeof event.id === "string" && typeof event.target === "object" && event.target !== null
+    ? (event as FocusEvent)
+    : null;
 }
 
 function readConfigResponse(value: unknown): Result<ConfigResponse, ApiError> {

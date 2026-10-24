@@ -2,6 +2,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import {
   API_PATHS,
   type CreateAliasRequest,
+  type CreateTerminalRequest,
   type DoctorFixResponse,
   type DoctorReport,
   type OpenWithAppsResponse,
@@ -11,7 +12,9 @@ import {
   STUDIO_HEADER,
   type StudioAction,
   type StudioActionResponse,
+  type TerminalsResponse,
   TOKEN_HEADER,
+  TOKEN_PARAM,
 } from "../../../core/api/contract.ts";
 import type { Result } from "../../../core/result.ts";
 import type { AppError } from "../../application/app-error.ts";
@@ -26,10 +29,13 @@ import {
 } from "../../application/route-use-cases.ts";
 import type { StudioRuntime } from "../../application/studio-runtime.ts";
 import type { StudioServiceControl } from "../../application/studio-service.ts";
+import type { TerminalManager } from "../../application/terminals.ts";
+import { FocusBroker, focusQuery, resolveFocusTarget } from "./focus-broker.ts";
 import { type BodyError, MAX_BODY_BYTES, readJsonBody, sendError, sendJson } from "./json-io.ts";
 import { hasToken, isAllowedHost, isSameOrigin } from "./request-guards.ts";
 import { SnapshotEvents } from "./snapshot-events.ts";
 import { StaticFiles } from "./static-files.ts";
+import { TerminalStreams } from "./terminal-streams.ts";
 
 export type HttpServerOptions = {
   registry: RouteRegistry;
@@ -48,6 +54,10 @@ export type HttpServerOptions = {
   stopProcess?: (pid: string) => Promise<Result<unknown, AppError>>;
   /** Opens project folders in editors; without it the open-with endpoints answer `unsupported`. */
   openWith?: OpenWith;
+  /** Runs terminals; without it the terminal endpoints answer `unsupported`. */
+  terminals?: TerminalManager;
+  /** Opens a link in the browser, for focus requests no open page answers. */
+  openUrl?: (url: string) => void;
 };
 
 export type HttpServer = {
@@ -62,6 +72,7 @@ const DOCTOR_FIX = /^\/api\/doctor\/fix\/([^/]+)$/;
 const PROXY_ACTION = /^\/api\/proxy\/(start|stop|restart)$/;
 const STUDIO_ACTION = /^\/api\/studio\/(restart|stop)$/;
 const STOP_PROCESS = /^\/api\/processes\/([^/]+)\/stop$/;
+const TERMINAL = /^\/api\/terminals\/([^/]+)(?:\/(output|stream|input|stop|restart))?$/;
 /** Lets the 202 reach the browser before Studio restarts or exits. */
 const STUDIO_ACTION_DELAY_MS = 200;
 const unsupported: AppError = { code: "unsupported", message: "This Studio cannot do that." };
@@ -69,6 +80,11 @@ const unsupported: AppError = { code: "unsupported", message: "This Studio canno
 export function createHttpServer(options: HttpServerOptions): HttpServer {
   const events = new SnapshotEvents(options.studio);
   const staticFiles = options.webDir ? new StaticFiles(options.webDir) : null;
+  const terminalStreams = options.terminals ? new TerminalStreams(options.terminals) : null;
+  const focus = new FocusBroker({
+    send: (event) => events.broadcastFocus(event),
+    openUrl: options.openUrl,
+  });
 
   const server = createServer((req, res) => {
     res.setHeader(STUDIO_HEADER, "1");
@@ -86,10 +102,11 @@ export function createHttpServer(options: HttpServerOptions): HttpServer {
       sendError(res, "forbidden", "Requests must come from this machine and this page.");
       return;
     }
-    const pathname = new URL(req.url ?? "/", "http://localhost").pathname;
+    const url = new URL(req.url ?? "/", "http://localhost");
+    const pathname = url.pathname;
 
     if (pathname === "/api" || pathname.startsWith("/api/")) {
-      await handleApi(req, res, pathname);
+      await handleApi(req, res, pathname, url.searchParams);
       return;
     }
     if (staticFiles) {
@@ -101,11 +118,47 @@ export function createHttpServer(options: HttpServerOptions): HttpServer {
       .end("The web app is not built. Run it with `pnpm dev:web`.");
   }
 
-  async function handleApi(req: IncomingMessage, res: ServerResponse, pathname: string) {
+  async function handleApi(
+    req: IncomingMessage,
+    res: ServerResponse,
+    pathname: string,
+    query: URLSearchParams,
+  ) {
     const method = req.method ?? "GET";
     const isRead = method === "GET" || method === "HEAD";
     if (!isRead && !hasToken(req.headers[TOKEN_HEADER], options.token)) {
       sendError(res, "forbidden", "Missing or wrong session token.");
+      return;
+    }
+    if (pathname === API_PATHS.terminals || pathname.startsWith(`${API_PATHS.terminals}/`)) {
+      // Terminal output and commands can carry secrets, so reads need the token too.
+      const token = req.headers[TOKEN_HEADER] ?? query.get(TOKEN_PARAM) ?? undefined;
+      if (!hasToken(token, options.token)) {
+        sendError(res, "forbidden", "Missing or wrong session token.");
+        return;
+      }
+      return handleTerminals(req, res, pathname, method, query);
+    }
+    if (pathname === API_PATHS.focus && method === "POST") {
+      const body = await readJsonBody(req);
+      if (!body.ok) return sendBodyError(res, body.error);
+      const target = asRecord(body.value).target;
+      const resolved = resolveFocusTarget(
+        typeof target === "string" ? target : undefined,
+        await options.studio.readSnapshot(),
+        options.terminals?.list() ?? [],
+      );
+      if (!resolved.ok) return sendAppError(res, resolved.error);
+      const pageUrl = await options.studio.pageUrl(focusQuery(resolved.value));
+      return sendJson(res, 200, await focus.focus(resolved.value, pageUrl));
+    }
+    if (pathname === API_PATHS.focusAck && method === "POST") {
+      const body = await readJsonBody(req);
+      if (!body.ok) return sendBodyError(res, body.error);
+      const fields = asRecord(body.value);
+      if (typeof fields.id === "string")
+        focus.ack({ id: fields.id, focused: fields.focused === true });
+      res.writeHead(204, { "Cache-Control": "no-store" }).end();
       return;
     }
 
@@ -207,6 +260,79 @@ export function createHttpServer(options: HttpServerOptions): HttpServer {
     sendError(res, "not_found", `No API endpoint for ${method} ${pathname}.`);
   }
 
+  async function handleTerminals(
+    req: IncomingMessage,
+    res: ServerResponse,
+    pathname: string,
+    method: string,
+    query: URLSearchParams,
+  ): Promise<void> {
+    const terminals = options.terminals;
+    if (!terminals || !terminalStreams) return sendAppError(res, unsupported);
+    if (pathname === API_PATHS.terminals && method === "GET") {
+      const body: TerminalsResponse = { terminals: terminals.list() };
+      return sendJson(res, 200, body);
+    }
+    if (pathname === API_PATHS.terminals && method === "POST") {
+      const body = await readJsonBody(req);
+      if (!body.ok) return sendBodyError(res, body.error);
+      const created = await terminals.create(toTerminalRequest(body.value), {
+        trusted: isLocalProgram(req),
+      });
+      if (!created.ok) return sendAppError(res, created.error);
+      return sendJson(res, 201, created.value);
+    }
+    if (pathname === API_PATHS.terminalsEvents && method === "GET") {
+      terminalStreams.list(res);
+      return;
+    }
+    const match = TERMINAL.exec(pathname);
+    const id = match?.[1] ? decodeName(match[1]) : null;
+    if (id === null) return sendError(res, "not_found", "No terminal has that id.");
+    const action = match?.[2];
+    if (action === undefined && method === "GET") {
+      const info = terminals.get(id);
+      if (!info) return sendError(res, "not_found", `No terminal has the id "${id}".`);
+      return sendJson(res, 200, info);
+    }
+    if (action === undefined && method === "DELETE") {
+      return sendResult(res, terminals.remove(id), 204);
+    }
+    if (action === "output" && method === "GET") {
+      const max = Number(query.get("max"));
+      const read = terminals.read(
+        id,
+        readOffset(query.get("from")),
+        Number.isInteger(max) && max > 0 ? max : undefined,
+      );
+      if (!read.ok) return sendAppError(res, read.error);
+      return sendJson(res, 200, read.value);
+    }
+    if (action === "stream" && method === "GET") {
+      const streamed = terminalStreams.terminal(res, id, readOffset(query.get("from")));
+      if (!streamed.ok) sendAppError(res, streamed.error);
+      return;
+    }
+    if (action === "input" && method === "POST") {
+      const body = await readJsonBody(req);
+      if (!body.ok) return sendBodyError(res, body.error);
+      const text = asRecord(body.value).text;
+      if (typeof text !== "string") return sendError(res, "invalid_request", "text must be text.");
+      return sendResult(res, terminals.input(id, text), 204);
+    }
+    if (action === "stop" && method === "POST") {
+      const stopped = terminals.stop(id);
+      if (!stopped.ok) return sendAppError(res, stopped.error);
+      return sendJson(res, 200, stopped.value);
+    }
+    if (action === "restart" && method === "POST") {
+      const restarted = await terminals.restart(id);
+      if (!restarted.ok) return sendAppError(res, restarted.error);
+      return sendJson(res, 200, restarted.value);
+    }
+    sendError(res, "not_found", `No API endpoint for ${method} ${pathname}.`);
+  }
+
   async function handleOpenWith(
     req: IncomingMessage,
     res: ServerResponse,
@@ -237,7 +363,13 @@ export function createHttpServer(options: HttpServerOptions): HttpServer {
     sendError(res, "not_found", `No API endpoint for ${method} ${pathname}.`);
   }
 
-  return { server, closeStreams: () => events.close() };
+  return {
+    server,
+    closeStreams: () => {
+      events.close();
+      terminalStreams?.close();
+    },
+  };
 }
 
 function sendAppError(res: ServerResponse, error: AppError): void {
@@ -279,6 +411,36 @@ function toCreateRequest(body: unknown): CreateAliasRequest {
 function toRenameRequest(body: unknown): RenameAliasRequest {
   const fields = asRecord(body);
   return { name: typeof fields.name === "string" ? fields.name : "" };
+}
+
+function toTerminalRequest(body: unknown): CreateTerminalRequest {
+  const fields = asRecord(body);
+  const request: CreateTerminalRequest = {};
+  for (const key of ["cwd", "project", "command", "title"] as const) {
+    const value = fields[key];
+    if (typeof value === "string") request[key] = value;
+  }
+  for (const key of ["cols", "rows"] as const) {
+    const value = fields[key];
+    if (typeof value === "number") request[key] = value;
+  }
+  if (typeof fields.name === "string" || typeof fields.name === "boolean") {
+    request.name = fields.name;
+  }
+  return request;
+}
+
+/**
+ * A program on this machine (the CLI or the MCP server) rather than a page: browsers send
+ * `Origin` with every POST and `Sec-Fetch-Site` with every request; node:http sends neither.
+ */
+function isLocalProgram(req: IncomingMessage): boolean {
+  return req.headers.origin === undefined && req.headers["sec-fetch-site"] === undefined;
+}
+
+function readOffset(value: string | null): number {
+  const offset = Number(value ?? 0);
+  return Number.isInteger(offset) && offset >= 0 ? offset : 0;
 }
 
 function asRecord(value: unknown): Record<string, unknown> {

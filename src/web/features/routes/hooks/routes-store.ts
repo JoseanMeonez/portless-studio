@@ -1,4 +1,4 @@
-import type { ApiError, Snapshot, StudioEvent } from "../../../../core/api/contract.ts";
+import type { ApiError, FocusEvent, Snapshot, StudioEvent } from "../../../../core/api/contract.ts";
 import type { ConnectionState, RoutesGateway } from "../data/routes-gateway.ts";
 
 export type RoutesState = {
@@ -9,6 +9,8 @@ export type RoutesState = {
   connection: ConnectionState;
   /** Notable changes from the server, oldest first, each once. */
   events: readonly StudioEvent[];
+  /** The latest request to show something and come forward; each has a new id. */
+  focus: FocusEvent | null;
 };
 
 const INITIAL_STATE: RoutesState = {
@@ -16,6 +18,7 @@ const INITIAL_STATE: RoutesState = {
   error: null,
   connection: "connecting",
   events: [],
+  focus: null,
 };
 
 /** As many as the server keeps. */
@@ -62,6 +65,7 @@ export class RoutesStore {
       (snapshot) => this.#set({ snapshot, error: null }),
       (connection) => this.#set({ connection }),
       (event) => this.#addEvent(event),
+      (focus) => this.#set({ focus }),
     );
     void this.reload();
   }

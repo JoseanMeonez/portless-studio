@@ -1,5 +1,7 @@
 import type { ServerResponse } from "node:http";
 import {
+  FOCUS_EVENT,
+  type FocusEvent,
   SNAPSHOT_EVENT,
   type Snapshot,
   STUDIO_EVENT,
@@ -47,6 +49,13 @@ export class SnapshotEvents {
     this.#clients.add(res);
     res.on("close", () => this.#disconnect(res));
     this.#start();
+  }
+
+  /** Asks every open page to show a target and come forward; returns how many pages got it. */
+  broadcastFocus(event: FocusEvent): number {
+    const message = `event: ${FOCUS_EVENT}\ndata: ${JSON.stringify(event)}\n\n`;
+    for (const client of this.#clients) client.write(message);
+    return this.#clients.size;
   }
 
   close(): void {

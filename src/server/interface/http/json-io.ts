@@ -22,6 +22,8 @@ const STATUS_BY_CODE: Record<ApiErrorCode, number> = {
   command_failed: 502,
   unknown_app: 404,
   path_not_allowed: 403,
+  terminal_not_running: 409,
+  too_many_terminals: 429,
   internal: 500,
 };
 

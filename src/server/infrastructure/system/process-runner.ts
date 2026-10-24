@@ -191,7 +191,7 @@ export function runProcess(
 
     if (options.timeoutMs !== undefined) {
       timer = setTimeout(() => {
-        stopTree(child.pid, platform, () => child.kill("SIGTERM"));
+        stopProcessTree(child.pid, platform, () => child.kill("SIGTERM"));
         child.stdout?.destroy();
         child.stderr?.destroy();
         finish({ exitCode: null, timedOut: true });
@@ -207,7 +207,15 @@ function exitOutcome(
   return { exitCode, missing: viaCmd && exitCode === WINDOWS_COMMAND_NOT_FOUND };
 }
 
-function stopTree(pid: number | undefined, platform: NodeJS.Platform, kill: () => void): void {
+/**
+ * Stops a process and, on Windows, every process it started (`taskkill /T /F`); elsewhere calls
+ * `kill`, which the caller aims at the process or its group.
+ */
+export function stopProcessTree(
+  pid: number | undefined,
+  platform: NodeJS.Platform,
+  kill: () => void,
+): void {
   if (platform !== "win32" || pid === undefined) {
     kill();
     return;

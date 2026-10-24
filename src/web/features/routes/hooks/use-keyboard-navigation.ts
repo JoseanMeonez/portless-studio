@@ -21,6 +21,8 @@ type KeyboardNavigationOptions = {
   onFavorite: (index: number) => void;
   /** Opens the row menu of the selected row (open with, copy path…). */
   onRowMenu: (index: number) => void;
+  /** Opens a terminal in the selected row's project folder. */
+  onTerminal: (index: number) => void;
   onCreate: () => void;
   onFocusFilter: () => void;
   onToggleCommandMenu: () => void;
@@ -89,6 +91,7 @@ export function useKeyboardNavigation(options: KeyboardNavigationOptions) {
         remove: () => current.onRemove(index),
         favorite: () => current.onFavorite(index),
         "row-menu": () => current.onRowMenu(index),
+        "open-terminal": () => current.onTerminal(index),
         "name-port": current.onCreate,
         "next-view": current.onNextView,
         "view-menu": current.onOpenViewMenu,

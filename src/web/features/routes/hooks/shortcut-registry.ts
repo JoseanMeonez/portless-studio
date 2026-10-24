@@ -17,6 +17,7 @@ export type ShortcutId =
   | "remove"
   | "favorite"
   | "row-menu"
+  | "open-terminal"
   | "name-port"
   | "next-view"
   | "view-menu"
@@ -117,6 +118,14 @@ export const SHORTCUTS: readonly Shortcut[] = [
     // F10 counts only with Shift; the keyboard hook checks it.
     keys: [".", "ContextMenu", "F10"],
     combos: [["."], ["Shift", "F10"]],
+    needsSelection: true,
+  },
+  {
+    id: "open-terminal",
+    group: "Actions",
+    label: "Open a terminal in its folder",
+    keys: ["t"],
+    combos: [["T"]],
     needsSelection: true,
   },
   { id: "name-port", group: "Actions", label: "Name a port", keys: ["n"], combos: [["N"]] },

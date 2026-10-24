@@ -1,0 +1,240 @@
+.panel {
+  position: fixed;
+  z-index: var(--z-sticky);
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  max-width: 100vw;
+  max-height: 100vh;
+  border-color: var(--color-border);
+  border-style: solid;
+  border-width: 0;
+  background: var(--color-bg);
+  box-shadow: var(--shadow-overlay);
+}
+
+.panel[data-dock="bottom"] {
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: var(--panel-size);
+  max-height: calc(100vh - var(--space-16));
+  border-top-width: 1px;
+}
+
+.panel[data-dock="right"] {
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: var(--panel-size);
+  max-width: calc(100vw - var(--space-16));
+  border-left-width: 1px;
+}
+
+.handle {
+  position: absolute;
+  z-index: 1;
+  touch-action: none;
+}
+
+.panel[data-dock="bottom"] .handle {
+  top: calc(var(--space-1) * -1);
+  right: 0;
+  left: 0;
+  height: var(--space-2);
+  cursor: row-resize;
+}
+
+.panel[data-dock="right"] .handle {
+  top: 0;
+  bottom: 0;
+  left: calc(var(--space-1) * -1);
+  width: var(--space-2);
+  cursor: col-resize;
+}
+
+.handle:focus-visible {
+  background: var(--color-accent-ring);
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  padding: var(--space-1) var(--space-2);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.tabs {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.group {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.groupName {
+  color: var(--color-text-tertiary);
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-medium);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+.tab {
+  display: flex;
+  align-items: center;
+  height: var(--control-height-sm);
+  border-radius: var(--radius-md);
+  color: var(--color-text-secondary);
+}
+
+.tab:hover,
+.tab[data-active] {
+  background: var(--color-bg-hover);
+  color: var(--color-text);
+}
+
+.tabButton {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1-5);
+  max-width: 180px;
+  height: 100%;
+  padding: 0 var(--space-1) 0 var(--space-2);
+  border: 0;
+  border-radius: var(--radius-md);
+  background: none;
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+
+.tabTitle {
+  overflow: hidden;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tabClose {
+  display: grid;
+  place-items: center;
+  width: var(--control-height-xs);
+  height: var(--control-height-xs);
+  margin-right: var(--space-0-5);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--color-text-tertiary);
+  cursor: pointer;
+}
+
+.tabClose:hover {
+  background: var(--color-bg-muted);
+  color: var(--color-text);
+}
+
+.dot {
+  flex-shrink: 0;
+  width: var(--dot-size);
+  height: var(--dot-size);
+  border-radius: var(--radius-full);
+  background: var(--color-text-tertiary);
+}
+
+.dot[data-status="running"] {
+  background: var(--color-success);
+}
+
+.dot[data-status="failed"] {
+  background: var(--color-danger);
+}
+
+.actions {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  min-width: 0;
+  padding: var(--space-1) var(--space-3);
+  border-bottom: 1px solid var(--color-border);
+  font-size: var(--text-xs);
+}
+
+.status {
+  flex-shrink: 0;
+  color: var(--color-text-secondary);
+  font-weight: var(--weight-medium);
+}
+
+.status[data-status="running"] {
+  color: var(--color-success-text);
+}
+
+.status[data-status="failed"] {
+  color: var(--color-danger-text);
+}
+
+.command {
+  overflow: hidden;
+  min-width: 0;
+  max-width: 100%;
+  color: var(--color-text-secondary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.named {
+  color: var(--color-text-tertiary);
+  white-space: nowrap;
+}
+
+.toolbarActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  margin-left: auto;
+}
+
+.body {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+@media (max-width: 640px) {
+  .panel[data-dock] {
+    inset: 0;
+    width: auto;
+    height: auto;
+    max-width: none;
+    max-height: none;
+    border-width: 0;
+  }
+
+  .handle,
+  .dockToggle {
+    display: none;
+  }
+}

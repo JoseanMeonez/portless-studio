@@ -5,6 +5,8 @@ import type {
   CustomAppsResponse,
   DoctorFixResponse,
   DoctorReport,
+  FocusAck,
+  FocusEvent,
   InstallPortlessResponse,
   OpenWithApp,
   OpenWithRequest,
@@ -27,6 +29,8 @@ export type SnapshotListener = (snapshot: Snapshot) => void;
 export type ConnectionListener = (state: ConnectionState) => void;
 /** Gets each notable change; the recent ones arrive again after every (re)connect. */
 export type EventListener = (event: StudioEvent) => void;
+/** Gets each request to show something and bring the page forward (`portless-studio open`). */
+export type FocusListener = (event: FocusEvent) => void;
 
 /**
  * Everything the routes feature needs from a backend. The UI depends only on this port, so a
@@ -43,7 +47,10 @@ export interface RoutesGateway {
     listener: SnapshotListener,
     onConnectionChange?: ConnectionListener,
     onEvent?: EventListener,
+    onFocus?: FocusListener,
   ): () => void;
+  /** Tells the server whether the page came to the front after a focus request. */
+  acknowledgeFocus?(ack: FocusAck): Promise<Result<null, ApiError>>;
   /** Also names a detected port: it then leaves `detected` and shows up in `routes`. */
   createAlias(request: CreateAliasRequest): Promise<Result<null, ApiError>>;
   renameAlias(currentName: string, request: RenameAliasRequest): Promise<Result<null, ApiError>>;

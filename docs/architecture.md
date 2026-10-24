@@ -25,7 +25,7 @@ The top level says what the project is about; each folder below it says what it 
 | --- | --- | --- |
 | `src/core` | Domain types and rules shared by both sides: what a route is, how a name is validated, the HTTP API contract. No IO, no React, no Node APIs. | nothing outside `core` |
 | `src/server/application` | Use cases (list routes, name a port, remove an alias, install portless) and the `RouteRegistry` port they depend on. | `core` |
-| `src/server/infrastructure` | Adapters that implement ports: `portless` reads the state directory, watches it, shells out to the CLI for writes, detects the binary with `portless --version` and installs it with `npm install -g portless`; `system` scans ports and reads processes; `config` keeps Studio's files; `apps` finds and starts editors for the open-with menu. | `core`, `application` |
+| `src/server/infrastructure` | Adapters that implement ports: `portless` reads the state directory, watches it, shells out to the CLI for writes, detects the binary with `portless --version` and installs it with `npm install -g portless`; `system` scans ports and reads processes; `config` keeps Studio's files; `apps` finds and starts editors for the open-with menu; `terminal` starts terminal commands. | `core`, `application` |
 | `src/server/interface/http` | The HTTP server: routing, request guards, JSON and server-sent events, static files. | `core`, `application` |
 | `src/server/main.ts` | Composition root: builds the adapters and wires them into the HTTP server. | everything in `server` |
 | `src/cli` | The `portless-studio` command: parses flags, starts the server, opens the browser. | `server` |
@@ -251,6 +251,51 @@ On the web side, `RoutesGateway` also has `getConfig()`, `updateConfig(config)`,
 `controlStudio(action)`, `stopProcess(pid)`, `listOpenWithApps()`, `openWith(request)`,
 `getCustomApps()` and `updateCustomApps(apps)`.
 
+## Terminals
+
+Studio runs commands in terminals the page, the CLI (`portless-studio run`) and agents (the MCP
+tools) share; docs/terminals.md covers what people see. `application/terminals.ts` holds
+`TerminalManager` and the ports it needs:
+
+| Port | Default implementation | What it does |
+| --- | --- | --- |
+| `TerminalSpawner` | `infrastructure/terminal/terminal-spawner.ts` | Starts a command in a pseudo-terminal through the system `script` command (util-linux on Linux, BSD on macOS), or with pipes and `FORCE_COLOR=1` on Windows and where `script` is missing. `detectTerminalMode` runs `script -V` once, on the first terminal. Stops go to the command's process group; on Windows `stopProcessTree` in `infrastructure/system/process-runner.ts` stops the tree. |
+| `TerminalFolders` | `nodeTerminalFolders` in the same file | Whether a folder exists, and whether one folder is inside another (case-insensitive on Windows). |
+| `TerminalWorkspace` | built in `main.ts` from `StudioRuntime` and the route use cases | The folders Studio shows, the current routes and detected ports, and naming the port a `run` command opens. |
+
+Each terminal keeps its output in an `OutputBuffer` (`core/terminals/output-buffer.ts`): the
+newest 2 MB, every character numbered, so a client resumes with `?from=<n>`. `plainText`
+(`core/terminals/terminal.ts`) strips escape codes for agents and the clipboard.
+
+When a terminal is asked to name its port, the manager remembers the ports in use at start and
+watches the runtime (which keeps it scanning) until a new detected port appears whose folder is
+inside the terminal's, then names it through the same `createAlias` the page uses. If auto mode
+names it first, the manager adopts that route, or renames it when a name was asked for. It gives
+up when the command ends or after 3 minutes.
+
+The HTTP endpoints are in `API_PATHS` (`core/api/contract.ts`); `interface/http/terminal-streams.ts`
+serves the two event streams (the list of terminals, and one terminal's output). Every terminal
+endpoint needs the token, reads included, and accepts it as `?token=` for EventSource. A request
+with no `Origin` and no `Sec-Fetch-Site` header comes from a local program, which may run in any
+existing folder; a page may run only in folders Studio shows (`StudioRuntime.openableFolders()`)
+or one a local program already used.
+
+On the web side, `features/terminals` has its own port, `TerminalsGateway`, with an HTTP and an
+in-memory version, the panel and the xterm.js view. xterm.js is loaded with a dynamic `import()`
+in `hooks/xterm-loader.ts`, so it lands in its own chunk. The routes feature does not import the
+terminals feature: `RoutesDashboard` takes a `TerminalLauncher` (open a terminal in a folder, show
+one by id) and a function that draws the panel, and `app/studio-layout.tsx` connects the two.
+
+## Bringing Studio to the front
+
+`POST /api/focus` (`portless-studio open`, MCP `focus_studio`) resolves the target with
+`resolveFocusTarget` (`interface/http/focus-broker.ts`): a terminal id, a route name, `port:<n>`,
+or a project name. `FocusBroker` sends a `focus` event (`FocusEvent`) on `/api/events` to every
+open page; each page shows the target, calls `window.focus()` and answers on `/api/focus/ack`
+whether it has the focus. When no page is open, or none says yes within 1.5 seconds, Studio opens
+the page link with the browser opener the CLI passes in (`openUrl`), built by
+`StudioRuntime.pageUrl()`. Pages also read `?terminal=<id>` on load, next to `?focus=`.
+
 ## Uninstall
 
 `portless-studio uninstall` (`cli/uninstall.ts`) lists what it will undo and asks once: remove
@@ -266,6 +311,7 @@ empty.
 
 The server listens on `127.0.0.1` only. Every request must carry a `Host` that is loopback or a
 `.localhost` name, and a browser `Origin`, when present, must match it. Writes, including the
-portless install, also need a per-run token the page reads from `GET /api/session`; browsers only let same-origin pages read it. This keeps other websites
-open in the same browser from creating or removing routes, controlling the proxy or Studio, or
-stopping processes.
+portless install, also need a per-run token the page reads from `GET /api/session`; browsers only let same-origin pages read it. Terminal endpoints need it for reads
+too. This keeps other websites open in the same browser from creating or removing routes,
+controlling the proxy or Studio, stopping processes, or running commands and reading their
+output.

@@ -15,9 +15,11 @@ import type { PortScanner } from "./application/port-scanner.ts";
 import type { ProcessOwner } from "./application/process-control.ts";
 import { controlProxy } from "./application/proxy-control.ts";
 import type { RouteRegistry } from "./application/route-registry.ts";
+import { createAlias, renameAlias } from "./application/route-use-cases.ts";
 import { stopProcess } from "./application/stop-process.ts";
 import { StudioRuntime } from "./application/studio-runtime.ts";
 import type { StudioServiceControl } from "./application/studio-service.ts";
+import { TerminalManager, type TerminalSpawner } from "./application/terminals.ts";
 import { systemAppCatalog } from "./infrastructure/apps/app-catalog.ts";
 import { createDetachedLauncher } from "./infrastructure/apps/detached-launcher.ts";
 import {
@@ -50,6 +52,11 @@ import {
   probeHttpResponse,
 } from "./infrastructure/system/system-port-scanner.ts";
 import { SystemProcessControl } from "./infrastructure/system/system-process-control.ts";
+import {
+  createTerminalSpawner,
+  detectTerminalMode,
+  nodeTerminalFolders,
+} from "./infrastructure/terminal/terminal-spawner.ts";
 import { createHttpServer } from "./interface/http/http-server.ts";
 
 export { defaultConfigPath } from "./infrastructure/config/json-config-store.ts";
@@ -72,6 +79,10 @@ export type StudioServices = {
   studioService?: StudioServiceControl | undefined;
   /** Opens project folders in editors and the file manager. */
   openWith?: OpenWith | undefined;
+  /** The terminals Studio runs; they end when Studio stops. */
+  terminals?: TerminalManager | undefined;
+  /** Opens a link in the browser; the CLI provides it. */
+  openUrl?: ((url: string) => void) | undefined;
 };
 
 export type StudioServicesOptions = {
@@ -87,6 +98,8 @@ export type StudioServicesOptions = {
   studioPort?: number | undefined;
   /** Restart and stop for Studio itself; the doctor also reads the login service from it. */
   studioService?: StudioServiceControl | undefined;
+  /** Opens a link in the default browser, for focus requests no open page answers. */
+  openUrl?: ((url: string) => void) | undefined;
 };
 
 // Lets startServer reuse the runtime behind services built here, so both share one scan cache.
@@ -123,6 +136,17 @@ export function createStudioServices(options: StudioServicesOptions = {}): Studi
     launcher: createDetachedLauncher({ platform: process.platform }),
     customApps: new JsonCustomAppStore(openWithPathFor(configPath)),
     openableFolders: () => runtime.openableFolders(),
+  });
+  const terminals = new TerminalManager({
+    spawner: lazySpawner(),
+    folders: nodeTerminalFolders(),
+    workspace: {
+      openableFolders: () => runtime.openableFolders(),
+      snapshot: () => runtime.readSnapshot(),
+      watch: (onChange) => runtime.watch(onChange),
+      createAlias: (name, port) => createAlias(registry, { name, port }),
+      renameAlias: (from, to) => renameAlias(registry, from, { name: to }),
+    },
   });
   const uid = typeof process.getuid === "function" ? process.getuid() : null;
   const processes = new SystemProcessControl({
@@ -168,6 +192,8 @@ export function createStudioServices(options: StudioServicesOptions = {}): Studi
       }),
     studioService,
     openWith,
+    terminals,
+    openUrl: options.openUrl,
   };
   runtimes.set(services, runtime);
   return services;
@@ -263,6 +289,8 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     stopProcess: services.stopProcess,
     ...(services.studioService ? { studioService: services.studioService } : {}),
     ...(services.openWith ? { openWith: services.openWith } : {}),
+    ...(services.terminals ? { terminals: services.terminals } : {}),
+    ...(services.openUrl ? { openUrl: services.openUrl } : {}),
   });
 
   await new Promise<void>((resolve, reject) => {
@@ -285,9 +313,32 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     close: () =>
       new Promise((resolve) => {
         studio.stop();
+        services.terminals?.closeAll();
         http.closeStreams();
         http.server.close(() => resolve());
         http.server.closeAllConnections();
       }),
+  };
+}
+
+/**
+ * Finds out on the first terminal whether `script` can give it a pseudo-terminal, so starting
+ * Studio and commands that never open a terminal do not run `script -V`.
+ */
+function lazySpawner(): TerminalSpawner {
+  let real: Promise<TerminalSpawner> | null = null;
+  let mode: TerminalSpawner["mode"] = "pipes";
+  return {
+    get mode() {
+      return mode;
+    },
+    spawn: async (request) => {
+      real ??= detectTerminalMode(process.platform).then((detected) =>
+        createTerminalSpawner({ mode: detected }),
+      );
+      const spawner = await real;
+      mode = spawner.mode;
+      return spawner.spawn(request);
+    },
   };
 }

@@ -24,6 +24,7 @@ import {
 import { runCommand } from "./command-runner.ts";
 import { editConfig, printConfig, printConfigJson } from "./config-command.ts";
 import { runDoctorCommand } from "./doctor-command.ts";
+import { runOpenCommand } from "./focus-command.ts";
 import { runInit } from "./init.ts";
 import { runListCommand } from "./list-command.ts";
 import {
@@ -38,6 +39,7 @@ import { createStudioClient, resolveStudioUrl, type StudioClient } from "./mcp/s
 import { AGENT_INSTRUCTIONS, createStudioTools } from "./mcp/studio-tools.ts";
 import { openBrowser } from "./open-browser.ts";
 import { createDefaultsPrompter, createTerminalPrompter } from "./prompter.ts";
+import { runInStudio } from "./run-command.ts";
 import { onShutdown } from "./shutdown.ts";
 import {
   isListening,
@@ -89,10 +91,37 @@ async function main(): Promise<void> {
     case "mcp":
       await mcp();
       return;
+    case "run":
+      await runCommandInStudio(options);
+      return;
+    case "open": {
+      const code = await runOpenCommand(await studioClient(), options.target, print, (line) =>
+        console.error(line),
+      );
+      process.exit(code);
+      return;
+    }
     case "start":
       await start(options.overrides);
       return;
   }
+}
+
+async function runCommandInStudio(options: Extract<CliOptions, { command: "run" }>): Promise<void> {
+  const client = await studioClient();
+  const code = await runInStudio({
+    client,
+    cwd: path.resolve(options.cwd ?? process.cwd()),
+    argv: options.argv,
+    name: options.name,
+    platform: process.platform,
+    columns: process.stdout.columns,
+    rows: process.stdout.rows,
+    write: (text) => process.stdout.write(text),
+    note: (line) => console.error(line),
+    onInterrupt: (handler) => onShutdown(process, process.platform, handler),
+  });
+  process.exit(code);
 }
 
 /** Talks to the Studio named by `PORTLESS_STUDIO_URL`, or the one on the configured port. */
@@ -161,7 +190,11 @@ async function start(overrides: StartOverrides): Promise<void> {
     env: env.ok ? env.value : null,
     exitSelf: () => shutdown(),
   });
-  const services = createStudioServices({ studioPort: settings.port, studioService });
+  const services = createStudioServices({
+    studioPort: settings.port,
+    studioService,
+    openUrl: openBrowser,
+  });
 
   const webDir = resolveWebDir();
   let server: RunningServer;

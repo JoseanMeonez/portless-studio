@@ -60,7 +60,14 @@ describe("row menu", () => {
       within(actions)
         .getAllByRole("menuitem")
         .map((item) => item.textContent),
-    ).toEqual(["Open in browser", "Copy URL", "Copy path", "Reveal in File manager", "Open with"]);
+    ).toEqual([
+      "Open in browser",
+      "Copy URL",
+      "Copy path",
+      "Open terminal",
+      "Reveal in File manager",
+      "Open with",
+    ]);
     await user.click(within(actions).getByRole("menuitem", { name: "Open with" }));
     const editors = await screen.findByRole("menu", { name: "Open with" });
     expect(

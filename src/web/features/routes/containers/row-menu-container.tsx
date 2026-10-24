@@ -18,6 +18,8 @@ type RowMenuContainerProps = {
   apps: readonly OpenWithApp[];
   onOpenWith: (app: OpenWithApp, path: string) => void;
   onCustomize: () => void;
+  /** Opens a terminal in the folder; the entry is hidden without it. */
+  onOpenTerminal?: ((path: string) => void) | undefined;
   onClose: () => void;
 };
 
@@ -27,6 +29,7 @@ export function RowMenuContainer({
   apps,
   onOpenWith,
   onCustomize,
+  onOpenTerminal,
   onClose,
 }: RowMenuContainerProps) {
   const actions = useRouteActions();
@@ -42,6 +45,7 @@ export function RowMenuContainer({
         copyPath: (path) => void actions.copyPath(path),
         openWith: onOpenWith,
         customize: onCustomize,
+        openTerminal: onOpenTerminal,
       })}
       onClose={onClose}
     />
@@ -54,6 +58,7 @@ type RowMenuActions = {
   copyPath: (path: string) => void;
   openWith: (app: OpenWithApp, path: string) => void;
   customize: () => void;
+  openTerminal: ((path: string) => void) | undefined;
 };
 
 function rowMenuEntries(
@@ -81,6 +86,16 @@ function rowMenuEntries(
     icon: "copy",
     onSelect: () => run.copyPath(path),
   });
+  const { openTerminal } = run;
+  if (openTerminal) {
+    entries.push({
+      kind: "item",
+      id: "open-terminal",
+      label: "Open terminal",
+      icon: "terminal",
+      onSelect: () => openTerminal(path),
+    });
+  }
   const fileManager = apps.find((app) => app.kind === "file-manager");
   if (fileManager) {
     entries.push({

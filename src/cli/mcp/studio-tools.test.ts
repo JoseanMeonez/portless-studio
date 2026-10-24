@@ -134,6 +134,12 @@ describe("studio tools", () => {
       "proxy",
       "get_config",
       "set_auto_name",
+      "run_in_terminal",
+      "list_terminals",
+      "read_terminal",
+      "send_to_terminal",
+      "stop_terminal",
+      "focus_studio",
     ]);
     for (const tool of tools().values()) {
       expect(tool.inputSchema.type).toBe("object");
@@ -339,7 +345,17 @@ describe("studio tools", () => {
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
     const client = createStudioClient(`http://127.0.0.1:${port}`);
     for (const tool of createStudioTools(client)) {
-      const args = { port: 3000, name: "a", new_name: "b", pid: 1, confirm: true };
+      const args = {
+        port: 3000,
+        name: "a",
+        new_name: "b",
+        pid: 1,
+        confirm: true,
+        command: "pnpm dev",
+        project: "shop",
+        id: "t1",
+        text: "x",
+      };
       const result = await tool.call({ ...args, action: "start", enabled: true });
       expect(result.isError).toBe(true);
       expect(result.summary).toContain("Portless Studio is not running");
@@ -352,5 +368,142 @@ describe("studio tools", () => {
     const result = await call("list_routes");
     expect(result.isError).toBe(true);
     expect(result.summary).toContain("not Portless Studio");
+  });
+});
+
+const TERMINAL = {
+  id: "t3",
+  title: "pnpm dev",
+  cwd: "/work/shop",
+  command: "pnpm dev",
+  project: "shop",
+  status: "running",
+  exitCode: null,
+  startedAt: 1,
+  endedAt: null,
+  pid: 900,
+  mode: "pty",
+  cols: 120,
+  rows: 30,
+  nextSeq: 40,
+  naming: { state: "named", requested: null, name: "web.shop", port: 5173 },
+};
+
+describe("terminal tools", () => {
+  beforeEach(() => {
+    respond = (request) => {
+      if (request.url === "/api/session") return { status: 200, body: { token: TOKEN } };
+      if (request.url === "/api/terminals" && request.method === "POST") {
+        return { status: 201, body: TERMINAL };
+      }
+      if (request.url === "/api/terminals") return { status: 200, body: { terminals: [TERMINAL] } };
+      if (request.url === "/api/terminals/t3") return { status: 200, body: TERMINAL };
+      if (request.url.startsWith("/api/terminals/t3/output")) {
+        return {
+          status: 200,
+          body: {
+            terminal: TERMINAL,
+            data: "\u001b[32mready\u001b[0m\r\nlistening",
+            from: 24,
+            next: 40,
+            truncated: false,
+          },
+        };
+      }
+      if (request.url === "/api/focus") {
+        return {
+          status: 200,
+          body: {
+            target: { terminal: "t3" },
+            pages: 1,
+            focused: false,
+            opened: true,
+            url: "http://localhost:4949/?terminal=t3",
+          },
+        };
+      }
+      return { status: 204 };
+    };
+  });
+
+  it("run_in_terminal starts the command in a project and names its port", async () => {
+    const result = await call("run_in_terminal", { project: "shop", command: "pnpm dev" });
+    expect(result.summary).toContain("Started t3 in /work/shop: pnpm dev");
+    const post = writes().find((request) => request.url === "/api/terminals");
+    expect(JSON.parse(post?.body ?? "{}")).toEqual({
+      command: "pnpm dev",
+      project: "shop",
+      name: true,
+    });
+    expect(post?.headers["x-portless-studio-token"]).toBe(TOKEN);
+  });
+
+  it("run_in_terminal passes a folder and a name, or skips naming", async () => {
+    await call("run_in_terminal", { cwd: "/work/shop", command: "pnpm dev", name: "pr-7.shop" });
+    await call("run_in_terminal", { cwd: "/work/shop", command: "pnpm test", name_port: false });
+    const bodies = writes().map((request) => JSON.parse(request.body));
+    expect(bodies).toEqual([
+      { command: "pnpm dev", cwd: "/work/shop", name: "pr-7.shop" },
+      { command: "pnpm test", cwd: "/work/shop" },
+    ]);
+  });
+
+  it("run_in_terminal needs a project or a folder", async () => {
+    const result = await call("run_in_terminal", { command: "pnpm dev" });
+    expect(result.isError).toBe(true);
+    expect(writes()).toHaveLength(0);
+  });
+
+  it("list_terminals reads with the token", async () => {
+    const result = await call("list_terminals");
+    expect(result.summary).toBe("1 terminal (1 running).");
+    expect(result.data).toEqual([
+      expect.objectContaining({ id: "t3", named: "web.shop", port: 5173, status: "running" }),
+    ]);
+    const list = requests.find((request) => request.url === "/api/terminals");
+    expect(list?.headers["x-portless-studio-token"]).toBe(TOKEN);
+  });
+
+  it("read_terminal returns plain text and where to read next", async () => {
+    const result = await call("read_terminal", { id: "t3", max_bytes: 16 });
+    expect(
+      requests.some((request) => request.url === "/api/terminals/t3/output?from=24&max=16"),
+    ).toBe(true);
+    expect(result.summary).toContain("read again with from 40");
+    expect(result.summary.endsWith("ready\nlistening")).toBe(true);
+    expect(result.data).toEqual({ next: 40, truncated: false, status: "running", exit_code: null });
+  });
+
+  it("read_terminal reads from a given offset without asking for the terminal first", async () => {
+    await call("read_terminal", { id: "t3", from: 10 });
+    expect(requests.map((request) => request.url)).toContain(
+      "/api/terminals/t3/output?from=10&max=16000",
+    );
+    expect(requests.some((request) => request.url === "/api/terminals/t3")).toBe(false);
+  });
+
+  it("send_to_terminal types the text and presses Enter unless told not to", async () => {
+    await call("send_to_terminal", { id: "t3", text: "y" });
+    await call("send_to_terminal", { id: "t3", text: "q", enter: false });
+    const bodies = writes().map((request) => [request.url, JSON.parse(request.body)]);
+    expect(bodies).toEqual([
+      ["/api/terminals/t3/input", { text: "y\r" }],
+      ["/api/terminals/t3/input", { text: "q" }],
+    ]);
+  });
+
+  it("stop_terminal needs confirm: true", async () => {
+    expect((await call("stop_terminal", { id: "t3" })).isError).toBe(true);
+    expect(writes()).toHaveLength(0);
+    await call("stop_terminal", { id: "t3", confirm: true });
+    expect(writes().map((request) => request.url)).toEqual(["/api/terminals/t3/stop"]);
+  });
+
+  it("focus_studio asks Studio to show the target and says how", async () => {
+    const result = await call("focus_studio", { target: "t3" });
+    expect(JSON.parse(writes()[0]?.body ?? "{}")).toEqual({ target: "t3" });
+    expect(result.summary).toBe(
+      "Opened http://localhost:4949/?terminal=t3 in the browser to show terminal t3.",
+    );
   });
 });

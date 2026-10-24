@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { StudioActionResponse } from "../../../../core/api/contract.ts";
 import type { DetectedPort } from "../../../../core/ports/detected-port.ts";
 import type { Route } from "../../../../core/routes/route.ts";
@@ -25,6 +25,7 @@ import { ViewControls } from "../components/view-controls.tsx";
 import { ViewMenu } from "../components/view-menu.tsx";
 import { readLastSelected, storeLastSelected } from "../hooks/last-selected.ts";
 import { apiErrorMessage } from "../hooks/route-messages.ts";
+import { useRoutesGateway } from "../hooks/routes-gateway-context.tsx";
 import { useDoctor } from "../hooks/use-doctor.ts";
 import { useKeyboardNavigation } from "../hooks/use-keyboard-navigation.ts";
 import { type ItemTarget, parseFocus, useNotifications } from "../hooks/use-notifications.ts";
@@ -48,10 +49,28 @@ import {
 } from "./row-menu-container.tsx";
 import { SettingsDialogContainer } from "./settings-dialog-container.tsx";
 
+/** What the dashboard asks of the terminals feature; the app root wires it in. */
+export type TerminalLauncher = {
+  /** Shows a terminal in this folder: a running one, else a new shell there. */
+  openIn: (folder: string) => void;
+  /** Shows the terminal with this id. */
+  show: (id: string) => void;
+};
+
 type RoutesDashboardProps = {
   theme: "light" | "dark";
   onToggleTheme: () => void;
+  /** Without it the row menu and the `t` shortcut offer no terminal. */
+  terminals?: TerminalLauncher | undefined;
+  /** Draws the terminal panel, given the project folders a new terminal can run in. */
+  terminalPanel?: ((folders: readonly ProjectFolder[]) => ReactNode) | undefined;
 };
+
+/** A project folder Studio shows, for starting a terminal there. */
+export type ProjectFolder = { label: string; path: string };
+
+/** How long a page waits after `window.focus()` before saying whether it came forward. */
+const FOCUS_CHECK_MS = 300;
 
 const NO_ROUTES: Route[] = [];
 const NO_DETECTED: DetectedPort[] = [];
@@ -66,8 +85,14 @@ type NameRequest =
  * The whole routes screen: header, filter, detected ports, live list, dialogs and keyboard
  * shortcuts.
  */
-export function RoutesDashboard({ theme, onToggleTheme }: RoutesDashboardProps) {
-  const { snapshot, error, connection, reload, events } = useRoutes();
+export function RoutesDashboard({
+  theme,
+  onToggleTheme,
+  terminals,
+  terminalPanel,
+}: RoutesDashboardProps) {
+  const { snapshot, error, connection, reload, events, focus } = useRoutes();
+  const gateway = useRoutesGateway();
   const routes = snapshot?.routes ?? NO_ROUTES;
   // Optional chaining tolerates a server older than the `portless` field.
   const portlessMissing = snapshot?.portless?.installed === false;
@@ -144,6 +169,17 @@ export function RoutesDashboard({ theme, onToggleTheme }: RoutesDashboardProps) 
     void services.controlProxy(action).then(() => doctor.refresh());
   };
   const toggleFavorite = (route: Route) => void viewsConfig.toggleFavorite(route);
+  const openTerminal = (route: Route) => {
+    if (!terminals) return;
+    const folder = route.project?.path;
+    if (folder) terminals.openIn(folder);
+    else
+      toast({
+        title: `No folder for ${route.name}`,
+        description:
+          "Studio has not seen the process behind this route, so it does not know where it runs.",
+      });
+  };
   const nextView = () => {
     const list = viewsConfig.views;
     const at = list.findIndex((view) => view.id === viewState.saved.id);
@@ -236,6 +272,7 @@ export function RoutesDashboard({ theme, onToggleTheme }: RoutesDashboardProps) 
     onRemove: (index) => withRoute(routeAt(index), requestRemove),
     onFavorite: (index) => withRoute(routeAt(index), toggleFavorite),
     onRowMenu: (index) => withRoute(routeAt(index), selectedRowMenu),
+    onTerminal: (index) => withRoute(routeAt(index), openTerminal),
     onCreate: openCreate,
     onFocusFilter: () => filterInput.current?.focus(),
     onToggleCommandMenu: () => setCommandMenuOpen((open) => !open),
@@ -284,17 +321,46 @@ export function RoutesDashboard({ theme, onToggleTheme }: RoutesDashboardProps) 
     navigation.select(0);
   };
 
-  // A system notification opens Studio with `?focus=`; show that item once, then drop the param.
+  // A system notification opens Studio with `?focus=`, `portless-studio open` with `?focus=` or
+  // `?terminal=`; show that item once, then drop the param.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: runs once, on the link the page opened with.
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const target = parseFocus(params.get("focus"));
-    if (!target) return;
+    const terminal = params.get("terminal");
+    if (!target && !terminal) return;
     params.delete("focus");
+    params.delete("terminal");
     const rest = params.toString();
     const { pathname, hash } = window.location;
     window.history.replaceState(null, "", `${pathname}${rest ? `?${rest}` : ""}${hash}`);
-    setShowing(target);
+    if (target) setShowing(target);
+    if (terminal) terminals?.show(terminal);
   }, []);
+
+  // `portless-studio open` and the MCP `focus_studio` tool: show the target, ask the browser to
+  // raise this window, and tell Studio whether it did, so it can open a link instead.
+  const answeredFocus = useRef<string | null>(null);
+  const launcher = useRef(terminals);
+  launcher.current = terminals;
+  useEffect(() => {
+    if (!focus || answeredFocus.current === focus.id) return;
+    answeredFocus.current = focus.id;
+    const { terminal, route, port } = focus.target;
+    if (terminal !== undefined) launcher.current?.show(terminal);
+    else if (route !== undefined || port !== undefined) {
+      setShowing({
+        ...(route === undefined ? {} : { route }),
+        ...(port === undefined ? {} : { port }),
+      });
+    }
+    window.focus();
+    // Not cleared on re-render: the answer must reach Studio, which waits for it.
+    setTimeout(() => {
+      const focused = document.visibilityState === "visible" && document.hasFocus();
+      void gateway.acknowledgeFocus?.({ id: focus.id, focused });
+    }, FOCUS_CHECK_MS);
+  }, [focus, gateway]);
 
   // Brings the item a notification points at on screen one step per render: clear the search and
   // filters that hide it, open its group, then select and scroll to it.
@@ -538,6 +604,7 @@ export function RoutesDashboard({ theme, onToggleTheme }: RoutesDashboardProps) 
           apps={openWith.apps}
           onOpenWith={(app, path) => void openWith.open(app, path)}
           onCustomize={openSettings}
+          onOpenTerminal={terminals ? (path) => terminals.openIn(path) : undefined}
           onClose={() => setRowMenu(null)}
         />
       ) : null}
@@ -572,8 +639,26 @@ export function RoutesDashboard({ theme, onToggleTheme }: RoutesDashboardProps) 
           onProxyAction={proxyAction}
         />
       ) : null}
+
+      {terminalPanel?.(projectFolders(routes, detected))}
     </div>
   );
+}
+
+/** Every project folder of a route or detected port, once, by project name. */
+function projectFolders(
+  routes: readonly Route[],
+  detected: readonly DetectedPort[],
+): ProjectFolder[] {
+  const folders = new Map<string, ProjectFolder>();
+  for (const item of [...routes, ...detected]) {
+    const path = item.project?.path;
+    if (item.project && path && !folders.has(path)) {
+      const worktree = item.project.worktree ? ` (${item.project.worktree})` : "";
+      folders.set(path, { label: `${item.project.name}${worktree}`, path });
+    }
+  }
+  return [...folders.values()].sort((a, b) => a.label.localeCompare(b.label));
 }
 
 function routeMenuTarget(route: Route): RowMenuTarget {

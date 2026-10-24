@@ -10,6 +10,17 @@ import { err, ok, type Result } from "../../core/result.ts";
 export type StudioClient = {
   baseUrl: string;
   read(path: string): Promise<Result<unknown, StudioClientError>>;
+  /** A read that carries the token, for the terminal endpoints, which guard reads too. */
+  readPrivate(path: string): Promise<Result<unknown, StudioClientError>>;
+  /**
+   * Follows a server-sent event stream that needs the token. Resolves once the stream is open
+   * (or refused); `onEvent` gets each event's type and parsed data, `onEnd` fires when it closes.
+   */
+  stream(
+    path: string,
+    onEvent: (type: string, data: unknown) => void,
+    onEnd: () => void,
+  ): Promise<Result<{ close(): void }, StudioClientError>>;
   write(
     method: WriteMethod,
     path: string,
@@ -17,7 +28,7 @@ export type StudioClient = {
   ): Promise<Result<unknown, StudioClientError>>;
 };
 
-export type WriteMethod = "POST" | "PUT" | "PATCH" | "DELETE";
+export type WriteMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 
 export type StudioClientError = {
   /** `not_running`: nothing answers; `not_studio`: something else does; `api`: Studio said no. */
@@ -101,7 +112,89 @@ export function createStudioClient(baseUrl: string): StudioClient {
     }
   }
 
-  return { baseUrl, read, write };
+  async function stream(
+    path: string,
+    onEvent: (type: string, data: unknown) => void,
+    onEnd: () => void,
+  ): Promise<Result<{ close(): void }, StudioClientError>> {
+    let first = true;
+    while (true) {
+      const current = token === null ? await sessionToken() : ok(token);
+      if (!current.ok) return current;
+      const opened = await openStream(new URL(path, baseUrl), current.value, onEvent, onEnd);
+      if (!opened.ok) return err(opened.error === "refused" ? notRunning : failed(opened.error));
+      if (opened.value.status === 403 && first) {
+        first = false;
+        token = null;
+        continue;
+      }
+      if (opened.value.status !== 200)
+        return toResult(opened.value) as Result<never, StudioClientError>;
+      return ok({ close: opened.value.close });
+    }
+  }
+
+  return { baseUrl, read, readPrivate: (path) => write("GET", path), stream, write };
+}
+
+type OpenedStream = RawAnswer & { close(): void };
+
+function openStream(
+  url: URL,
+  token: string,
+  onEvent: (type: string, data: unknown) => void,
+  onEnd: () => void,
+): Promise<Result<OpenedStream, "refused" | string>> {
+  const request = url.protocol === "https:" ? httpsRequest : httpRequest;
+  return new Promise((resolve) => {
+    const req = request(
+      url,
+      { method: "GET", headers: { Accept: "text/event-stream", [TOKEN_HEADER]: token } },
+      (res) => {
+        const status = res.statusCode ?? 0;
+        const studio = res.headers[STUDIO_HEADER] === "1";
+        if (status !== 200) {
+          const chunks: Buffer[] = [];
+          res.on("data", (chunk: Buffer) => chunks.push(chunk));
+          res.on("end", () => {
+            let body: unknown = null;
+            try {
+              body = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+            } catch {}
+            resolve(ok({ status, studio, body, close: () => {} }));
+          });
+          return;
+        }
+        res.setEncoding("utf8");
+        let buffer = "";
+        res.on("data", (text: string) => {
+          buffer += text;
+          let end = buffer.indexOf("\n\n");
+          while (end >= 0) {
+            const block = buffer.slice(0, end);
+            buffer = buffer.slice(end + 2);
+            const type = /^event: (.*)$/m.exec(block)?.[1];
+            const data = /^data: (.*)$/m.exec(block)?.[1];
+            if (type !== undefined && data !== undefined) {
+              try {
+                onEvent(type, JSON.parse(data));
+              } catch {
+                // A line this client cannot read; the next event may still be fine.
+              }
+            }
+            end = buffer.indexOf("\n\n");
+          }
+        });
+        res.on("close", onEnd);
+        resolve(ok({ status, studio, body: null, close: () => req.destroy() }));
+      },
+    );
+    req.on("error", (error: NodeJS.ErrnoException) => {
+      const refused = ["ECONNREFUSED", "ECONNRESET", "ENOTFOUND", "EHOSTUNREACH"];
+      resolve(err(refused.includes(error.code ?? "") ? "refused" : error.message));
+    });
+    req.end();
+  });
 }
 
 type RawAnswer = { status: number; studio: boolean; body: unknown };

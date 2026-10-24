@@ -3,6 +3,7 @@ import type { DoctorCheck } from "../doctor/doctor-check.ts";
 import type { DetectedPort } from "../ports/detected-port.ts";
 import type { CustomApp } from "../projects/custom-app.ts";
 import type { ProxyStatus, Route } from "../routes/route.ts";
+import type { TerminalInfo } from "../terminals/terminal.ts";
 
 /**
  * The HTTP API between the web app and the server. Both sides import these names, so changing a
@@ -41,7 +42,40 @@ export const API_PATHS = {
   openWith: "/api/open-with",
   /** GET returns `CustomAppsResponse`; PUT replaces the list (a write, needs the token). */
   customApps: "/api/open-with/custom-apps",
+  /**
+   * Terminals Studio runs (docs/terminals.md). Every terminal endpoint needs the token, reads too,
+   * because output and commands can carry secrets. GET lists them, POST `CreateTerminalRequest`
+   * starts one.
+   */
+  terminals: "/api/terminals",
+  /** Server-sent events: `terminals` with the whole list on connect and after every change. */
+  terminalsEvents: "/api/terminals/events",
+  /** GET returns `TerminalInfo`; DELETE stops the command if it runs and closes the terminal. */
+  terminal: (id: string) => `/api/terminals/${encodeURIComponent(id)}`,
+  /** GET `?from=<seq>&max=<chars>` returns `TerminalOutputResponse`. */
+  terminalOutput: (id: string) => `/api/terminals/${encodeURIComponent(id)}/output`,
+  /**
+   * Server-sent events `?from=<seq>`: the kept output from `from` as `output`
+   * (`TerminalOutputChunk`), then `status` (`TerminalInfo`), then live output and status changes.
+   */
+  terminalStream: (id: string) => `/api/terminals/${encodeURIComponent(id)}/stream`,
+  /** POST `TerminalInputRequest`: writes to the command's stdin. */
+  terminalInput: (id: string) => `/api/terminals/${encodeURIComponent(id)}/input`,
+  /** POST: Ctrl+C, then SIGTERM, then SIGKILL until the command ends. */
+  terminalStop: (id: string) => `/api/terminals/${encodeURIComponent(id)}/stop`,
+  /** POST: runs the same command again in the same terminal. */
+  terminalRestart: (id: string) => `/api/terminals/${encodeURIComponent(id)}/restart`,
+  /** POST `FocusRequest`: brings a Studio page to the front showing a route, port or terminal. */
+  focus: "/api/focus",
+  /** POST `FocusAck`: a page says whether it got the window to the front. */
+  focusAck: "/api/focus/ack",
 } as const;
+
+/**
+ * Query parameter that carries the token where a header cannot: the browser's EventSource sends
+ * no custom headers.
+ */
+export const TOKEN_PARAM = "token";
 
 export type ProxyAction = "start" | "stop" | "restart";
 export type StudioAction = "restart" | "stop";
@@ -70,6 +104,81 @@ export type StudioEvent = {
   /** Epoch milliseconds. */
   at: number;
 };
+
+/** Server-sent event type on `/api/events` that asks pages to show a target and come forward. */
+export const FOCUS_EVENT = "focus";
+
+/** What to bring on screen. Empty means just the Studio page. */
+export type FocusTarget = { route?: string; port?: number; terminal?: string };
+
+/** One `focus` event. The page answers with `FocusAck` carrying the same id. */
+export type FocusEvent = { id: string; target: FocusTarget };
+
+/** POST /api/focus */
+export type FocusRequest = {
+  /** A route name, a project name, a terminal id or `port:<number>`; omit for Studio itself. */
+  target?: string;
+};
+
+/** POST /api/focus, on success. */
+export type FocusResponse = {
+  target: FocusTarget;
+  /** How many open Studio pages got the event. */
+  pages: number;
+  /** True when a page said its window came to the front. */
+  focused: boolean;
+  /** True when Studio opened `url` in the browser because no page came forward. */
+  opened: boolean;
+  /** The page link that shows the target. */
+  url: string;
+};
+
+/** POST /api/focus/ack */
+export type FocusAck = { id: string; focused: boolean };
+
+/** POST /api/terminals */
+export type CreateTerminalRequest = {
+  /** Folder to run in. From the page it must be a project folder Studio shows. */
+  cwd?: string;
+  /** Or a project name Studio shows; its folder is used. */
+  project?: string;
+  /** What to run; omit for an interactive shell. */
+  command?: string;
+  title?: string;
+  /** Size of the terminal that will show it. */
+  cols?: number;
+  rows?: number;
+  /**
+   * Name the first new port the command opens in its folder: true for the suggested name, or a
+   * name. Used by `portless-studio run`.
+   */
+  name?: boolean | string;
+};
+
+/** GET /api/terminals */
+export type TerminalsResponse = { terminals: TerminalInfo[] };
+
+/** Server-sent event types on the terminal streams. */
+export const TERMINALS_EVENT = "terminals";
+export const TERMINAL_STATUS_EVENT = "status";
+export const TERMINAL_OUTPUT_EVENT = "output";
+
+/** One `output` event: characters from offset `seq` on. */
+export type TerminalOutputChunk = { seq: number; data: string };
+
+/** GET /api/terminals/:id/output */
+export type TerminalOutputResponse = {
+  terminal: TerminalInfo;
+  /** Raw output with escape codes, as the command wrote it. */
+  data: string;
+  from: number;
+  next: number;
+  /** True when older output asked for was already dropped. */
+  truncated: boolean;
+};
+
+/** POST /api/terminals/:id/input */
+export type TerminalInputRequest = { text: string };
 
 /** Sent on every Studio response, so one Studio never lists another as a dev server. */
 export const STUDIO_HEADER = "x-portless-studio";
@@ -213,6 +322,10 @@ export type ApiErrorCode =
   | "unknown_app"
   /** The folder is not one Studio shows, so it will not open it. */
   | "path_not_allowed"
+  /** The terminal's command already ended, so it takes no input. */
+  | "terminal_not_running"
+  /** Studio already runs as many terminals as it allows. */
+  | "too_many_terminals"
   | "internal";
 
 /** Body of every non-2xx response. */

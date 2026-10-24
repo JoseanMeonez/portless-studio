@@ -48,7 +48,7 @@ export async function discoverPorts(
   const answers = await Promise.all(candidates.map((port) => scanner.answersHttp(port.port)));
   return candidates
     .filter((port, index) => answers[index] && isDevServer(port, projects))
-    .map((port) => toDetected(port, projects))
+    .map((port) => toDetected(port, projects, context.config.nameTemplate))
     .sort((a, b) => a.port - b.port);
 }
 
@@ -94,7 +94,11 @@ export function isInsideFolder(folder: string, file: string): boolean {
   return normalize(file).startsWith(`${root}${windows ? "\\" : "/"}`);
 }
 
-function toDetected(port: ListeningPort, projects: ProjectInfoSource): DetectedPort {
+function toDetected(
+  port: ListeningPort,
+  projects: ProjectInfoSource,
+  nameTemplate: string,
+): DetectedPort {
   const info = port.cwd === null ? null : projects.read(port.cwd);
   const project = info === null ? null : projectOf(info);
   return {
@@ -102,7 +106,7 @@ function toDetected(port: ListeningPort, projects: ProjectInfoSource): DetectedP
     pid: port.pid,
     processName: port.processName,
     cwd: port.cwd,
-    suggestedName: info === null ? null : suggestName(info),
+    suggestedName: info === null ? null : suggestName(info, nameTemplate, port.port),
     ...(project === null ? {} : { project }),
   };
 }

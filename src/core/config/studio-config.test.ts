@@ -201,3 +201,21 @@ describe("parseConfig views and favorites", () => {
     expect(parseConfig(input)).toEqual({ ok: false, error });
   });
 });
+
+describe("parseConfig name template", () => {
+  it("defaults to {work}.{package}.{repo} and keeps a valid template", () => {
+    expect(DEFAULT_CONFIG.nameTemplate).toBe("{work}.{package}.{repo}");
+    const result = parseConfig({ nameTemplate: " {ticket}.{repo} " });
+    expect(result.ok && result.value.nameTemplate).toBe("{ticket}.{repo}");
+  });
+
+  it("names the unknown token in the error", () => {
+    const result = parseConfig({ nameTemplate: "{work}.{projct}" });
+    expect(result.ok).toBe(false);
+    expect(result.ok ? "" : result.error).toMatch(/^"nameTemplate" .*\{projct\}/);
+  });
+
+  it("rejects a template that is not text", () => {
+    expect(parseConfig({ nameTemplate: 3 }).ok).toBe(false);
+  });
+});

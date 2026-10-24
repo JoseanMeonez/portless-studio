@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { NAME_TOKEN_HELP, NAME_TOKENS } from "../../../../core/ports/name-template.ts";
 import { Button } from "../../../shared/ui/button.tsx";
 import { Dialog } from "../../../shared/ui/dialog.tsx";
 import { Icon } from "../../../shared/ui/icons/icon.tsx";
@@ -92,6 +93,37 @@ export function SettingsDialog({
               checked={draft.autoName}
               onChange={(value) => form.change("autoName", value)}
             />
+            <TextField
+              label="Name template"
+              mono
+              value={draft.nameTemplate}
+              error={errors.nameTemplate ?? form.namePreview?.error ?? null}
+              hint="How suggested names are built. Labels left empty are dropped."
+              onChange={(event) => form.change("nameTemplate", event.target.value)}
+            />
+            <p className={styles.preview}>
+              {form.namePreview?.name ? (
+                <>
+                  An app in <code>acme-monorepo</code> on branch <code>feat/ED-1234-add-login</code>{" "}
+                  gets{" "}
+                  <code data-testid="name-preview" className={styles.previewName}>
+                    {form.namePreview.name}
+                  </code>
+                </>
+              ) : (
+                "This template gives the example app no name."
+              )}
+            </p>
+            <dl className={styles.tokens}>
+              {NAME_TOKENS.map((token) => (
+                <div key={token} className={styles.token}>
+                  <dt>
+                    <code>{`{${token}}`}</code>
+                  </dt>
+                  <dd>{NAME_TOKEN_HELP[token]}</dd>
+                </div>
+              ))}
+            </dl>
             <TextField
               label="Remove auto names after"
               mono

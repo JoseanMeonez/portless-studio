@@ -61,6 +61,7 @@ restart. Missing fields take their default.
 | `views` | one view, `All`, grouped by project | Saved views. Each has an `id`, a `name`, `groupBy` (`none`, `project`, `worktree`, `kind`, `status` or `custom`), `sort` (`by`: `name`, `port`, `newest` or `status`; `direction`: `asc` or `desc`), `filters` (`kinds`, `projects`, `statuses`) and, for custom grouping, `customGroups` (`id`, `name`, `members`). |
 | `defaultViewId` | `"all"` | The view the page opens with. |
 | `favorites` | `[]` | Routes pinned above every group, by name or as `"port:3000"`. |
+| `nameTemplate` | `"{work}.{package}.{repo}"` | How suggested names are built. See [Naming](#naming). |
 | `projectIcons` | `{}` | Icon per project name, e.g. `{ "acme": "🦊" }`: an emoji, an http(s) image URL (Studio downloads it and inlines it) or a `data:image` URL. |
 
 The `--port`, `--no-open` and `--no-register` flags win over the file for one run.
@@ -164,6 +165,14 @@ It starts on `http://127.0.0.1:4949`, registers itself in portless as `studio`, 
 
 Want to see it without portless? Open `http://127.0.0.1:4949/?demo` for sample data, or
 `?demo&noportless` to try the install flow with a fake install.
+
+## Naming
+
+A suggested name says what the work is, then the app, then the repository: the package `@acme/web`
+in `acme-monorepo` on the branch `feat/ED-1234-add-x` gets `ed-1234.web.acme`. That is the order
+portless uses for worktrees, `<branch>.<name>.localhost`. Change it with `nameTemplate` in the
+config file or in Settings, for example `{ticket}.{repo}` or `{package}-{port}`.
+[docs/naming.md](docs/naming.md) lists every token and how empty or repeated labels are dropped.
 
 ## Naming routes from agents and scripts
 

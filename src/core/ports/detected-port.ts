@@ -1,5 +1,11 @@
 import type { ItemProject } from "../routes/route.ts";
 import { parseRouteName } from "../routes/route-name.ts";
+import {
+  DEFAULT_NAME_TEMPLATE,
+  dnsLabel,
+  parseNameTemplate,
+  renderNameTemplate,
+} from "./name-template.ts";
 
 /** A port something on this machine listens on that has no portless name yet. */
 export type DetectedPort = {
@@ -43,48 +49,56 @@ const TICKET_KEY = /(?:^|[^A-Za-z0-9])([A-Za-z]{2,10}-\d+)(?![A-Za-z0-9])/;
 const REPO_SUFFIX = /-(?:monorepo|mono|repo)$/;
 
 /**
- * Suggests a route name the way portless names monorepo packages: `<package>.<project>`, e.g.
- * `web.acme-monorepo`. Scopes are dropped (`@acme/web` -> `web`) and a package named like its
- * repository gets the plain repository name.
+ * Suggests a route name from a template, by default `{work}.{package}.{repo}`, the order portless
+ * uses for worktrees: `ed-1234.web.acme`. Scopes are dropped (`@acme/web` -> `web`) and a package
+ * named like its repository gives one label. See docs/naming.md for every token.
  *
- * The prefix says what the work is, so two checkouts of one app get different names: a ticket key
- * in the branch (`feat/ED-1234-add-x` -> `ed-1234.web.acme`), else the branch's last segment
- * (`feat/dark-mode` -> `dark-mode.web.acme`), with the repository's `-monorepo` or `-repo` suffix
- * dropped. On a default branch or a detached HEAD, a linked worktree adds its folder instead:
- * `falcon.web.acme-monorepo`.
+ * `{work}` says what the work is, so two checkouts of one app get different names: a ticket key in
+ * the branch (`feat/ED-1234-add-x` -> `ed-1234`), else the branch's last segment (`dark-mode`). On a
+ * default branch or a detached HEAD it is the linked worktree's folder, if any. When the branch
+ * gives the work, `{repo}` drops a `-monorepo`, `-mono` or `-repo` suffix; on the default branch
+ * the full folder stays so names given there never change. Returns null for an invalid template.
  */
-export function suggestName(info: ProjectInfo): string | null {
-  const work = workLabel(info.branch ?? null);
-  const pkg = slug(info.packageName?.replace(/^@[^/]+\//, "") ?? null);
-  const fullRepo = slug(info.repoName);
-  const repo = work && fullRepo ? fullRepo.replace(REPO_SUFFIX, "") || fullRepo : fullRepo;
-  const folder = slug(info.folderName);
+export function suggestName(
+  info: ProjectInfo,
+  template: string = DEFAULT_NAME_TEMPLATE,
+  port?: number | null,
+): string | null {
+  const parsedTemplate = parseNameTemplate(template);
+  if (!parsedTemplate.ok) return null;
+  const branch = info.branch ?? null;
+  const branchWork = workLabel(branch);
+  const pkg = dnsLabel(info.packageName?.replace(/^@[^/]+\//, "") ?? null);
+  const fullRepo = dnsLabel(info.repoName);
+  const repo = branchWork && fullRepo ? fullRepo.replace(REPO_SUFFIX, "") || fullRepo : fullRepo;
+  const folder = dnsLabel(info.folderName);
+  const worktree = dnsLabel(info.worktreeName);
 
-  const candidate =
-    pkg && repo ? (pkg === repo ? repo : `${pkg}.${repo}`) : (pkg ?? repo ?? folder ?? null);
-  if (candidate === null) return null;
-  const prefix = work ?? slug(info.worktreeName);
-  const parsed = parseRouteName(prefix ? `${prefix}.${candidate}` : candidate);
+  const name = renderNameTemplate(parsedTemplate.value, {
+    work: branchWork ?? worktree,
+    branch: dnsLabel(branch),
+    ticket: ticketKey(branch),
+    package: pkg,
+    // A folder outside any repository and package still gets a name.
+    repo: repo ?? (pkg === null ? folder : null),
+    worktree,
+    folder,
+    port: port === undefined || port === null ? null : String(port),
+  });
+  if (name === null) return null;
+  const parsed = parseRouteName(name);
   return parsed.ok ? parsed.value : null;
 }
 
-/** The ticket key or the branch slug, or null for a default branch or no branch. */
+/** The ticket key or the branch's last segment, or null for a default branch or no branch. */
 function workLabel(branch: string | null): string | null {
   if (branch === null || DEFAULT_BRANCHES.has(branch)) return null;
-  const ticket = TICKET_KEY.exec(branch)?.[1];
-  if (ticket) return ticket.toLowerCase();
-  return slug(branch.split("/").pop() ?? null);
+  return ticketKey(branch) ?? dnsLabel(branch.split("/").pop() ?? null);
 }
 
-function slug(value: string | null): string | null {
-  if (!value) return null;
-  const cleaned = value
-    .toLowerCase()
-    .replace(/[^a-z0-9-]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 63)
-    .replace(/-+$/g, "");
-  return cleaned === "" ? null : cleaned;
+function ticketKey(branch: string | null): string | null {
+  const ticket = branch === null ? undefined : TICKET_KEY.exec(branch)?.[1];
+  return ticket ? ticket.toLowerCase() : null;
 }
 
 /**

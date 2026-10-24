@@ -113,6 +113,30 @@ describe("settings", () => {
     expect(updateConfig).toHaveBeenCalledWith(expect.objectContaining({ ignoredPorts: [9229] }));
   });
 
+  it("previews the name template, explains an unknown token and saves the template", async () => {
+    const { user, gateway } = setup();
+    const updateConfig = vi.spyOn(gateway, "updateConfig");
+    const dialog = await openSettings(user);
+    const field = within(dialog).getByLabelText("Name template") as HTMLInputElement;
+
+    expect(field.value).toBe("{work}.{package}.{repo}");
+    expect(within(dialog).getByTestId("name-preview").textContent).toBe("ed-1234.web.acme");
+
+    await user.clear(field);
+    await user.type(field, "{{work}.{{projct}");
+    expect(field.getAttribute("aria-invalid")).toBe("true");
+    expect(within(dialog).getByRole("alert").textContent).toContain("{projct}");
+
+    await user.clear(field);
+    await user.type(field, "{{ticket}.{{package}-{{port}");
+    expect(within(dialog).getByTestId("name-preview").textContent).toBe("ed-1234.web-5173");
+    await user.click(within(dialog).getByRole("button", { name: "Save" }));
+
+    expect(updateConfig).toHaveBeenCalledWith(
+      expect.objectContaining({ nameTemplate: "{ticket}.{package}-{port}" }),
+    );
+  });
+
   it("opens with the comma key and from the command menu", async () => {
     const { user } = setup();
     await screen.findByRole("list", { name: "Routes" });

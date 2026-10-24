@@ -96,6 +96,16 @@ describe("discoverPorts", () => {
     ]);
   });
 
+  it("suggests names with the configured template", async () => {
+    const { scanner } = fakeScanner([listening(5173, "node", "/code/acme/apps/web")]);
+    const detected = await discoverPorts(scanner, projects, {
+      config: { ...DEFAULT_CONFIG, nameTemplate: "{package}-{port}" },
+      routes: [],
+      excludedPorts: [],
+    });
+    expect(detected[0]?.suggestedName).toBe("web-5173");
+  });
+
   it("drops routed, own, ignored, non-HTTP and other users' ports and ignored processes", async () => {
     const { scanner, probed } = fakeScanner(
       [

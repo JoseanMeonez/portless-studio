@@ -1,3 +1,4 @@
+import { DEFAULT_NAME_TEMPLATE, parseNameTemplate } from "../ports/name-template.ts";
 import { projectIconKind } from "../projects/project-icon.ts";
 import { err, ok, type Result } from "../result.ts";
 import { DEFAULT_VIEW, isItemKey, parseViews, type View } from "../views/view.ts";
@@ -54,6 +55,11 @@ export type StudioConfig = {
    * inlines, or a `data:image` URL. Projects without one show their server's favicon.
    */
   projectIcons: Record<string, string>;
+  /**
+   * How suggested names are built from tokens such as `{work}`, `{package}` and `{repo}`. The
+   * default `{work}.{package}.{repo}` gives `ed-1234.web.acme`; docs/naming.md lists every token.
+   */
+  nameTemplate: string;
 };
 
 export const DEFAULT_CONFIG: StudioConfig = {
@@ -88,6 +94,7 @@ export const DEFAULT_CONFIG: StudioConfig = {
   desktopNotifications: false,
   systemNotifications: false,
   projectIcons: {},
+  nameTemplate: DEFAULT_NAME_TEMPLATE,
 };
 
 const MIN_SCAN_INTERVAL_MS = 1000;
@@ -192,6 +199,14 @@ export function parseConfig(input: unknown): Result<StudioConfig, string> {
       );
     }
     config.projectIcons = icons;
+  }
+
+  if (raw.nameTemplate !== undefined) {
+    if (typeof raw.nameTemplate !== "string") return err(`"nameTemplate" must be text.`);
+    const template = raw.nameTemplate.trim();
+    const parsed = parseNameTemplate(template);
+    if (!parsed.ok) return err(`"nameTemplate" ${parsed.error}`);
+    config.nameTemplate = template;
   }
 
   return ok(config);

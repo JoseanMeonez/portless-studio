@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import type { ApiError } from "../../../../core/api/contract.ts";
 import { parseConfig, type StudioConfig } from "../../../../core/config/studio-config.ts";
+import { suggestName } from "../../../../core/ports/detected-port.ts";
+import { parseNameTemplate } from "../../../../core/ports/name-template.ts";
 import { projectIconKind } from "../../../../core/projects/project-icon.ts";
 import { parsePort } from "../../../../core/routes/route-name.ts";
 import { useToast } from "../../../shared/ui/toast/use-toast.ts";
@@ -47,7 +49,28 @@ const FIELDS = new Set<string>([
   "desktopNotifications",
   "systemNotifications",
   "projectIcons",
+  "nameTemplate",
 ]);
+
+/** A made-up project the name template preview renders. */
+export const PREVIEW_PROJECT = {
+  packageName: "@acme/web",
+  repoName: "acme-monorepo",
+  folderName: "web",
+  worktreeName: "falcon",
+  branch: "feat/ED-1234-add-login",
+  port: 5173,
+} as const;
+
+export type NamePreview = { name: string | null; error: string | null };
+
+/** What the template names the example project, or why the template is invalid. */
+export function previewName(template: string): NamePreview {
+  const parsed = parseNameTemplate(template.trim());
+  if (!parsed.ok) return { name: null, error: `The template ${parsed.error}` };
+  const { port, ...info } = PREVIEW_PROJECT;
+  return { name: suggestName(info, template.trim(), port), error: null };
+}
 
 /** Loads the Studio config, edits a copy and saves it, with errors shown next to each field. */
 export function useSettingsForm({ onSaved }: { onSaved: () => void }) {
@@ -166,6 +189,7 @@ export function useSettingsForm({ onSaved }: { onSaved: () => void }) {
   return {
     load,
     draft,
+    namePreview: draft ? previewName(draft.nameTemplate) : null,
     errors,
     formError,
     saving,

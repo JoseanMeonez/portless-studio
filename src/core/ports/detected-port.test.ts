@@ -4,7 +4,8 @@ const info = (
   packageName: string | null,
   repoName: string | null,
   folderName: string | null = null,
-) => ({ packageName, repoName, folderName });
+  worktreeName: string | null = null,
+) => ({ packageName, repoName, folderName, worktreeName });
 
 describe("suggestName", () => {
   it("joins the package and the repository", () => {

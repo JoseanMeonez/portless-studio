@@ -15,6 +15,8 @@ export type RouteSection = {
 
 type RouteListProps = {
   sections: readonly RouteSection[];
+  /** Icon per project name, from the snapshot, for group headers. */
+  projectIcons?: Readonly<Record<string, string>> | undefined;
   now: number;
   /** Name of the selected route. */
   selectedName: string | null;
@@ -77,6 +79,7 @@ export function RouteList(props: RouteListProps) {
             <GroupHeader
               label={section.label}
               routes={section.routes}
+              project={sectionProject(section, props.projectIcons)}
               collapsed={collapsed}
               controls={listId}
               onToggle={() => props.onToggleSection(section.key)}
@@ -97,4 +100,16 @@ export function RouteList(props: RouteListProps) {
       })}
     </ul>
   );
+}
+
+/** The project a group belongs to, when all its routes run from one. */
+function sectionProject(
+  section: RouteSection,
+  icons: Readonly<Record<string, string>> | undefined,
+): { name: string; icon: string | undefined } | undefined {
+  const names = new Set(section.routes.map((route) => route.project?.name));
+  const [name] = names;
+  if (names.size !== 1 || !name) return undefined;
+  const own = icons && Object.hasOwn(icons, name) ? icons[name] : undefined;
+  return { name, icon: own ?? section.routes.find((route) => route.icon)?.icon };
 }

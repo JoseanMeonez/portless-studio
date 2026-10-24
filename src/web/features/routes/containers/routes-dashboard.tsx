@@ -420,6 +420,7 @@ export function RoutesDashboard({ theme, onToggleTheme }: RoutesDashboardProps) 
               {!hasRoutes ? null : views.matched > 0 ? (
                 <RouteList
                   sections={views.sections}
+                  projectIcons={snapshot.projectIcons}
                   now={now}
                   selectedName={selected?.name ?? null}
                   isFavorite={views.isFavorite}
@@ -465,7 +466,12 @@ export function RoutesDashboard({ theme, onToggleTheme }: RoutesDashboardProps) 
         />
       ) : null}
 
-      {settingsOpen ? <SettingsDialogContainer onClose={() => setSettingsOpen(false)} /> : null}
+      {settingsOpen ? (
+        <SettingsDialogContainer
+          projects={knownProjects(routes, detected)}
+          onClose={() => setSettingsOpen(false)}
+        />
+      ) : null}
 
       {healthOpen ? (
         <HealthPanelContainer
@@ -564,4 +570,14 @@ function nameDialogText(request: NameRequest, viewName: string) {
     initialName: request.name,
     submitLabel: "Rename",
   };
+}
+
+/** Every project a route or detected port runs from, sorted, for the icon settings. */
+function knownProjects(
+  routes: readonly { project?: { name: string } | null }[],
+  detected: readonly { project?: { name: string } | null }[],
+): string[] {
+  const names = new Set<string>();
+  for (const item of [...routes, ...detected]) if (item.project) names.add(item.project.name);
+  return [...names].sort((a, b) => a.localeCompare(b));
 }

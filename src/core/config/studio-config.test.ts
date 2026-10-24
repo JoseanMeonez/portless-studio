@@ -1,6 +1,27 @@
 import { DEFAULT_CONFIG, parseConfig } from "./studio-config.ts";
 
+const PROJECT_ICONS_ERROR =
+  '"projectIcons" must map project names to an emoji, an http(s) URL or a data:image URL.';
+
 describe("parseConfig", () => {
+  it("keeps project icons that are an emoji, an http(s) URL or a data:image URL", () => {
+    const projectIcons = {
+      acme: "🦊",
+      "shop-admin": "https://example.com/icon.png",
+      falcon: "data:image/png;base64,iVBORw0KGgo=",
+    };
+    expect(parseConfig({ projectIcons })).toEqual({
+      ok: true,
+      value: { ...DEFAULT_CONFIG, projectIcons },
+    });
+    expect(DEFAULT_CONFIG.projectIcons).toEqual({});
+  });
+
+  it("drops project icons with an empty name or value", () => {
+    const result = parseConfig({ projectIcons: { acme: "  ", "": "🦊", otter: " 🦦 " } });
+    expect(result.ok && result.value.projectIcons).toEqual({ otter: "🦦" });
+  });
+
   it("starts an HTTP proxy on 1355 by default, which needs no sudo or certificate", () => {
     expect(DEFAULT_CONFIG).toMatchObject({ startProxy: true, proxyPort: 1355, proxyHttps: false });
   });
@@ -35,6 +56,11 @@ describe("parseConfig", () => {
     ],
     [{ desktopNotifications: "on" }, '"desktopNotifications" must be true or false.'],
     [{ systemNotifications: 1 }, '"systemNotifications" must be true or false.'],
+    [{ projectIcons: [] }, PROJECT_ICONS_ERROR],
+    [{ projectIcons: { acme: 1 } }, PROJECT_ICONS_ERROR],
+    [{ projectIcons: { acme: "javascript:alert(1)" } }, PROJECT_ICONS_ERROR],
+    [{ projectIcons: { acme: "data:text/html,<b>x</b>" } }, PROJECT_ICONS_ERROR],
+    [{ projectIcons: { acme: "a very long label" } }, PROJECT_ICONS_ERROR],
   ])("rejects %j", (input, error) => {
     expect(parseConfig(input)).toEqual({ ok: false, error });
   });

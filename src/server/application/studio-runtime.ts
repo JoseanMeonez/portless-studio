@@ -12,6 +12,7 @@ import {
 } from "./auto-named-store.ts";
 import { AutoNamer } from "./auto-namer.ts";
 import type { ConfigStore } from "./config-store.ts";
+import { type IconFetcher, IconResolver, type IconSubject } from "./icon-resolver.ts";
 import { discoverPorts, type ProjectInfoSource } from "./port-discovery.ts";
 import type { ListeningPort, PortScanner, ProbePort } from "./port-scanner.ts";
 import type { PortlessState, RouteRegistry } from "./route-registry.ts";
@@ -36,6 +37,8 @@ export type StudioRuntimeOptions = {
   autoNamedStore?: AutoNamedStore;
   /** Shows events as OS notifications while no tab is open, when the config asks for it. */
   notifier?: SystemNotifier;
+  /** Reads favicons; without it only icons set in the config are shown. */
+  icons?: IconFetcher;
 };
 
 type ScanResult = {
@@ -65,6 +68,7 @@ export class StudioRuntime {
   readonly #autoNamedStore: AutoNamedStore;
   readonly #notifier: SystemNotifier | null;
   readonly #events = new EventLog();
+  readonly #icons: IconResolver;
   /** Names auto mode gave; null until read from the store. */
   #autoNamed: AutoNamedEntry[] | null = null;
   /** When each auto name's port was first seen closed, by name. */
@@ -100,6 +104,12 @@ export class StudioRuntime {
     this.#proxyPids = options.proxyPids ?? null;
     this.#autoNamedStore = options.autoNamedStore ?? memoryAutoNamedStore();
     this.#notifier = options.notifier ?? null;
+    const noIcons: IconFetcher = {
+      served: async () => null,
+      remote: async () => null,
+      inFolder: () => null,
+    };
+    this.#icons = new IconResolver(options.icons ?? noIcons, () => this.#notify());
     this.#namer = new AutoNamer(this.#registry, this.#log, {
       onNamed: (name, port) => this.#rememberAutoName(name, port),
       canTake: (name) => this.#isAbandonedAutoName(name),
@@ -154,16 +164,17 @@ export class StudioRuntime {
     const config = await this.#currentConfig();
     const detected = await this.#detect(state, config, false);
     this.#lastDetected = JSON.stringify(detected);
+    const routes = this.#withDetails(state.routes);
     const snapshot: Snapshot = {
       proxy: state.proxy,
       portless: state.portless,
-      routes: this.#withDetails(state.routes),
+      routes,
       detected,
       autoName: config.autoName,
       readAt: state.readAt,
     };
     this.#observe(snapshot, config);
-    return snapshot;
+    return this.#withIcons(snapshot, config);
   }
 
   /** The last notable changes of this run, oldest first, for a page that connects later. */
@@ -330,6 +341,37 @@ export class StudioRuntime {
         ...(health === undefined ? {} : { health }),
       };
     });
+  }
+
+  /** Adds each item's icon and one icon per project; see `IconResolver` for the order. */
+  #withIcons(snapshot: Snapshot, config: StudioConfig): Snapshot {
+    const listeners = new Map<number, ListeningPort>();
+    for (const port of this.#scan?.ports ?? []) listeners.set(port.port, port);
+    const subject = (port: number, pid: number | null, cwd: string | null): IconSubject => {
+      const info = cwd === null ? null : this.#projects.read(cwd);
+      const project = info === null ? null : projectOf(info);
+      return { port, pid, project: project?.name ?? null, rootDir: info?.rootDir ?? null };
+    };
+    const withIcon = <T extends object>(item: T, at: IconSubject): T => {
+      const icon = this.#icons.iconFor(at, config.projectIcons);
+      return icon === null ? item : { ...item, icon };
+    };
+    const routes = snapshot.routes.map((route) => {
+      const listener = listeners.get(route.port);
+      return withIcon(route, subject(route.port, listener?.pid ?? null, listener?.cwd ?? null));
+    });
+    const detected = snapshot.detected.map((item) =>
+      withIcon(item, subject(item.port, item.pid, item.cwd)),
+    );
+
+    const projectIcons: Record<string, string> = {};
+    for (const item of [...routes, ...detected]) {
+      const name = item.project?.name;
+      if (!name || Object.hasOwn(projectIcons, name)) continue;
+      const icon = this.#icons.configuredIcon(name, config.projectIcons) ?? item.icon;
+      if (icon !== undefined) projectIcons[name] = icon;
+    }
+    return { ...snapshot, routes, detected, projectIcons };
   }
 
   #pidByPort(): Map<number, number> {

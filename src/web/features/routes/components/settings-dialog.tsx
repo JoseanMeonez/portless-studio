@@ -6,17 +6,26 @@ import { Switch } from "../../../shared/ui/switch.tsx";
 import { TagInput } from "../../../shared/ui/tag-input.tsx";
 import { TextField } from "../../../shared/ui/text-field.tsx";
 import type { SettingsForm } from "../hooks/use-settings-form.ts";
+import { ProjectIconsField } from "./project-icons-field.tsx";
 import styles from "./settings-dialog.module.css";
 
 type SettingsDialogProps = {
   form: SettingsForm;
+  /** Projects on the dashboard, offered in the icon settings. */
+  projects: readonly string[];
   onCopyPath: (path: string) => void;
   onClose: () => void;
 };
 
 /** Every Studio setting, the same ones the JSON config file holds. */
-export function SettingsDialog({ form, onCopyPath, onClose }: SettingsDialogProps) {
+export function SettingsDialog({ form, projects, onCopyPath, onClose }: SettingsDialogProps) {
   const { load, draft, errors } = form;
+  // Projects with an icon stay listed even when none of their servers runs now.
+  const iconProjects = draft
+    ? [...new Set([...projects, ...Object.keys(draft.projectIcons)])].sort((a, b) =>
+        a.localeCompare(b),
+      )
+    : [];
   return (
     <Dialog
       title="Settings"
@@ -171,6 +180,16 @@ export function SettingsDialog({ form, onCopyPath, onClose }: SettingsDialogProp
               hint="Editors, browsers and chat apps that listen on ports but are not dev servers."
               onAdd={form.addIgnoredProcess}
               onRemove={form.removeIgnoredProcess}
+            />
+          </fieldset>
+
+          <fieldset className={styles.group}>
+            <legend className={styles.legend}>Project icons</legend>
+            <ProjectIconsField
+              projects={iconProjects}
+              icons={draft.projectIcons}
+              error={errors.projectIcons ?? null}
+              onChange={form.setProjectIcon}
             />
           </fieldset>
 

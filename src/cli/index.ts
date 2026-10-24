@@ -7,7 +7,12 @@ import { API_PATHS, type Snapshot } from "../core/api/contract.ts";
 import { DEFAULT_CONFIG, type StudioConfig } from "../core/config/studio-config.ts";
 import type { Result } from "../core/result.ts";
 import type { ConfigStore } from "../server/application/config-store.ts";
-import { createStudioServices, type RunningServer, startServer } from "../server/main.ts";
+import {
+  createStudioServices,
+  createUninstallServices,
+  type RunningServer,
+  startServer,
+} from "../server/main.ts";
 import {
   type CliOptions,
   HELP,
@@ -40,6 +45,7 @@ import {
   unregisterStudioAlias,
 } from "./studio-alias.ts";
 import { createStudioServiceControl } from "./studio-service-control.ts";
+import { removeStudioFiles, runUninstall } from "./uninstall.ts";
 
 const print = (line: string) => console.log(line);
 
@@ -59,6 +65,9 @@ async function main(): Promise<void> {
       return;
     case "init":
       await init(options.yes);
+      return;
+    case "uninstall":
+      await uninstall(options.yes);
       return;
     case "service":
       await service(options.action);
@@ -217,6 +226,41 @@ async function init(yes: boolean): Promise<void> {
     prompter.close();
   }
   // The services may hold timers or watchers; init is done once the summary is printed.
+  process.exit(0);
+}
+
+async function uninstall(yes: boolean): Promise<void> {
+  const env = await serviceEnv();
+  if (!env.ok) {
+    console.error(`Error: ${env.error}`);
+    process.exit(1);
+  }
+  const { registry } = createStudioServices();
+  const files = createUninstallServices();
+  const prompter = yes
+    ? createDefaultsPrompter(print)
+    : createTerminalPrompter(process.stdin, process.stdout);
+  try {
+    await runUninstall({
+      registry,
+      autoNamed: files.autoNamed,
+      prompter,
+      print,
+      homeDir: os.homedir(),
+      configDir: files.configDir,
+      configExists: files.configExists,
+      service: {
+        status: () => serviceStatus(env.value),
+        uninstall: () => uninstallService(env.value),
+      },
+      proxyRecord: files.proxyRecord,
+      forgetProxyRecord: files.forgetProxyRecord,
+      ownerOf: files.ownerOf,
+      removeConfig: async () => removeStudioFiles(files.configDir, files.studioFiles),
+    });
+  } finally {
+    prompter.close();
+  }
   process.exit(0);
 }
 

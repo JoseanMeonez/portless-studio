@@ -37,6 +37,19 @@ describe("parseCliArgs", () => {
     expect(parseCliArgs(["doctor", "--port", "1"])).toMatchObject({ ok: false });
   });
 
+  it("reads uninstall and its --yes flag, and lists it in the help", () => {
+    expect(parseCliArgs(["uninstall"])).toEqual({
+      ok: true,
+      value: { command: "uninstall", yes: false },
+    });
+    expect(parseCliArgs(["uninstall", "-y"])).toEqual({
+      ok: true,
+      value: { command: "uninstall", yes: true },
+    });
+    expect(parseCliArgs(["uninstall", "--json"])).toMatchObject({ ok: false });
+    expect(HELP).toContain("portless-studio uninstall [--yes]");
+  });
+
   it("reads init and its --yes flag", () => {
     expect(parseCliArgs(["init"])).toEqual({ ok: true, value: { command: "init", yes: false } });
     expect(parseCliArgs(["init", "--yes"])).toEqual({

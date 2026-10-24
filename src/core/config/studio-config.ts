@@ -1,3 +1,4 @@
+import { projectIconKind } from "../projects/project-icon.ts";
 import { err, ok, type Result } from "../result.ts";
 import { DEFAULT_VIEW, isItemKey, parseViews, type View } from "../views/view.ts";
 
@@ -44,6 +45,11 @@ export type StudioConfig = {
   desktopNotifications: boolean;
   /** Ask the operating system to notify when no Studio tab is open. */
   systemNotifications: boolean;
+  /**
+   * Icon per project name (the repository folder): an emoji, an http(s) URL Studio fetches and
+   * inlines, or a `data:image` URL. Projects without one show their server's favicon.
+   */
+  projectIcons: Record<string, string>;
 };
 
 export const DEFAULT_CONFIG: StudioConfig = {
@@ -63,6 +69,7 @@ export const DEFAULT_CONFIG: StudioConfig = {
   autoRemoveAfterMinutes: 10,
   desktopNotifications: false,
   systemNotifications: false,
+  projectIcons: {},
 };
 
 const MIN_SCAN_INTERVAL_MS = 1000;
@@ -159,7 +166,32 @@ export function parseConfig(input: unknown): Result<StudioConfig, string> {
     config.favorites = [...new Set(value)];
   }
 
+  if (raw.projectIcons !== undefined) {
+    const icons = parseProjectIcons(raw.projectIcons);
+    if (icons === null) {
+      return err(
+        `"projectIcons" must map project names to an emoji, an http(s) URL or a data:image URL.`,
+      );
+    }
+    config.projectIcons = icons;
+  }
+
   return ok(config);
+}
+
+/** Empty names and values are dropped, so clearing a field in the panel removes its icon. */
+function parseProjectIcons(value: unknown): Record<string, string> | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+  const icons: Record<string, string> = {};
+  for (const [rawName, rawIcon] of Object.entries(value)) {
+    if (typeof rawIcon !== "string") return null;
+    const name = rawName.trim();
+    const icon = rawIcon.trim();
+    if (name === "" || name === "__proto__" || icon === "") continue;
+    if (projectIconKind(icon) === null) return null;
+    icons[name] = icon;
+  }
+  return icons;
 }
 
 function isPort(value: unknown): value is number {

@@ -32,6 +32,8 @@ export type Route = {
    * project or cannot be read; absent from servers older than this field.
    */
   project?: ItemProject | null;
+  /** Emoji or `data:image` URL; absent when unknown, so the page draws a monogram. */
+  icon?: string;
 };
 
 /** The repository (or package) a server runs from, and its linked git worktree if any. */

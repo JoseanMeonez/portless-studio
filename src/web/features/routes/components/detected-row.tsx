@@ -2,6 +2,7 @@ import type { DetectedPort } from "../../../../core/ports/detected-port.ts";
 import { shortenPath } from "../../../shared/lib/shorten-path.ts";
 import { Button } from "../../../shared/ui/button.tsx";
 import { Icon } from "../../../shared/ui/icons/icon.tsx";
+import { ItemIcon } from "../../../shared/ui/item-icon.tsx";
 import styles from "./detected-row.module.css";
 
 type DetectedRowProps = {
@@ -32,13 +33,19 @@ export function DetectedRow({
       <span className={styles.port}>:{port}</span>
 
       <div className={styles.info}>
-        {suggestedName ? (
-          <span className={styles.suggestion} title="Suggested name">
-            {suggestedName}
-          </span>
-        ) : (
-          <span className={styles.noSuggestion}>No name suggested</span>
-        )}
+        <span className={styles.titleLine}>
+          <ItemIcon
+            icon={detected.icon}
+            name={detected.project?.name ?? suggestedName ?? processName}
+          />
+          {suggestedName ? (
+            <span className={styles.suggestion} title="Suggested name">
+              {suggestedName}
+            </span>
+          ) : (
+            <span className={styles.noSuggestion}>No name suggested</span>
+          )}
+        </span>
         <span className={styles.process}>
           <span className={styles.processName}>{processName}</span>
           {cwd ? (

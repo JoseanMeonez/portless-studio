@@ -13,6 +13,8 @@ export type DetectedPort = {
   suggestedName: string | null;
   /** Project the process runs in; `null` when unknown, absent from older servers. */
   project?: ItemProject | null;
+  /** Emoji or `data:image` URL; absent when unknown, so the page draws a monogram. */
+  icon?: string;
 };
 
 /** What we know about the project a process runs in, read from its folder. */
@@ -31,25 +33,47 @@ export type ProjectInfo = {
   worktreeName: string | null;
   /** Folder of the git root, or of the package.json when there is no git. */
   rootDir?: string | null;
+  /** Checked-out git branch, e.g. `feat/ED-1234-add-x`; null on a detached HEAD or outside git. */
+  branch?: string | null;
 };
+
+const DEFAULT_BRANCHES = new Set(["main", "master", "develop", "trunk"]);
+// A ticket key like `ED-1234` or `run-51`, standing alone between separators.
+const TICKET_KEY = /(?:^|[^A-Za-z0-9])([A-Za-z]{2,10}-\d+)(?![A-Za-z0-9])/;
+const REPO_SUFFIX = /-(?:monorepo|mono|repo)$/;
 
 /**
  * Suggests a route name the way portless names monorepo packages: `<package>.<project>`, e.g.
  * `web.acme-monorepo`. Scopes are dropped (`@acme/web` -> `web`) and a package named like its
- * repository gets the plain repository name. A linked worktree adds its folder as a prefix:
+ * repository gets the plain repository name.
+ *
+ * The prefix says what the work is, so two checkouts of one app get different names: a ticket key
+ * in the branch (`feat/ED-1234-add-x` -> `ed-1234.web.acme`), else the branch's last segment
+ * (`feat/dark-mode` -> `dark-mode.web.acme`), with the repository's `-monorepo` or `-repo` suffix
+ * dropped. On a default branch or a detached HEAD, a linked worktree adds its folder instead:
  * `falcon.web.acme-monorepo`.
  */
 export function suggestName(info: ProjectInfo): string | null {
+  const work = workLabel(info.branch ?? null);
   const pkg = slug(info.packageName?.replace(/^@[^/]+\//, "") ?? null);
-  const repo = slug(info.repoName);
+  const fullRepo = slug(info.repoName);
+  const repo = work && fullRepo ? fullRepo.replace(REPO_SUFFIX, "") || fullRepo : fullRepo;
   const folder = slug(info.folderName);
 
   const candidate =
     pkg && repo ? (pkg === repo ? repo : `${pkg}.${repo}`) : (pkg ?? repo ?? folder ?? null);
   if (candidate === null) return null;
-  const worktree = slug(info.worktreeName);
-  const parsed = parseRouteName(worktree ? `${worktree}.${candidate}` : candidate);
+  const prefix = work ?? slug(info.worktreeName);
+  const parsed = parseRouteName(prefix ? `${prefix}.${candidate}` : candidate);
   return parsed.ok ? parsed.value : null;
+}
+
+/** The ticket key or the branch slug, or null for a default branch or no branch. */
+function workLabel(branch: string | null): string | null {
+  if (branch === null || DEFAULT_BRANCHES.has(branch)) return null;
+  const ticket = TICKET_KEY.exec(branch)?.[1];
+  if (ticket) return ticket.toLowerCase();
+  return slug(branch.split("/").pop() ?? null);
 }
 
 function slug(value: string | null): string | null {

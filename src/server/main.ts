@@ -1,13 +1,17 @@
 import { randomBytes } from "node:crypto";
+import * as fs from "node:fs";
 import type { AddressInfo } from "node:net";
 import * as os from "node:os";
+import * as path from "node:path";
 import type { ProxyAction } from "../core/api/contract.ts";
 import type { DetectedPort } from "../core/ports/detected-port.ts";
 import type { Result } from "../core/result.ts";
 import type { AppError } from "./application/app-error.ts";
+import type { AutoNamedStore } from "./application/auto-named-store.ts";
 import type { ConfigStore } from "./application/config-store.ts";
 import { createDoctorService, type DoctorService } from "./application/doctor.ts";
 import type { PortScanner } from "./application/port-scanner.ts";
+import type { ProcessOwner } from "./application/process-control.ts";
 import { controlProxy } from "./application/proxy-control.ts";
 import type { RouteRegistry } from "./application/route-registry.ts";
 import { stopProcess } from "./application/stop-process.ts";
@@ -18,9 +22,16 @@ import {
   JsonAutoNamedStore,
 } from "./infrastructure/config/json-auto-named-store.ts";
 import { defaultConfigPath, JsonConfigStore } from "./infrastructure/config/json-config-store.ts";
+import {
+  type ProxyStartRecord,
+  proxyStartRecordPathFor,
+  readProxyStartRecord,
+  recordProxyStarts,
+} from "./infrastructure/config/proxy-start-record.ts";
 import { PortlessRegistry } from "./infrastructure/portless/portless-registry.ts";
 import { resolveStateDir } from "./infrastructure/portless/state-files.ts";
 import { collectDoctorFacts, proxyPidsAmong } from "./infrastructure/system/doctor-facts.ts";
+import { FaviconFetcher } from "./infrastructure/system/favicon-fetcher.ts";
 import { OsNotifier } from "./infrastructure/system/os-notifier.ts";
 import { ProjectInfoReader } from "./infrastructure/system/project-info.ts";
 import { nodeSystemIo } from "./infrastructure/system/system-io.ts";
@@ -72,13 +83,15 @@ const runtimes = new WeakMap<StudioServices, StudioRuntime>();
 
 export function createStudioServices(options: StudioServicesOptions = {}): StudioServices {
   const stateDir = options.stateDir ?? resolveStateDir();
-  const registry = new PortlessRegistry({
+  const configPath = options.configPath ?? defaultConfigPath();
+  const portless = new PortlessRegistry({
     stateDir,
     bin: options.portlessBin ?? (process.env.PORTLESS_BIN || "portless"),
     ...(options.npmBin === undefined ? {} : { npmBin: options.npmBin }),
   });
+  // Every proxy Studio starts is written down, so `uninstall` stops only Studio's own.
+  const registry = recordProxyStarts(portless, proxyStartRecordPathFor(configPath));
   const scanner = createPortScanner();
-  const configPath = options.configPath ?? defaultConfigPath();
   const configStore = new JsonConfigStore(configPath);
   const notifier = new OsNotifier({ platform: process.platform });
   const runtime = new StudioRuntime({
@@ -91,6 +104,7 @@ export function createStudioServices(options: StudioServicesOptions = {}): Studi
     proxyPids: (pids) => proxyPidsAmong(process.platform, nodeSystemIo, pids),
     autoNamedStore: new JsonAutoNamedStore(autoNamedPathFor(configPath)),
     notifier,
+    icons: new FaviconFetcher(),
   });
   const uid = typeof process.getuid === "function" ? process.getuid() : null;
   const processes = new SystemProcessControl({
@@ -138,6 +152,38 @@ export function createStudioServices(options: StudioServicesOptions = {}): Studi
   };
   runtimes.set(services, runtime);
   return services;
+}
+
+/** What `uninstall` needs besides the registry: Studio's own files and who runs a process. */
+export type UninstallServices = {
+  configDir: string;
+  configExists: boolean;
+  /** File names in `configDir` that Studio writes. */
+  studioFiles: string[];
+  autoNamed: AutoNamedStore;
+  proxyRecord: ProxyStartRecord | null;
+  forgetProxyRecord: () => void;
+  ownerOf: (pid: number) => Promise<ProcessOwner>;
+};
+
+export function createUninstallServices(configPath = defaultConfigPath()): UninstallServices {
+  const autoNamedPath = autoNamedPathFor(configPath);
+  const recordPath = proxyStartRecordPathFor(configPath);
+  const processes = new SystemProcessControl({
+    platform: process.platform,
+    io: nodeSystemIo,
+    uid: typeof process.getuid === "function" ? process.getuid() : null,
+    userName: os.userInfo().username,
+  });
+  return {
+    configDir: path.dirname(configPath),
+    configExists: [configPath, autoNamedPath, recordPath].some((file) => fs.existsSync(file)),
+    studioFiles: [configPath, autoNamedPath, recordPath].map((file) => path.basename(file)),
+    autoNamed: new JsonAutoNamedStore(autoNamedPath),
+    proxyRecord: readProxyStartRecord(recordPath),
+    forgetProxyRecord: () => fs.rmSync(recordPath, { force: true }),
+    ownerOf: (pid) => processes.ownerOf(pid),
+  };
 }
 
 export type ServerOptions = {

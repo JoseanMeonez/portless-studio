@@ -1,12 +1,15 @@
 import type { Route } from "../../../../core/routes/route.ts";
 import { Button } from "../../../shared/ui/button.tsx";
 import { Icon } from "../../../shared/ui/icons/icon.tsx";
+import { ItemIcon } from "../../../shared/ui/item-icon.tsx";
 import { StatusDot } from "../../../shared/ui/status-dot.tsx";
 import styles from "./group-header.module.css";
 
 type GroupHeaderProps = {
   label: string;
   routes: readonly Route[];
+  /** Set when every route in the group belongs to one project. */
+  project?: { name: string; icon: string | undefined } | undefined;
   collapsed: boolean;
   /** Id of the list the header opens and closes. */
   controls: string;
@@ -20,6 +23,7 @@ type GroupHeaderProps = {
 export function GroupHeader({
   label,
   routes,
+  project,
   collapsed,
   controls,
   onToggle,
@@ -53,6 +57,7 @@ export function GroupHeader({
             size={14}
             className={collapsed ? `${styles.chevron} ${styles.closed}` : styles.chevron}
           />
+          {project ? <ItemIcon icon={project.icon} name={project.name} size="sm" /> : null}
           <span className={styles.label}>{label}</span>
           <span className={styles.count}>{routes.length}</span>
         </button>

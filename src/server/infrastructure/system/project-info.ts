@@ -4,8 +4,10 @@ import * as path from "node:path";
 import type { ProjectInfo } from "../../../core/ports/detected-port.ts";
 import type { ProjectInfoSource } from "../../application/port-discovery.ts";
 
-// `.git` of a linked worktree is a file: `gitdir: /code/ave/.git/worktrees/falcon`.
-const WORKTREE_GITDIR = /^gitdir:\s*(.+?)[\\/]\.git[\\/]worktrees[\\/][^\\/]+\s*$/m;
+// `.git` of a linked worktree is a file: `gitdir: /code/acme/.git/worktrees/falcon`.
+const GITDIR_LINE = /^gitdir:\s*(.+?)\s*$/m;
+const WORKTREE_GITDIR = /^(.+?)[\\/]\.git[\\/]worktrees[\\/][^\\/]+$/;
+const BRANCH_REF = /^ref:\s*refs\/heads\/(.+?)\s*$/;
 
 /**
  * Reads what a folder belongs to: the nearest package.json and the git repository. The walk stops
@@ -14,21 +16,25 @@ const WORKTREE_GITDIR = /^gitdir:\s*(.+?)[\\/]\.git[\\/]worktrees[\\/][^\\/]+\s*
  */
 export class ProjectInfoReader implements ProjectInfoSource {
   readonly #home: string;
-  readonly #cache = new Map<string, ProjectInfo>();
+  readonly #cache = new Map<string, { info: ProjectInfo; gitDir: string | null }>();
 
   constructor(home: string = os.homedir()) {
     this.#home = path.resolve(home);
   }
 
+  /** The folder walk is cached per folder; the branch is read again each time, it is one file. */
   read(cwd: string): ProjectInfo {
-    const cached = this.#cache.get(cwd);
-    if (cached) return cached;
-    const info = this.#inspect(path.resolve(cwd));
-    this.#cache.set(cwd, info);
-    return info;
+    let cached = this.#cache.get(cwd);
+    if (!cached) {
+      cached = this.#inspect(path.resolve(cwd));
+      this.#cache.set(cwd, cached);
+    }
+    const branch = cached.gitDir === null ? null : readBranch(cached.gitDir);
+    return { ...cached.info, branch };
   }
 
-  #inspect(cwd: string): ProjectInfo {
+  #inspect(cwd: string): { info: ProjectInfo; gitDir: string | null } {
+    let gitDir: string | null = null;
     const info: ProjectInfo = {
       packageName: null,
       repoName: null,
@@ -44,12 +50,13 @@ export class ProjectInfoReader implements ProjectInfoSource {
         info.rootDir = dir;
       }
       const git = gitKind(dir);
-      if (git === "repository") {
+      if (git !== null) gitDir = git.gitDir;
+      if (git?.mainRepo === null) {
         info.repoName = path.basename(dir);
         info.rootDir = dir;
         break;
       }
-      if (git !== null) {
+      if (git !== null && git.mainRepo !== null) {
         info.repoName = path.basename(git.mainRepo);
         info.worktreeName = path.basename(dir);
         info.rootDir = dir;
@@ -59,7 +66,7 @@ export class ProjectInfoReader implements ProjectInfoSource {
       if (parent === dir) break;
       dir = parent;
     }
-    return info;
+    return { info, gitDir };
   }
 }
 
@@ -73,14 +80,29 @@ function readPackageName(dir: string): string | null {
   }
 }
 
-function gitKind(dir: string): "repository" | { mainRepo: string } | null {
+/**
+ * Whether a folder is a git root: its git directory, and the main repository folder when it is a
+ * linked worktree (`mainRepo` is null for a plain repository).
+ */
+function gitKind(dir: string): { gitDir: string; mainRepo: string | null } | null {
   const gitPath = path.join(dir, ".git");
   try {
     const stat = fs.statSync(gitPath);
-    if (stat.isDirectory()) return "repository";
-    const match = WORKTREE_GITDIR.exec(fs.readFileSync(gitPath, "utf8"));
+    if (stat.isDirectory()) return { gitDir: gitPath, mainRepo: null };
+    const line = GITDIR_LINE.exec(fs.readFileSync(gitPath, "utf8"))?.[1];
+    if (!line) return { gitDir: gitPath, mainRepo: null };
+    const gitDir = path.resolve(dir, line);
     // A `.git` file that is not a worktree link (a submodule) still marks a repository root.
-    return match?.[1] ? { mainRepo: match[1] } : "repository";
+    return { gitDir, mainRepo: WORKTREE_GITDIR.exec(line)?.[1] ?? null };
+  } catch {
+    return null;
+  }
+}
+
+/** The branch `HEAD` points at, read from the file so no `git` process starts. */
+function readBranch(gitDir: string): string | null {
+  try {
+    return BRANCH_REF.exec(fs.readFileSync(path.join(gitDir, "HEAD"), "utf8"))?.[1] ?? null;
   } catch {
     return null;
   }

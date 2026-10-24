@@ -102,6 +102,9 @@ http://web.myapp.localhost:1355. Use the `portless-studio` MCP tools for them:
 - After starting a dev server, call `list_detected_ports` and name it with `name_port`, using
   the suggested name unless I asked for another one. Name ports through these tools, never by
   editing portless files, so the Studio dashboard updates at once.
+- Make every name say what the work is: start it with the ticket key, PR number or a short task
+  name, e.g. `ed-1234.web.myapp` or `pr-87.web.myapp`, so two worktrees of the same repository
+  are told apart. Rename a generic name with `rename_route`.
 - To find which ports a git worktree uses, call `list_routes` and `list_detected_ports` and
   filter by the `worktree` field.
 - Give me the route URL, not `localhost:<port>`.

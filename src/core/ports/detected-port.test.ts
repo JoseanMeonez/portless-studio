@@ -5,7 +5,8 @@ const info = (
   repoName: string | null,
   folderName: string | null = null,
   worktreeName: string | null = null,
-) => ({ packageName, repoName, folderName, worktreeName });
+  branch: string | null = null,
+) => ({ packageName, repoName, folderName, worktreeName, branch });
 
 describe("suggestName", () => {
   it("joins the package and the repository", () => {
@@ -26,6 +27,35 @@ describe("suggestName", () => {
     expect(suggestName(info("app", null))).toBe("app");
     expect(suggestName(info(null, "shop-admin"))).toBe("shop-admin");
     expect(suggestName(info(null, null, "My Project"))).toBe("my-project");
+  });
+
+  it("puts a ticket key from the branch first and shortens the repository", () => {
+    expect(suggestName(info("@acme/web", "acme-monorepo", "web", null, "feat/ED-1234-add-x"))).toBe(
+      "ed-1234.web.acme",
+    );
+    expect(suggestName(info("shop-admin", "shop-admin-repo", null, "falcon", "dev/run-51"))).toBe(
+      "run-51.shop-admin",
+    );
+  });
+
+  it("uses the last segment of a branch without a ticket key", () => {
+    expect(suggestName(info("@acme/web", "acme-monorepo", "web", "falcon", "feat/Dark_Mode"))).toBe(
+      "dark-mode.web.acme",
+    );
+  });
+
+  it("keeps the old name on the default branch or a detached HEAD", () => {
+    for (const branch of ["main", "master", "develop", null]) {
+      expect(suggestName(info("@acme/web", "acme-monorepo", "web", "falcon", branch))).toBe(
+        "falcon.web.acme-monorepo",
+      );
+    }
+  });
+
+  it("keeps every label of a long branch name under 63 characters", () => {
+    const name = suggestName(info("web", "acme", null, null, `feat/${"x".repeat(120)}`));
+    expect(name).not.toBeNull();
+    for (const label of name?.split(".") ?? []) expect(label.length).toBeLessThanOrEqual(63);
   });
 
   it("returns null when nothing usable is known", () => {

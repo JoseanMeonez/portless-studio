@@ -3,6 +3,7 @@ import { formatUptime } from "../../../shared/lib/format-uptime.ts";
 import { Badge } from "../../../shared/ui/badge.tsx";
 import { Button } from "../../../shared/ui/button.tsx";
 import { Icon } from "../../../shared/ui/icons/icon.tsx";
+import { ItemIcon } from "../../../shared/ui/item-icon.tsx";
 import { RouteHealthDot } from "./route-health-dot.tsx";
 import styles from "./route-row.module.css";
 import { TunnelLinks } from "./tunnel-links.tsx";
@@ -62,6 +63,7 @@ export function RouteRow({
 
       <div className={styles.identity}>
         <span className={styles.nameLine}>
+          <ItemIcon icon={route.icon} name={route.project?.name ?? route.name} />
           <a
             href={route.url}
             target="_blank"

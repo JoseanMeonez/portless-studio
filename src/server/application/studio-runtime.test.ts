@@ -5,6 +5,7 @@ import type { Route } from "../../core/routes/route.ts";
 import { type AppError, appError } from "./app-error.ts";
 import type { AutoNamedEntry, AutoNamedStore } from "./auto-named-store.ts";
 import type { ConfigStore } from "./config-store.ts";
+import type { IconFetcher } from "./icon-resolver.ts";
 import type { ProjectInfoSource } from "./port-discovery.ts";
 import type { HttpProbe, ListeningPort, PortScanner, ProbePort } from "./port-scanner.ts";
 import type { PortlessState, RouteRegistry } from "./route-registry.ts";
@@ -155,6 +156,7 @@ function build(
     proxyPids?: (pids: number[]) => Promise<ReadonlySet<number>>;
     autoNamed?: ReturnType<typeof memoryAutoNamed>;
     notifier?: SystemNotifier;
+    icons?: IconFetcher;
   } = {},
 ) {
   const store = options.store ?? memoryStore();
@@ -174,6 +176,7 @@ function build(
     ...(options.now ? { now: options.now } : {}),
     ...(options.proxyPids ? { proxyPids: options.proxyPids } : {}),
     ...(options.notifier ? { notifier: options.notifier } : {}),
+    ...(options.icons ? { icons: options.icons } : {}),
   });
   return { runtime, store, scanner, fake, lines, autoNamed };
 }
@@ -659,5 +662,54 @@ describe("StudioRuntime system notifications", () => {
     await vi.waitFor(() => expect(quiet.fake.created).toEqual(["app 5173"]));
     await sleep(40);
     expect(off.sent).toEqual([]);
+  });
+});
+
+describe("StudioRuntime icons", () => {
+  const PNG = "data:image/png;base64,AAAA";
+  const SVG = "data:image/svg+xml;base64,BBBB";
+  const repoProjects: ProjectInfoSource = {
+    read: (cwd) => ({
+      packageName: null,
+      repoName: cwd.split("/").pop() ?? null,
+      folderName: null,
+      worktreeName: null,
+      rootDir: cwd,
+    }),
+  };
+
+  function buildWithIcons(store = memoryStore()) {
+    let served: string | null = null;
+    const icons: IconFetcher = {
+      served: async () => served,
+      remote: async () => null,
+      inFolder: (rootDir) => (rootDir === "/code/app" ? SVG : null),
+    };
+    const built = build({ projects: repoProjects, icons, store });
+    return { ...built, serve: (icon: string) => (served = icon) };
+  }
+
+  it("gives detected ports and routes the folder icon, then the served favicon", async () => {
+    const { runtime, fake, serve } = buildWithIcons();
+    serve(PNG);
+    const first = await runtime.readSnapshot();
+    expect(first.detected[0]?.icon).toBe(SVG);
+    const changed = vi.fn();
+    runtime.watch(changed);
+    await vi.waitFor(async () => {
+      expect((await runtime.readSnapshot()).detected[0]?.icon).toBe(PNG);
+    });
+    await fake.registry.createAlias("app", 5173, false);
+    const snapshot = await runtime.readSnapshot();
+    expect(snapshot.routes[0]?.icon).toBe(PNG);
+    expect(snapshot.projectIcons).toEqual({ app: PNG });
+  });
+
+  it("prefers the icon set for the project in the config", async () => {
+    const { runtime } = buildWithIcons(memoryStore({ ...FAST, projectIcons: { app: "🦊" } }));
+    await runtime.updateConfig({ ...FAST, projectIcons: { app: "🦊" } });
+    const snapshot = await runtime.readSnapshot();
+    expect(snapshot.detected[0]?.icon).toBe("🦊");
+    expect(snapshot.projectIcons).toEqual({ app: "🦊" });
   });
 });

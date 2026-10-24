@@ -90,6 +90,11 @@ export type Snapshot = {
   detected: DetectedPort[];
   /** Whether auto mode is on, so the UI can say so without fetching the config. */
   autoName: boolean;
+  /**
+   * Icon per project name, for group headers: the one set in the config, else the first icon one
+   * of its servers has. Absent from older servers.
+   */
+  projectIcons?: Record<string, string>;
   /** Epoch milliseconds when the server read this state. */
   readAt: number;
 };

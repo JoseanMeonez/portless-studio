@@ -33,6 +33,7 @@ every `*.localhost` name to your own machine by themselves, with no hosts file a
 | --- | --- |
 | `portless-studio` | Starts Studio with the settings from the config file. |
 | `portless-studio init [--yes]` | The setup above. Safe to run again. |
+| `portless-studio uninstall [--yes]` | Undoes the setup: stops and removes the login service, removes the names auto mode gave and the `studio` name, and stops the proxy if Studio started it as you. Names you or an agent gave stay. Asks separately before deleting the settings folder (default no). |
 | `portless-studio service install` | Starts Studio when you log in: a systemd user unit on Linux, a LaunchAgent on macOS, a script in the Startup folder on Windows. |
 | `portless-studio service uninstall` | Undoes `service install`. |
 | `portless-studio service status` | Says whether the login service is installed and running. |
@@ -60,6 +61,7 @@ restart. Missing fields take their default.
 | `views` | one view, `All`, grouped by project | Saved views. Each has an `id`, a `name`, `groupBy` (`none`, `project`, `worktree`, `kind`, `status` or `custom`), `sort` (`by`: `name`, `port`, `newest` or `status`; `direction`: `asc` or `desc`), `filters` (`kinds`, `projects`, `statuses`) and, for custom grouping, `customGroups` (`id`, `name`, `members`). |
 | `defaultViewId` | `"all"` | The view the page opens with. |
 | `favorites` | `[]` | Routes pinned above every group, by name or as `"port:3000"`. |
+| `projectIcons` | `{}` | Icon per project name, e.g. `{ "acme": "🦊" }`: an emoji, an http(s) image URL (Studio downloads it and inlines it) or a `data:image` URL. |
 
 The `--port`, `--no-open` and `--no-register` flags win over the file for one run.
 
@@ -77,6 +79,12 @@ several projects you have to remember which names exist. portless studio shows t
   yourself ("Move to group…" on a row). Sort by name, port, newest or status, and filter with the
   chips for kind, status and project. Save any combination as a named view, switch views with
   `v` and pick the one that opens by default. Views and favorites live in the config file.
+- **Names that say what the work is:** a suggested name starts with the ticket key in the git
+  branch (`feat/ED-1234-add-x` gives `ed-1234.web.acme`) or the branch name, so two worktrees of
+  one repository are told apart.
+- **Project icons:** each row and project group shows the favicon its server serves, else a
+  favicon in the project folder (`public/favicon.svg`, `app/icon.png`, `static/favicon.ico`), else
+  the project's initials. Set an emoji or an image per project in Settings.
 - **Favorites:** the star on a row, or `f`, pins it above every group in every view.
 - **Remembered state:** the view, search, filters and sort sit in the page URL, so a reload, a
   bookmark or the Back button keeps them. Closed groups and the selected row are remembered in

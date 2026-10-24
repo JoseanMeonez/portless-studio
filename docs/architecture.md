@@ -89,6 +89,17 @@ the proxy's when portless recorded it in `proxy.port`, or when the process liste
 command line of just the listening pids: `/proc` on Linux, `ps -p` on macOS; Windows relies on
 `proxy.port` only).
 
+### Suggested names
+
+`suggestName` (`core/ports/detected-port.ts`) builds `<package>.<repo>` from the folder, and puts
+in front of it what the work is, so two worktrees of one repository get different names. It reads
+the branch from `.git/HEAD`, or from the `HEAD` in the gitdir a linked worktree's `.git` file points
+at, without starting `git`. A ticket key in the branch wins (`feat/ED-1234-add-x` gives
+`ed-1234.web.acme`), else the branch's last segment (`feat/dark-mode` gives `dark-mode.web.acme`),
+and the repository drops a `-monorepo` or `-repo` suffix. On `main`, `master`, `develop` or a
+detached HEAD, a linked worktree's folder is the prefix instead (`falcon.web.acme-monorepo`).
+`ProjectInfoReader` caches the folder walk but reads the branch on every scan.
+
 ### Names auto mode gives back
 
 Auto mode records each name it gives in `auto-named.json`, next to the config file, as
@@ -108,6 +119,23 @@ worktree) that process runs in, read with `ProjectInfoSource` from its folder; a
 last HTTP probe of that port (`up` below 500, `error` for 5xx, `down` when nothing answers).
 Detected ports carry `project` too. Routes are probed on the scan loop only while a browser
 watches.
+
+## Project icons
+
+`application/icon-resolver.ts` picks each route's and detected port's `icon`, in this order: the
+project's entry in `projectIcons` from the config; the favicon the server on that port serves; a
+favicon in the project folder. With none, the page draws the project's initials on a color made
+from its name (`web/shared/lib/monogram.ts`). The snapshot also carries `projectIcons`, one icon
+per project name, for group headers.
+
+The `IconFetcher` port has a default implementation in
+`infrastructure/system/favicon-fetcher.ts`. It asks `127.0.0.1:<port>` for `/favicon.ico`, then
+reads the `<link rel="icon">` of `/` and follows it only on the same server; it reads
+`public/favicon.*`, `app/icon.*`, `src/app/icon.*` and `static/favicon.*` from the folder; and it
+downloads http(s) URLs set in the config. Every answer must be an image of 64 KB or less and is
+returned as a `data:` URL, because the page's Content-Security-Policy only allows `data:` images:
+the browser never loads an icon from another origin. Fetches run in the background, once per URL
+and per port and pid; when one finds an icon, watchers get a new snapshot.
 
 ## Views and shortcuts
 
@@ -183,6 +211,17 @@ port and belongs to the current user.
 On the web side, `RoutesGateway` also has `getConfig()`, `updateConfig(config)`,
 `ignoreDetected(port)`, `getDoctor()`, `runDoctorFix(id)`, `controlProxy(action)`,
 `controlStudio(action)` and `stopProcess(pid)`.
+
+## Uninstall
+
+`portless-studio uninstall` (`cli/uninstall.ts`) lists what it will undo and asks once: remove
+the login service, the names in `auto-named.json` that still point at their port, and the
+`studio` alias, then stop the proxy. It stops the proxy only when its pid matches
+`proxy-started.json` and it runs as the current user. That file sits next to the config, and
+`recordProxyStarts` (`infrastructure/config/proxy-start-record.ts`) writes it each time Studio
+starts the proxy, at launch, in `init` or from the page. Deleting the settings is a separate
+question that defaults to no; it removes only the files Studio writes, and the folder once it is
+empty.
 
 ## Security
 

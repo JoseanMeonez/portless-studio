@@ -43,6 +43,15 @@ describe("detected ports", () => {
     );
   });
 
+  it("shows the icon the server found for a detected port", async () => {
+    const icon = "data:image/svg+xml;base64,PHN2Zy8+";
+    const sample = createSampleSnapshot(NOW);
+    setup({ ...sample, detected: sample.detected.map((item) => ({ ...item, icon })) });
+
+    const row = within(await detectedList()).getAllByRole("listitem")[0];
+    expect(row?.querySelector("img")?.getAttribute("src")).toBe(icon);
+  });
+
   it("hides the section when nothing is detected", async () => {
     setup({ ...createSampleSnapshot(NOW), detected: [] });
 

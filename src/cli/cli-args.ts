@@ -15,6 +15,7 @@ export type CliOptions =
   | { command: "version" }
   | { command: "start"; overrides: StartOverrides }
   | { command: "init"; yes: boolean }
+  | { command: "uninstall"; yes: boolean }
   | { command: "service"; action: ServiceAction }
   | { command: "config"; edit: boolean; json: boolean }
   | { command: "doctor"; json: boolean }
@@ -28,6 +29,8 @@ export const HELP = `portless-studio: a local web dashboard for portless routes
 Usage:
   portless-studio [options]           Start Studio
   portless-studio init [--yes]        Set everything up: portless, settings, names, proxy
+  portless-studio uninstall [--yes]   Undo the setup: login service, names Studio gave, the
+                                      proxy it started; asks before deleting the settings
   portless-studio service install     Start Studio when you log in
   portless-studio service uninstall   Stop starting Studio when you log in
   portless-studio service status      Say whether the login service is installed and running
@@ -44,7 +47,7 @@ Options:
                    0 picks a free one)
   --no-open        Do not open the browser
   --no-register    Do not register the "studio" portless alias for the dashboard
-  -y, --yes        With init: accept every default without asking
+  -y, --yes        With init and uninstall: accept every default without asking
   --json           With doctor, config and list: print JSON for scripts and agents
   -h, --help       Show this help
   -v, --version    Show the version
@@ -56,7 +59,7 @@ Environment:
   PORTLESS_STUDIO_URL  Studio that \`mcp\` and \`list\` talk to (default http://127.0.0.1:<port>)
 `;
 
-const SUBCOMMANDS = new Set(["init", "service", "config", "doctor", "list", "mcp"]);
+const SUBCOMMANDS = new Set(["init", "uninstall", "service", "config", "doctor", "list", "mcp"]);
 const SERVICE_ACTIONS = new Set<string>(["install", "uninstall", "status"]);
 
 /** Turns command-line arguments into options, or a message saying what is wrong with them. */
@@ -80,6 +83,7 @@ export function parseCliArgs(argv: string[]): Result<CliOptions, string> {
   if (values.version) return ok({ command: "version" });
 
   if (subcommand === "init") return ok({ command: "init", yes: values.yes === true });
+  if (subcommand === "uninstall") return ok({ command: "uninstall", yes: values.yes === true });
   const json = values.json === true;
   if (subcommand === "config") {
     if (values.edit && json) return err("Use either --edit or --json, not both.");
@@ -127,7 +131,7 @@ function parseFlags(args: string[], subcommand: string | null) {
   } as const;
   const json = { type: "boolean" } as const;
   const options: ParseArgsOptionsConfig =
-    subcommand === "init"
+    subcommand === "init" || subcommand === "uninstall"
       ? { ...common, yes: { type: "boolean", short: "y" } }
       : subcommand === "config"
         ? { ...common, edit: { type: "boolean" }, json }

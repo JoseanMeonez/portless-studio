@@ -32,7 +32,39 @@ describe("ProjectInfoReader", () => {
       folderName: "web",
       worktreeName: null,
       rootDir: path.join(dir, "acme"),
+      branch: "main",
     });
+  });
+
+  it("reads the current branch of a repository", () => {
+    write("acme/.git/HEAD", "ref: refs/heads/feat/ED-1234-add-x\n");
+    write("acme/package.json", JSON.stringify({ name: "acme" }));
+    expect(new ProjectInfoReader(dir).read(path.join(dir, "acme")).branch).toBe(
+      "feat/ED-1234-add-x",
+    );
+  });
+
+  it("reads the branch of a linked worktree from its own gitdir", () => {
+    write("acme/.git/HEAD", "ref: refs/heads/main\n");
+    write("acme/.git/worktrees/otter/HEAD", "ref: refs/heads/fix/run-51\n");
+    write("trees/otter/.git", `gitdir: ${path.join(dir, "acme", ".git", "worktrees", "otter")}\n`);
+    expect(new ProjectInfoReader(dir).read(path.join(dir, "trees", "otter")).branch).toBe(
+      "fix/run-51",
+    );
+  });
+
+  it("has no branch on a detached HEAD", () => {
+    write("acme/.git/HEAD", "3f2a9c1d0e8b7a6f5e4d3c2b1a0f9e8d7c6b5a49\n");
+    expect(new ProjectInfoReader(dir).read(path.join(dir, "acme")).branch).toBeNull();
+  });
+
+  it("reads the branch again after a checkout", () => {
+    write("acme/.git/HEAD", "ref: refs/heads/feat/one\n");
+    const reader = new ProjectInfoReader(dir);
+    const cwd = path.join(dir, "acme");
+    expect(reader.read(cwd).branch).toBe("feat/one");
+    write("acme/.git/HEAD", "ref: refs/heads/feat/two\n");
+    expect(reader.read(cwd).branch).toBe("feat/two");
   });
 
   it("names the main repository and the worktree for a linked worktree", () => {
@@ -48,6 +80,7 @@ describe("ProjectInfoReader", () => {
       folderName: "falcon",
       worktreeName: "falcon",
       rootDir: cwd,
+      branch: null,
     });
   });
 
@@ -59,6 +92,7 @@ describe("ProjectInfoReader", () => {
       folderName: "demo",
       worktreeName: null,
       rootDir: null,
+      branch: null,
     });
   });
 

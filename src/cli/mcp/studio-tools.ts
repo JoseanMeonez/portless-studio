@@ -12,6 +12,11 @@ import { describeProxy, detectedItem, proxyItem, routeItem } from "../studio-ite
 import type { McpTool, ToolResult } from "./mcp-server.ts";
 import type { StudioClient, StudioClientError } from "./studio-client.ts";
 
+const NAMING_HINT =
+  "Make each name say what the work is: start it with the ticket key, PR number or a short task " +
+  "name (ed-1234.web.myapp, pr-87.web.myapp, dark-mode.web.myapp), so two worktrees of the same " +
+  "repository are told apart. The suggested name already does this when the branch has a ticket key.";
+
 /** Sent on initialize, so agents know how Studio fits the way they run dev servers. */
 export const AGENT_INSTRUCTIONS = [
   "Portless Studio gives local dev servers stable names like http://web.myapp.localhost:1355.",
@@ -19,6 +24,7 @@ export const AGENT_INSTRUCTIONS = [
   "Studio dashboard updates at once. After starting a dev server, call list_detected_ports and",
   "name_port (or name_all_detected). To see which ports a worktree uses, call list_routes and",
   "list_detected_ports and filter by the worktree field. Ask the user before stop_server.",
+  NAMING_HINT,
 ].join(" ");
 
 const PROXY_ACTIONS: readonly ProxyAction[] = ["start", "stop", "restart"];
@@ -76,7 +82,8 @@ export function createStudioTools(client: StudioClient): McpTool[] {
       description:
         "Gives a local port a stable name, so it opens at http://<name>.localhost through the portless " +
         "proxy. Creates a portless alias; the Studio dashboard shows it immediately. Set replace to " +
-        "true to move an existing name to this port.",
+        "true to move an existing name to this port. " +
+        NAMING_HINT,
       inputSchema: {
         type: "object",
         properties: {
@@ -106,7 +113,8 @@ export function createStudioTools(client: StudioClient): McpTool[] {
       title: "Rename a route",
       description:
         "Renames a route that was named by hand (an alias). The URL changes to the new name; the " +
-        "dashboard updates immediately. Routes portless started itself (kind app) cannot be renamed.",
+        "dashboard updates immediately. Routes portless started itself (kind app) cannot be renamed. " +
+        NAMING_HINT,
       inputSchema: {
         type: "object",
         properties: {

@@ -20,6 +20,7 @@ import {
 } from "../../../../core/config/studio-config.ts";
 import type { DoctorCheck } from "../../../../core/doctor/doctor-check.ts";
 import type { DetectedPort } from "../../../../core/ports/detected-port.ts";
+import { projectIconKind } from "../../../../core/projects/project-icon.ts";
 import { err, ok, type Result } from "../../../../core/result.ts";
 import { type Route, routeUrl } from "../../../../core/routes/route.ts";
 import { parsePort, parseRouteName } from "../../../../core/routes/route-name.ts";
@@ -473,11 +474,34 @@ export class InMemoryRoutesGateway implements RoutesGateway {
     );
     this.#publish({
       ...this.#snapshot,
-      routes,
-      detected,
+      routes: routes.map((route) => this.#withIcon(route)),
+      detected: detected.map((item) => this.#withIcon(item)),
+      projectIcons: this.#demoIcons(),
       autoName: this.#config.autoName,
       readAt: this.#now(),
     });
+  }
+
+  /**
+   * The demo has no servers to read favicons from, so it shows the emoji and data URLs set in the
+   * config; a route loses its icon again when the config drops it.
+   */
+  #withIcon<T extends { project?: { name: string } | null; icon?: string }>(item: T): T {
+    const name = item.project?.name;
+    const own = name ? this.#demoIcons()[name] : undefined;
+    if (own !== undefined) return { ...item, icon: own };
+    if (item.icon === undefined || !name || "processName" in item) return item;
+    const { icon: _dropped, ...rest } = item;
+    return rest as T;
+  }
+
+  #demoIcons(): Record<string, string> {
+    return Object.fromEntries(
+      Object.entries(this.#config.projectIcons).filter(([, icon]) => {
+        const kind = projectIconKind(icon);
+        return kind === "text" || kind === "image";
+      }),
+    );
   }
 
   #publish(snapshot: Snapshot): void {

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { ApiError } from "../../../../core/api/contract.ts";
 import { parseConfig, type StudioConfig } from "../../../../core/config/studio-config.ts";
+import { projectIconKind } from "../../../../core/projects/project-icon.ts";
 import { parsePort } from "../../../../core/routes/route-name.ts";
 import { useToast } from "../../../shared/ui/toast/use-toast.ts";
 import { apiErrorMessage, PORT_MESSAGE } from "./route-messages.ts";
@@ -26,6 +27,7 @@ type LoadState =
   | { status: "failed"; message: string }
   | { status: "ready"; path: string };
 
+const ICON_MESSAGE = "use an emoji, an http(s) URL or a data:image URL.";
 const SECONDS_MESSAGE = "Use a number of seconds, 1 or more.";
 const MINUTES_MESSAGE = "Use a whole number of minutes, 0 or more.";
 const BLOCKED_MESSAGE =
@@ -44,6 +46,7 @@ const FIELDS = new Set<string>([
   "autoRemoveAfterMinutes",
   "desktopNotifications",
   "systemNotifications",
+  "projectIcons",
 ]);
 
 /** Loads the Studio config, edits a copy and saves it, with errors shown next to each field. */
@@ -119,6 +122,11 @@ export function useSettingsForm({ onSaved }: { onSaved: () => void }) {
       );
   };
 
+  /** An empty value removes the project's icon when saving. */
+  const setProjectIcon = (project: string, value: string) => {
+    if (draft) change("projectIcons", { ...draft.projectIcons, [project]: value });
+  };
+
   /** Turning desktop notifications on first asks the browser for permission. */
   const setDesktopNotifications = async (value: boolean) => {
     if (!value) return change("desktopNotifications", false);
@@ -167,6 +175,7 @@ export function useSettingsForm({ onSaved }: { onSaved: () => void }) {
     addIgnoredProcess,
     removeIgnoredProcess,
     setDesktopNotifications,
+    setProjectIcon,
     save,
   };
 }
@@ -199,6 +208,12 @@ function toConfig(
   const minutes = Number(draft.autoRemoveMinutes.trim());
   if (draft.autoRemoveMinutes.trim() === "" || !Number.isInteger(minutes) || minutes < 0) {
     errors.autoRemoveAfterMinutes = MINUTES_MESSAGE;
+  }
+  for (const [project, icon] of Object.entries(draft.projectIcons)) {
+    if (icon.trim() !== "" && projectIconKind(icon.trim()) === null) {
+      errors.projectIcons = `The icon of ${project}: ${ICON_MESSAGE}`;
+      break;
+    }
   }
   if (Object.keys(errors).length > 0) return { ok: false, errors };
 

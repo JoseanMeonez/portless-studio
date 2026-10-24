@@ -1,0 +1,47 @@
+.icon {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border-radius: var(--radius-sm);
+  line-height: 1;
+}
+
+.md {
+  width: 16px;
+  height: 16px;
+}
+
+.sm {
+  width: 14px;
+  height: 14px;
+}
+
+.image {
+  object-fit: contain;
+}
+
+.text {
+  font-size: var(--text-xs);
+}
+
+.monogram {
+  /* The hue comes from the name, so the same project always gets the same color. */
+  background: hsl(var(--monogram-hue) 60% 50% / 0.18);
+  color: hsl(var(--monogram-hue) 55% 42%);
+  font-family: var(--font-sans);
+  font-size: 9px;
+  font-weight: var(--weight-semibold);
+  letter-spacing: -0.02em;
+}
+
+@media (prefers-color-scheme: dark) {
+  :global(:root:not([data-theme="light"])) .monogram {
+    color: hsl(var(--monogram-hue) 70% 72%);
+  }
+}
+
+:global(:root[data-theme="dark"]) .monogram {
+  color: hsl(var(--monogram-hue) 70% 72%);
+}

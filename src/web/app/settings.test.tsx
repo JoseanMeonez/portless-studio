@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { err } from "../../core/result.ts";
 import { createSampleSnapshot, InMemoryRoutesGateway } from "../features/routes/index.ts";
@@ -177,5 +177,63 @@ describe("notification settings", () => {
     await user.type(minutes, "-3");
     await user.click(within(dialog).getByRole("button", { name: "Save" }));
     expect(within(dialog).getByText("Use a whole number of minutes, 0 or more.")).toBeTruthy();
+  });
+});
+
+describe("project icons", () => {
+  const routeRow = async (name: string) => {
+    const list = await screen.findByRole("list", { name: "Routes" });
+    const row = within(list)
+      .getAllByRole("listitem")
+      .find((item) => item.querySelector("a")?.textContent === name);
+    if (!row) throw new Error(`no row ${name}`);
+    return row;
+  };
+
+  it("shows a monogram for a project without an icon", async () => {
+    setup();
+    const row = await routeRow("web.acme");
+    expect(row.querySelector("[data-monogram]")?.textContent).toBe("AM");
+  });
+
+  it("sets an emoji for a known project, saves it and shows it on its rows", async () => {
+    const { user, gateway } = setup();
+    const updateConfig = vi.spyOn(gateway, "updateConfig");
+    const dialog = await openSettings(user);
+
+    within(dialog).getByRole("group", { name: "Project icons" });
+    const field = within(dialog).getByLabelText("Icon for acme-monorepo");
+    await user.type(field, "🦊");
+    await user.click(within(dialog).getByRole("button", { name: "Save" }));
+
+    expect(updateConfig).toHaveBeenCalledWith(
+      expect.objectContaining({ projectIcons: { "acme-monorepo": "🦊" } }),
+    );
+    await waitFor(async () => expect((await routeRow("web.acme")).textContent).toContain("🦊"));
+  });
+
+  it("clears an icon", async () => {
+    const { user, gateway } = setup();
+    const config = await gateway.getConfig();
+    if (!config.ok) throw new Error("no config");
+    await gateway.updateConfig({ ...config.value.config, projectIcons: { "shop-admin": "🦦" } });
+    const updateConfig = vi.spyOn(gateway, "updateConfig");
+    const dialog = await openSettings(user);
+
+    await user.click(within(dialog).getByRole("button", { name: "Clear the icon of shop-admin" }));
+    await user.click(within(dialog).getByRole("button", { name: "Save" }));
+
+    expect(updateConfig).toHaveBeenCalledWith(expect.objectContaining({ projectIcons: {} }));
+  });
+
+  it("explains a value that cannot be an icon", async () => {
+    const { user } = setup();
+    const dialog = await openSettings(user);
+    await user.type(within(dialog).getByLabelText("Icon for shop-admin"), "not an icon at all");
+    await user.click(within(dialog).getByRole("button", { name: "Save" }));
+
+    expect(
+      within(dialog).getByText(/shop-admin.*emoji, an http\(s\) URL or a data:image URL/),
+    ).toBeTruthy();
   });
 });

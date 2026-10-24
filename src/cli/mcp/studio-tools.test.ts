@@ -141,6 +141,15 @@ describe("studio tools", () => {
     }
   });
 
+  it("asks agents for a ticket, PR or task in names so worktrees are told apart", () => {
+    for (const name of ["name_port", "rename_route"]) {
+      const description = tools().get(name)?.description ?? "";
+      expect(description).toMatch(/ticket/i);
+      expect(description).toMatch(/PR/);
+      expect(description).toMatch(/worktree/i);
+    }
+  });
+
   it("list_routes returns each route with health, project, worktree and pid", async () => {
     const result = await call("list_routes");
     expect(result.isError).toBeFalsy();

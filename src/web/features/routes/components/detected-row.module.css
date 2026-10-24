@@ -31,6 +31,13 @@
   min-width: 0;
 }
 
+.titleLine {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1-5);
+  min-width: 0;
+}
+
 .suggestion,
 .noSuggestion {
   overflow: hidden;

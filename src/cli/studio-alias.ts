@@ -52,7 +52,8 @@ async function findStudio(registry: RouteRegistry) {
   return routes.find((route) => route.name === STUDIO_ALIAS);
 }
 
-function isListening(port: number): Promise<boolean> {
+/** True when something accepts TCP connections on the loopback port. */
+export function isListening(port: number): Promise<boolean> {
   return new Promise((resolve) => {
     const socket = connect({ host: "127.0.0.1", port });
     const finish = (listening: boolean) => {

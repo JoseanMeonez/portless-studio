@@ -27,6 +27,8 @@ function registry(initial: Route[], fail = false) {
       proxy: { running: true, port: 1355, https: false, tlds: ["localhost"] },
       routes,
       portless: { installed: true, version: "1.0.0" },
+      detected: [],
+      autoName: false,
       readAt: 0,
     }),
     installPortless: async () => ok({ version: "1.0.0", output: "" }),

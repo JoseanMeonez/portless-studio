@@ -6,6 +6,54 @@ in your browser.
 
 ![portless studio showing six routes](docs/screenshot.jpg)
 
+## Quick start
+
+```bash
+npx portless-studio init
+```
+
+Until the package is published, run it from a clone: `pnpm install && pnpm build && node
+dist/cli/index.js init`.
+
+`init` asks a few questions and leaves everything working:
+
+- Checks that portless is installed and offers to install it with npm.
+- Asks for the basic settings (auto mode, start at login, port, open the browser) and saves them.
+- Finds the dev servers already running, suggests a name for each and names them in portless.
+- Starts the portless proxy, which asks for your password once, and can set Studio to start
+  when you log in.
+
+`init --yes` accepts every default without asking.
+
+### Commands
+
+| Command | What it does |
+| --- | --- |
+| `portless-studio` | Starts Studio with the settings from the config file. |
+| `portless-studio init [--yes]` | The setup above. Safe to run again. |
+| `portless-studio service install` | Starts Studio when you log in: a systemd user unit on Linux, a LaunchAgent on macOS, a script in the Startup folder on Windows. |
+| `portless-studio service uninstall` | Undoes `service install`. |
+| `portless-studio service status` | Says whether the login service is installed and running. |
+| `portless-studio config [--edit]` | Prints the config file path and its contents, or opens it in `$EDITOR`. |
+
+### Config file
+
+Settings live in one JSON file. `portless-studio config` prints where it is; you can edit it by
+hand or from the settings panel in the page, and a running Studio picks up the changes without a
+restart. Missing fields take their default.
+
+| Field | Default | What it does |
+| --- | --- | --- |
+| `port` | `4949` | Port Studio listens on, on 127.0.0.1. |
+| `autoName` | `false` | Gives every new dev server a portless name automatically. |
+| `openBrowser` | `true` | Opens the browser when Studio starts. |
+| `registerStudioAlias` | `true` | Registers Studio itself in portless as `studio`. |
+| `scanIntervalMs` | `3000` | How often Studio looks for new listening ports, in milliseconds (at least 1000). |
+| `ignoredPorts` | `[]` | Ports never shown as detected and never named automatically. |
+| `ignoredProcesses` | `["code", "cursor", "discord", "slack", "spotify", "chrome", "firefox"]` | Process names whose ports are never shown. |
+
+The `--port`, `--no-open` and `--no-register` flags win over the file for one run.
+
 portless replaces port numbers with names: `portless api pnpm dev` serves your app at
 `https://api.localhost`. It has no interface of its own, so when you run ten dev servers across
 several projects you have to remember which names exist. portless studio shows them live.
@@ -40,7 +88,7 @@ It starts on `http://127.0.0.1:4949`, registers itself in portless as `studio`, 
 
 | Flag | Effect |
 | --- | --- |
-| `--port <n>` | Listen on another port. Default 4949. |
+| `--port <n>` | Listen on another port. Default: `port` in the config, 4949. |
 | `--no-open` | Do not open the browser. |
 | `--no-register` | Do not register the `studio` name in portless. |
 

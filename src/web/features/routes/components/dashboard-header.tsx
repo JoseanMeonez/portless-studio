@@ -1,11 +1,14 @@
+import type { ProxyAction } from "../../../../core/api/contract.ts";
+import type { DoctorStatus } from "../../../../core/doctor/doctor-check.ts";
 import type { ProxyStatus } from "../../../../core/routes/route.ts";
 import { Button } from "../../../shared/ui/button.tsx";
 import { Icon } from "../../../shared/ui/icons/icon.tsx";
 import { Kbd } from "../../../shared/ui/kbd.tsx";
+import { StatusDot } from "../../../shared/ui/status-dot.tsx";
 import type { ConnectionState } from "../data/routes-gateway.ts";
 import { ConnectionIndicator } from "./connection-indicator.tsx";
 import styles from "./dashboard-header.module.css";
-import { ProxyStatusPill } from "./proxy-status-pill.tsx";
+import { ProxyMenu } from "./proxy-menu.tsx";
 
 type DashboardHeaderProps = {
   proxy: ProxyStatus | null;
@@ -20,7 +23,16 @@ type DashboardHeaderProps = {
   onOpenCommandMenu: () => void;
   onNamePort: () => void;
   onOpenSettings: () => void;
+  /** Worst status of the health checks; null until they load. */
+  health: DoctorStatus | null;
+  /** Read by screen readers on the Health button, e.g. "Health: 1 warning". */
+  healthLabel: string;
+  onOpenHealth: () => void;
+  proxyBusy: ProxyAction | null;
+  onProxyAction: (action: ProxyAction) => void;
 };
+
+const HEALTH_TONES = { ok: "success", warn: "warning", fail: "danger" } as const;
 
 export function DashboardHeader({
   proxy,
@@ -33,6 +45,11 @@ export function DashboardHeader({
   onOpenCommandMenu,
   onNamePort,
   onOpenSettings,
+  health,
+  healthLabel,
+  onOpenHealth,
+  proxyBusy,
+  onProxyAction,
 }: DashboardHeaderProps) {
   return (
     <header className={styles.header}>
@@ -55,7 +72,14 @@ export function DashboardHeader({
         </div>
 
         <div className={styles.status}>
-          {proxy ? <ProxyStatusPill proxy={proxy} portlessVersion={portlessVersion} /> : null}
+          {proxy ? (
+            <ProxyMenu
+              proxy={proxy}
+              portlessVersion={portlessVersion}
+              busy={proxyBusy}
+              onAction={onProxyAction}
+            />
+          ) : null}
           <ConnectionIndicator state={connection} />
           {autoName ? (
             <span
@@ -78,6 +102,16 @@ export function DashboardHeader({
           >
             <Kbd>{modifierLabel}</Kbd>
             <Kbd>K</Kbd>
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={onOpenHealth}
+            aria-label={healthLabel}
+            title="Health checks"
+          >
+            <StatusDot tone={health ? HEALTH_TONES[health] : "neutral"} />
+            <span className={styles.healthLabel}>Health</span>
           </Button>
           <Button
             variant="ghost"

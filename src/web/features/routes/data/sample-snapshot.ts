@@ -1,6 +1,7 @@
 import type { Snapshot } from "../../../../core/api/contract.ts";
 import type { DetectedPort } from "../../../../core/ports/detected-port.ts";
 import {
+  healthFromProbe,
   type ProxyStatus,
   type Route,
   type RouteKind,
@@ -19,6 +20,10 @@ type SampleRoute = {
   pid?: number;
   upFor: number | null;
   tunnels?: Tunnel[];
+  /** The dev server listening on the port, which the row can stop. */
+  listenerPid?: number;
+  /** Last probe: status and latency, or null when the port does not answer. */
+  answer?: { status: number; latencyMs: number } | null;
 };
 
 const SAMPLE_ROUTES: SampleRoute[] = [
@@ -27,24 +32,44 @@ const SAMPLE_ROUTES: SampleRoute[] = [
     port: 3000,
     kind: "app",
     pid: 48_213,
+    listenerPid: 48_219,
+    answer: { status: 200, latencyMs: 12 },
     upFor: 2 * HOUR + 14 * MINUTE,
     tunnels: [
       { provider: "tailscale", url: "https://web-acme.tail2f9c.ts.net" },
       { provider: "ngrok", url: "https://4f1c-web-acme.ngrok-free.app" },
     ],
   },
-  { name: "api.acme", port: 4000, kind: "app", pid: 48_240, upFor: 2 * HOUR + 13 * MINUTE },
-  { name: "docs", port: 3001, kind: "app", pid: 51_002, upFor: 26 * MINUTE },
+  {
+    name: "api.acme",
+    port: 4000,
+    kind: "app",
+    pid: 48_240,
+    listenerPid: 48_246,
+    answer: { status: 200, latencyMs: 4 },
+    upFor: 2 * HOUR + 13 * MINUTE,
+  },
+  {
+    name: "docs",
+    port: 3001,
+    kind: "app",
+    pid: 51_002,
+    listenerPid: 51_009,
+    answer: { status: 500, latencyMs: 31 },
+    upFor: 26 * MINUTE,
+  },
   {
     name: "storybook",
     port: 6006,
     kind: "app",
     pid: 50_117,
+    listenerPid: 50_121,
+    answer: { status: 200, latencyMs: 8 },
     upFor: 3 * 24 * HOUR + 4 * HOUR,
     tunnels: [{ provider: "cloudflare", url: "https://storybook-demo.trycloudflare.com" }],
   },
-  { name: "db", port: 5432, kind: "alias", upFor: 9 * 24 * HOUR },
-  { name: "redis", port: 6379, kind: "alias", upFor: null },
+  { name: "db", port: 5432, kind: "alias", upFor: 9 * 24 * HOUR, answer: null },
+  { name: "redis", port: 6379, kind: "alias", upFor: null, answer: null },
 ];
 
 /** Dev servers running without a portless name, as the server's port scan finds them. */
@@ -99,6 +124,8 @@ export function createSampleSnapshot(now: number, portlessInstalled = true): Sna
       registeredAt: sample.upFor === null ? null : now - sample.upFor,
       url: routeUrl(hostname, proxy),
       tunnels: sample.tunnels ?? [],
+      ...(sample.listenerPid === undefined ? {} : { listenerPid: sample.listenerPid }),
+      ...(sample.answer === undefined ? {} : { health: healthFromProbe(sample.answer, now) }),
     };
   });
   const portless = portlessInstalled

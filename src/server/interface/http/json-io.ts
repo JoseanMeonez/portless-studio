@@ -40,7 +40,8 @@ export function sendError(
   status = STATUS_BY_CODE[code],
   command?: string,
 ): void {
-  const body: ApiError = command === undefined ? { error: code, message } : { error: code, message, command };
+  const body: ApiError =
+    command === undefined ? { error: code, message } : { error: code, message, command };
   sendJson(res, status, body);
 }
 

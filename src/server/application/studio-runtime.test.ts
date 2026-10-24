@@ -3,7 +3,7 @@ import { ok, type Result } from "../../core/result.ts";
 import type { Route } from "../../core/routes/route.ts";
 import type { AppError } from "./app-error.ts";
 import type { ConfigStore } from "./config-store.ts";
-import type { ListeningPort, PortScanner } from "./port-scanner.ts";
+import type { HttpProbe, ListeningPort, PortScanner, ProbePort } from "./port-scanner.ts";
 import type { PortlessState, RouteRegistry } from "./route-registry.ts";
 import { StudioRuntime } from "./studio-runtime.ts";
 
@@ -122,6 +122,7 @@ function build(
     store?: ReturnType<typeof memoryStore>;
     ports?: ListeningPort[];
     proxyRunning?: boolean;
+    probe?: ProbePort;
   } = {},
 ) {
   const store = options.store ?? memoryStore();
@@ -135,6 +136,7 @@ function build(
     projects,
     studioPort: 4949,
     log: (line) => lines.push(line),
+    ...(options.probe ? { probe: options.probe, now: () => 1000 } : {}),
   });
   return { runtime, store, scanner, fake, lines };
 }
@@ -268,5 +270,80 @@ describe("StudioRuntime config", () => {
       ok: false,
       error: { code: "invalid_port" },
     });
+  });
+});
+
+describe("StudioRuntime route details", () => {
+  it("adds the pid listening on a route's port", async () => {
+    const { runtime, fake } = build({ ports: [node(5173, "app")] });
+    await fake.registry.createAlias("app", 5173, false);
+    const [route] = (await runtime.readSnapshot()).routes;
+    expect(route?.listenerPid).toBe(5173);
+  });
+
+  it("leaves the pid out when nothing listens on the route's port", async () => {
+    const { runtime, fake } = build({ ports: [] });
+    await fake.registry.createAlias("db", 5432, false);
+    const [route] = (await runtime.readSnapshot()).routes;
+    expect(route && "listenerPid" in route).toBe(false);
+  });
+
+  it("lists the pids that listen on detected or routed ports", async () => {
+    const { runtime, fake } = build({ ports: [node(5173, "app"), node(3000, "web")] });
+    await fake.registry.createAlias("web", 3000, false);
+    expect(await runtime.stoppablePids()).toEqual(
+      new Map([
+        [5173, 5173],
+        [3000, 3000],
+      ]),
+    );
+  });
+
+  it("probes route ports while someone watches and notifies when their health changes", async () => {
+    const answers = new Map<number, HttpProbe | null>([
+      [3000, { status: 200, latencyMs: 12, studio: false }],
+    ]);
+    const { runtime, fake } = build({
+      ports: [node(3000, "web")],
+      probe: async (port) => answers.get(port) ?? null,
+    });
+    await fake.registry.createAlias("web", 3000, false);
+    let changes = 0;
+    runtime.watch(() => {
+      changes += 1;
+    });
+
+    await vi.waitFor(async () => {
+      const [route] = (await runtime.readSnapshot()).routes;
+      expect(route?.health).toEqual({ state: "up", status: 200, latencyMs: 12, checkedAt: 1000 });
+    });
+
+    const before = changes;
+    answers.set(3000, { status: 503, latencyMs: 4, studio: false });
+    await vi.waitFor(async () => {
+      const [route] = (await runtime.readSnapshot()).routes;
+      expect(route?.health?.state).toBe("error");
+    });
+    expect(changes).toBeGreaterThan(before);
+
+    answers.set(3000, null);
+    await vi.waitFor(async () => {
+      const [route] = (await runtime.readSnapshot()).routes;
+      expect(route?.health).toEqual({ state: "down", checkedAt: 1000 });
+    });
+  });
+
+  it("does not probe while nobody watches", async () => {
+    let probes = 0;
+    const { runtime, fake } = build({
+      probe: async () => {
+        probes += 1;
+        return null;
+      },
+    });
+    await fake.registry.createAlias("web", 3000, false);
+    await runtime.readSnapshot();
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    expect(probes).toBe(0);
   });
 });

@@ -145,6 +145,43 @@ export async function serviceStatus(env: ServiceEnv): Promise<ServiceState> {
   return { file, installed, running: active.exitCode === 0 };
 }
 
+/** Restarts the running login service; Windows has no service manager to ask. */
+export async function restartService(env: ServiceEnv): Promise<Result<void, string>> {
+  if (env.platform === "darwin") {
+    if (env.uid === null) return err("launchctl needs the user id.");
+    return runOk(env, "launchctl", ["kickstart", "-k", `gui/${env.uid}/${LAUNCHD_LABEL}`]);
+  }
+  if (env.platform === "win32") return err("Windows has no service manager Studio can ask.");
+  return runOk(env, "systemctl", ["--user", "restart", SYSTEMD_UNIT]);
+}
+
+/** Stops the login service until the next login, or until it is started again. */
+export async function stopService(env: ServiceEnv): Promise<Result<void, string>> {
+  if (env.platform === "darwin") {
+    if (env.uid === null) return err("launchctl needs the user id.");
+    return runOk(env, "launchctl", ["bootout", `gui/${env.uid}/${LAUNCHD_LABEL}`]);
+  }
+  if (env.platform === "win32") return err("Windows has no service manager Studio can ask.");
+  return runOk(env, "systemctl", ["--user", "stop", SYSTEMD_UNIT]);
+}
+
+/** How a person starts the stopped login service again. */
+export function serviceStartCommand(env: ServiceEnv): string {
+  if (env.platform === "darwin") return `launchctl kickstart gui/$(id -u)/${LAUNCHD_LABEL}`;
+  if (env.platform === "win32") return "portless-studio";
+  return "systemctl --user start portless-studio";
+}
+
+async function runOk(
+  env: ServiceEnv,
+  command: string,
+  args: string[],
+): Promise<Result<void, string>> {
+  const result = await env.run(command, args);
+  if (result.exitCode === 0) return ok(undefined);
+  return err(`\`${command} ${args.join(" ")}\` failed: ${result.output || "no output"}`);
+}
+
 function systemdUnit(env: ServiceEnv): string {
   const quote = (value: string) =>
     `"${value.replaceAll("\\", "\\\\").replaceAll('"', '\\"').replaceAll("%", "%%")}"`;

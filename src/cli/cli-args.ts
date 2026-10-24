@@ -16,7 +16,8 @@ export type CliOptions =
   | { command: "start"; overrides: StartOverrides }
   | { command: "init"; yes: boolean }
   | { command: "service"; action: ServiceAction }
-  | { command: "config"; edit: boolean };
+  | { command: "config"; edit: boolean }
+  | { command: "doctor" };
 
 export type StartSettings = { port: number; open: boolean; register: boolean };
 
@@ -29,6 +30,8 @@ Usage:
   portless-studio service uninstall   Stop starting Studio when you log in
   portless-studio service status      Say whether the login service is installed and running
   portless-studio config [--edit]     Print the config file, or open it in $EDITOR
+  portless-studio doctor              Check portless, the proxy and Studio, and say how to fix
+                                      what is wrong (exit code 1 when something fails)
 
 Options:
   --port <n>       Port for the dashboard, on 127.0.0.1 (default from the config, ${DEFAULT_PORT};
@@ -45,7 +48,7 @@ Environment:
   EDITOR               Editor that \`config --edit\` opens
 `;
 
-const SUBCOMMANDS = new Set(["init", "service", "config"]);
+const SUBCOMMANDS = new Set(["init", "service", "config", "doctor"]);
 const SERVICE_ACTIONS = new Set<string>(["install", "uninstall", "status"]);
 
 /** Turns command-line arguments into options, or a message saying what is wrong with them. */
@@ -70,6 +73,7 @@ export function parseCliArgs(argv: string[]): Result<CliOptions, string> {
 
   if (subcommand === "init") return ok({ command: "init", yes: values.yes === true });
   if (subcommand === "config") return ok({ command: "config", edit: values.edit === true });
+  if (subcommand === "doctor") return ok({ command: "doctor" });
   if (subcommand === "service") {
     const action = positionals[0];
     if (action === undefined || !SERVICE_ACTIONS.has(action) || positionals.length > 1) {
@@ -112,7 +116,7 @@ function parseFlags(args: string[], subcommand: string | null) {
       ? { ...common, yes: { type: "boolean", short: "y" } }
       : subcommand === "config"
         ? { ...common, edit: { type: "boolean" } }
-        : subcommand === "service"
+        : subcommand === "service" || subcommand === "doctor"
           ? common
           : {
               ...common,

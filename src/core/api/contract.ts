@@ -100,6 +100,18 @@ export type DoctorFixResponse = {
   checks: DoctorCheck[];
 };
 
+/** POST /api/proxy/:action, on success. */
+export type ProxyActionResponse = {
+  message: string;
+};
+
+/** POST /api/studio/:action: sent with 202 just before Studio restarts or exits. */
+export type StudioActionResponse = {
+  message: string;
+  /** How to start Studio again after a stop. */
+  startCommand: string;
+};
+
 /** GET /api/config and the body of PUT /api/config. */
 export type ConfigResponse = {
   config: StudioConfig;

@@ -1,5 +1,6 @@
 // Stroke icons drawn on a 24x24 grid, one path string per icon (several subpaths allowed).
 export const ICON_PATHS = {
+  activity: "M3 12h4l3-8 4 16 3-8h4",
   arrowUpRight: "M7 17 17 7M8 7h9v9",
   check: "m5 12.5 4.5 4.5L19 7.5",
   command:
@@ -13,6 +14,7 @@ export const ICON_PATHS = {
     "M14.5 5.5l4 4M4 20l1-4.5L15.5 5a1.4 1.4 0 0 1 2 0l1.5 1.5a1.4 1.4 0 0 1 0 2L8.5 19 4 20Z",
   plus: "M12 5v14M5 12h14",
   refresh: "M20 11a8 8 0 0 0-14.5-4.5L4 8m0-4v4h4m-4 5a8 8 0 0 0 14.5 4.5L20 16m0 4v-4h-4",
+  power: "M12 3v8M6.3 6.8a8 8 0 1 0 11.4 0",
   radar: "M12 12 18 6M19.5 9.5A8 8 0 1 1 14.5 4.4M16 12a4 4 0 1 1-4-4",
   search: "m20 20-4.2-4.2M17 10.5a6.5 6.5 0 1 1-13 0 6.5 6.5 0 0 1 13 0Z",
   settings: "M4 7h9m4 0h3M4 17h3m4 0h9M15 5v4M9 15v4",

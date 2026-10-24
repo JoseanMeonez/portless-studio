@@ -1,3 +1,4 @@
+import type { ProxyAction } from "../../../../core/api/contract.ts";
 import type { Route } from "../../../../core/routes/route.ts";
 import { type CommandItem, CommandMenu } from "../../../shared/ui/command-menu.tsx";
 import { Kbd } from "../../../shared/ui/kbd.tsx";
@@ -12,6 +13,10 @@ type RouteCommandMenuProps = {
   onToggleTheme: () => void;
   onFocusFilter: () => void;
   onOpenSettings: () => void;
+  onOpenHealth: () => void;
+  /** Whether the proxy runs, which decides between Start and Stop/Restart. */
+  proxyRunning: boolean;
+  onProxyAction: (action: ProxyAction) => void;
 };
 
 /** Cmd/Ctrl+K: jump to any route or run any action without leaving the keyboard. */
@@ -24,6 +29,9 @@ export function RouteCommandMenu({
   onToggleTheme,
   onFocusFilter,
   onOpenSettings,
+  onOpenHealth,
+  proxyRunning,
+  onProxyAction,
 }: RouteCommandMenuProps) {
   const actions = useRouteActions();
 
@@ -86,6 +94,39 @@ export function RouteCommandMenu({
       shortcut: <Kbd>,</Kbd>,
       onSelect: onOpenSettings,
     },
+    {
+      id: "health",
+      group: "Actions",
+      label: "Open health panel",
+      icon: "activity",
+      onSelect: onOpenHealth,
+    },
+    ...(proxyRunning
+      ? [
+          {
+            id: "proxy-restart",
+            group: "Proxy",
+            label: "Restart proxy",
+            icon: "refresh",
+            onSelect: () => onProxyAction("restart"),
+          } satisfies CommandItem,
+          {
+            id: "proxy-stop",
+            group: "Proxy",
+            label: "Stop proxy",
+            icon: "power",
+            onSelect: () => onProxyAction("stop"),
+          } satisfies CommandItem,
+        ]
+      : [
+          {
+            id: "proxy-start",
+            group: "Proxy",
+            label: "Start proxy",
+            icon: "power",
+            onSelect: () => onProxyAction("start"),
+          } satisfies CommandItem,
+        ]),
     { id: "theme", group: "Actions", label: "Toggle theme", icon: "moon", onSelect: onToggleTheme },
   ];
 

@@ -1,0 +1,25 @@
+.page {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100dvh;
+  padding: var(--space-4);
+}
+
+.card {
+  display: grid;
+  gap: var(--space-3);
+  width: 100%;
+  max-width: var(--dialog-width);
+}
+
+.title {
+  font-size: var(--text-xl);
+  font-weight: var(--weight-semibold);
+  letter-spacing: var(--tracking-tight);
+}
+
+.text {
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+}

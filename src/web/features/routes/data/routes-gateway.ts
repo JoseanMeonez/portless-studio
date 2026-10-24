@@ -2,9 +2,15 @@ import type {
   ApiError,
   ConfigResponse,
   CreateAliasRequest,
+  DoctorFixResponse,
+  DoctorReport,
   InstallPortlessResponse,
+  ProxyAction,
+  ProxyActionResponse,
   RenameAliasRequest,
   Snapshot,
+  StudioAction,
+  StudioActionResponse,
 } from "../../../../core/api/contract.ts";
 import type { StudioConfig } from "../../../../core/config/studio-config.ts";
 import type { Result } from "../../../../core/result.ts";
@@ -36,4 +42,14 @@ export interface RoutesGateway {
   updateConfig(config: StudioConfig): Promise<Result<ConfigResponse, ApiError>>;
   /** Stops showing a detected port by adding it to the ignored ports. */
   ignoreDetected(port: number): Promise<Result<null, ApiError>>;
+  /** Runs the health checks. */
+  getDoctor(): Promise<Result<DoctorReport, ApiError>>;
+  /** Runs the safe fix of one check and returns the checks again. */
+  runDoctorFix(id: string): Promise<Result<DoctorFixResponse, ApiError>>;
+  /** Starts, stops or restarts the portless proxy; `needs_admin` carries the sudo command. */
+  controlProxy(action: ProxyAction): Promise<Result<ProxyActionResponse, ApiError>>;
+  /** Restarts or stops Studio itself; the answer arrives just before it goes away. */
+  controlStudio(action: StudioAction): Promise<Result<StudioActionResponse, ApiError>>;
+  /** Stops the dev server with this pid, if it is the user's and serves a shown port. */
+  stopProcess(pid: number): Promise<Result<null, ApiError>>;
 }

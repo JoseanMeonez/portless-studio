@@ -2,13 +2,19 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import {
   API_PATHS,
   type CreateAliasRequest,
+  type DoctorFixResponse,
+  type DoctorReport,
+  type ProxyAction,
   type RenameAliasRequest,
   type Session,
   STUDIO_HEADER,
+  type StudioAction,
+  type StudioActionResponse,
   TOKEN_HEADER,
 } from "../../../core/api/contract.ts";
 import type { Result } from "../../../core/result.ts";
 import type { AppError } from "../../application/app-error.ts";
+import type { DoctorService } from "../../application/doctor.ts";
 import type { RouteRegistry } from "../../application/route-registry.ts";
 import {
   createAlias,
@@ -17,6 +23,7 @@ import {
   renameAlias,
 } from "../../application/route-use-cases.ts";
 import type { StudioRuntime } from "../../application/studio-runtime.ts";
+import type { StudioServiceControl } from "../../application/studio-service.ts";
 import { type BodyError, MAX_BODY_BYTES, readJsonBody, sendError, sendJson } from "./json-io.ts";
 import { hasToken, isAllowedHost, isSameOrigin } from "./request-guards.ts";
 import { SnapshotEvents } from "./snapshot-events.ts";
@@ -30,6 +37,13 @@ export type HttpServerOptions = {
   token: string;
   /** Built web app to serve. Without it the server answers only the API. */
   webDir?: string | undefined;
+  /** Health checks and their fixes; without it `/api/doctor` answers `unsupported`. */
+  doctor?: DoctorService;
+  controlProxy?: (action: ProxyAction) => Promise<Result<string, AppError>>;
+  /** Restarts or stops Studio itself; given by the CLI, which knows how Studio was started. */
+  studioService?: StudioServiceControl;
+  /** Stops a dev server by pid, after checking it is the user's and listens on a shown port. */
+  stopProcess?: (pid: string) => Promise<Result<unknown, AppError>>;
 };
 
 export type HttpServer = {
@@ -40,6 +54,13 @@ export type HttpServer = {
 
 const ALIAS_PREFIX = `${API_PATHS.aliases}/`;
 const IGNORE_DETECTED = /^\/api\/detected\/([^/]+)\/ignore$/;
+const DOCTOR_FIX = /^\/api\/doctor\/fix\/([^/]+)$/;
+const PROXY_ACTION = /^\/api\/proxy\/(start|stop|restart)$/;
+const STUDIO_ACTION = /^\/api\/studio\/(restart|stop)$/;
+const STOP_PROCESS = /^\/api\/processes\/([^/]+)\/stop$/;
+/** Lets the 202 reach the browser before Studio restarts or exits. */
+const STUDIO_ACTION_DELAY_MS = 200;
+const unsupported: AppError = { code: "unsupported", message: "This Studio cannot do that." };
 
 export function createHttpServer(options: HttpServerOptions): HttpServer {
   const events = new SnapshotEvents(options.studio);
@@ -109,6 +130,46 @@ export function createHttpServer(options: HttpServerOptions): HttpServer {
     if (ignored?.[1] && method === "POST") {
       return sendResult(res, await options.studio.ignorePort(ignored[1]), 204);
     }
+    if (pathname === API_PATHS.doctor && method === "GET") {
+      if (!options.doctor) return sendAppError(res, unsupported);
+      const report: DoctorReport = { checks: await options.doctor.check() };
+      return sendJson(res, 200, report);
+    }
+    const fix = DOCTOR_FIX.exec(pathname);
+    if (fix?.[1] && method === "POST") {
+      if (!options.doctor) return sendAppError(res, unsupported);
+      const id = decodeName(fix[1]);
+      if (id === null) return sendError(res, "not_found", "No check has that id.");
+      const result = await options.doctor.fix(id);
+      if (!result.ok) return sendAppError(res, result.error);
+      const body: DoctorFixResponse = result.value;
+      return sendJson(res, 200, body);
+    }
+    const proxyAction = PROXY_ACTION.exec(pathname)?.[1] as ProxyAction | undefined;
+    if (proxyAction && method === "POST") {
+      if (!options.controlProxy) return sendAppError(res, unsupported);
+      const result = await options.controlProxy(proxyAction);
+      if (!result.ok) return sendAppError(res, result.error);
+      return sendJson(res, 200, { message: result.value });
+    }
+    const studioAction = STUDIO_ACTION.exec(pathname)?.[1] as StudioAction | undefined;
+    if (studioAction && method === "POST") {
+      if (!options.studioService) return sendAppError(res, unsupported);
+      const prepared = await options.studioService.prepare(studioAction);
+      if (!prepared.ok) return sendAppError(res, prepared.error);
+      const { message, startCommand, run } = prepared.value;
+      const body: StudioActionResponse = { message, startCommand };
+      res.once("finish", () => setTimeout(() => void run(), STUDIO_ACTION_DELAY_MS));
+      return sendJson(res, 202, body);
+    }
+    const stop = STOP_PROCESS.exec(pathname);
+    if (stop?.[1] && method === "POST") {
+      if (!options.stopProcess) return sendAppError(res, unsupported);
+      const result = await options.stopProcess(stop[1]);
+      if (!result.ok) return sendAppError(res, result.error);
+      res.writeHead(204, { "Cache-Control": "no-store" }).end();
+      return;
+    }
     if (pathname === API_PATHS.events && method === "GET") {
       await events.connect(res);
       return;
@@ -142,9 +203,13 @@ export function createHttpServer(options: HttpServerOptions): HttpServer {
   return { server, closeStreams: () => events.close() };
 }
 
+function sendAppError(res: ServerResponse, error: AppError): void {
+  sendError(res, error.code, error.message, undefined, error.command);
+}
+
 function sendResult(res: ServerResponse, result: Result<void, AppError>, status: number): void {
   if (!result.ok) {
-    sendError(res, result.error.code, result.error.message);
+    sendAppError(res, result.error);
     return;
   }
   res.writeHead(status, { "Cache-Control": "no-store" }).end();

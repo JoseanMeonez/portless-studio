@@ -216,6 +216,75 @@ class FakeEventSource {
   }
 }
 
+describe("HttpRoutesGateway health and control", () => {
+  const withToken = (respond: (url: string, init: RequestInit) => Response) =>
+    stubFetch((url, init) =>
+      url === API_PATHS.session ? json(200, { token: "t" }) : respond(url, init),
+    );
+
+  it("reads the doctor checks", async () => {
+    const checks = [{ id: "portless", status: "ok", title: "portless 1 is installed", detail: "" }];
+    const { fetch } = stubFetch(() => json(200, { checks }));
+    const gateway = new HttpRoutesGateway({ fetch });
+    expect(await gateway.getDoctor()).toEqual({ ok: true, value: { checks } });
+  });
+
+  it("runs a fix, a proxy action, a Studio action and a process stop with the token", async () => {
+    const { calls, fetch } = withToken((url) => {
+      if (url === API_PATHS.doctorFix("proxy-running")) {
+        return json(200, { message: "Started", checks: [] });
+      }
+      if (url === API_PATHS.proxy("restart")) return json(200, { message: "Restarted" });
+      if (url === API_PATHS.studio("stop")) {
+        return json(202, { message: "Stopping", startCommand: "portless-studio" });
+      }
+      return new Response(null, { status: 204 });
+    });
+    const gateway = new HttpRoutesGateway({ fetch });
+
+    expect(await gateway.runDoctorFix("proxy-running")).toEqual({
+      ok: true,
+      value: { message: "Started", checks: [] },
+    });
+    expect(await gateway.controlProxy("restart")).toEqual({
+      ok: true,
+      value: { message: "Restarted" },
+    });
+    expect(await gateway.controlStudio("stop")).toEqual({
+      ok: true,
+      value: { message: "Stopping", startCommand: "portless-studio" },
+    });
+    expect(await gateway.stopProcess(51)).toEqual({ ok: true, value: null });
+
+    const writes = calls.filter((call) => call.url !== API_PATHS.session);
+    expect(writes.map((call) => [call.init.method, call.url, header(call, TOKEN_HEADER)])).toEqual([
+      ["POST", API_PATHS.doctorFix("proxy-running"), "t"],
+      ["POST", API_PATHS.proxy("restart"), "t"],
+      ["POST", API_PATHS.studio("stop"), "t"],
+      ["POST", API_PATHS.stopProcess(51), "t"],
+    ]);
+  });
+
+  it("keeps the command of a needs_admin error", async () => {
+    const { fetch } = withToken(() =>
+      json(409, {
+        error: "needs_admin",
+        message: "Runs as root.",
+        command: "sudo portless proxy stop",
+      }),
+    );
+    const gateway = new HttpRoutesGateway({ fetch });
+    expect(await gateway.controlProxy("stop")).toEqual({
+      ok: false,
+      error: {
+        error: "needs_admin",
+        message: "Runs as root.",
+        command: "sudo portless proxy stop",
+      },
+    });
+  });
+});
+
 describe("HttpRoutesGateway live updates", () => {
   beforeEach(() => {
     FakeEventSource.instances = [];

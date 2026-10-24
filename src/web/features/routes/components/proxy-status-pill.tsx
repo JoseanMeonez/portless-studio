@@ -13,7 +13,7 @@ export function ProxyStatusPill({ proxy, portlessVersion = null }: ProxyStatusPi
   const tld = proxy.tlds[0];
   const title = portlessVersion ? `portless ${portlessVersion} proxy` : "portless proxy";
   return (
-    <div className={styles.pill} title={title}>
+    <span className={styles.pill} title={title}>
       <StatusDot tone={proxy.running ? "success" : "danger"} />
       <span className={styles.state}>{proxy.running ? "Running" : "Stopped"}</span>
       <span className={styles.divider} aria-hidden="true" />
@@ -23,6 +23,6 @@ export function ProxyStatusPill({ proxy, portlessVersion = null }: ProxyStatusPi
       </span>
       {proxy.port !== null ? <span className={styles.mono}>:{proxy.port}</span> : null}
       {tld ? <span className={styles.mono}>.{tld}</span> : null}
-    </div>
+    </span>
   );
 }

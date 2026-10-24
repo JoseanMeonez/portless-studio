@@ -56,7 +56,7 @@ To move to a different backend, write another class that implements `RoutesGatew
 `src/web/app/app.tsx`. Nothing in `hooks`, `components` or `containers` changes.
 
 The server has the same seam: use cases depend on the `RouteRegistry` port, and the portless
-adapter is one implementation of it. The port has five methods:
+adapter is one implementation of it. The port has these methods:
 
 | Method | What it does |
 | --- | --- |
@@ -65,6 +65,8 @@ adapter is one implementation of it. The port has five methods:
 | `createAlias(name, port, force)` | Names a port. |
 | `removeAlias(name)` | Removes a name. |
 | `installPortless()` | Runs `npm install -g portless`, then detects portless again and notifies watchers. Fails with `install_failed` (HTTP 502, npm's output in the message) or `install_in_progress` (HTTP 409) while another install runs. |
+| `startProxy(port, https)` / `stopProxy()` | `portless proxy start` and `portless proxy stop`, with stdin closed so nothing waits for a password. |
+| `proxyPid()` | The pid portless recorded in `proxy.pid`, so Studio can tell whether root owns the proxy. |
 
 The portless adapter caches the `portless --version` result for 30 seconds, so reads and polling
 do not start a process each time; an install clears the cache.
@@ -83,12 +85,42 @@ Two more ports feed port detection and settings:
 another Studio (they send `x-portless-studio`), and run on a known runtime (`node`, `python`, `bun`
 and similar) or from a binary built inside the project.
 
-On the web side, `RoutesGateway` also has `getConfig()`, `updateConfig(config)` and
-`ignoreDetected(port)`.
+`StudioRuntime` also adds two optional fields to each route in the snapshot: `listenerPid`, the
+process listening on the route's port in the last scan, and `health`, the last HTTP probe of that
+port (`up` below 500, `error` for 5xx, `down` when nothing answers). Routes are probed on the scan
+loop only while a browser watches.
+
+## Health checks and control
+
+Three more ports serve the Health panel, `portless-studio doctor` and the service controls:
+
+| Port | Default implementation | What it does |
+| --- | --- | --- |
+| `ProcessControl` (`application/process-control.ts`) | `infrastructure/system/system-process-control.ts` | Says who owns a pid (root, you, another user) from `/proc/<pid>/status`, `ps` or `tasklist`, and stops a process with SIGTERM, then SIGKILL after 5 seconds (`taskkill` on Windows). |
+| `StudioServiceControl` (`application/studio-service.ts`) | `cli/studio-service-control.ts` | Restarts or stops Studio through systemd or launchd when it runs as the login service; otherwise a stop exits the process. The CLI provides it because only the CLI knows how Studio was started. |
+| `ProbePort` (`application/port-scanner.ts`) | `probeHttpResponse` in `infrastructure/system/system-port-scanner.ts` | One `HEAD /` to a loopback port: status, latency, and whether a Studio answered. |
+
+The doctor is split in two. `infrastructure/system/doctor-facts.ts` gathers facts without changing
+anything: the portless proxy processes and their owners, Chrome's certificate store on Linux
+(`certutil -L -d sql:$HOME/.pki/nssdb`), what holds Studio's port, the config and the login
+service. `application/doctor.ts` turns those facts into `DoctorCheck`s (`core/doctor`) with a pure
+function, so every rule is tested with plain objects. A fix runs only when the check offers it as an
+action at that moment (start the proxy, restart a proxy you own, move to HTTP on port 1355); fixes
+that need sudo are commands to copy, never run.
+
+`application/proxy-control.ts` starts, stops and restarts the proxy, and refuses with
+`needs_admin` and the `sudo` command when root or another user owns it.
+`application/stop-process.ts` stops a dev server only when its pid listens on a detected or routed
+port and belongs to the current user.
+
+On the web side, `RoutesGateway` also has `getConfig()`, `updateConfig(config)`,
+`ignoreDetected(port)`, `getDoctor()`, `runDoctorFix(id)`, `controlProxy(action)`,
+`controlStudio(action)` and `stopProcess(pid)`.
 
 ## Security
 
 The server listens on `127.0.0.1` only. Every request must carry a `Host` that is loopback or a
 `.localhost` name, and a browser `Origin`, when present, must match it. Writes, including the
 portless install, also need a per-run token the page reads from `GET /api/session`; browsers only let same-origin pages read it. This keeps other websites
-open in the same browser from creating or removing routes.
+open in the same browser from creating or removing routes, controlling the proxy or Studio, or
+stopping processes.

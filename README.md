@@ -38,6 +38,7 @@ every `*.localhost` name to your own machine by themselves, with no hosts file a
 | `portless-studio service uninstall` | Undoes `service install`. |
 | `portless-studio service status` | Says whether the login service is installed and running. |
 | `portless-studio config [--edit]` | Prints the config file path and its contents, or opens it in `$EDITOR`. |
+| `portless-studio doctor` | Checks portless, the proxy, the certificate, Studio's port and the login service, and prints the fix for each problem. Exits with 1 when something fails. |
 
 ### Config file
 
@@ -72,7 +73,19 @@ several projects you have to remember which names exist. portless studio shows t
   Docker (`db` -> `https://db.localhost`). Rename or remove those names later.
 - **Keyboard first:** `j`/`k` to move, `Enter` to open, `c` to copy, `n` to name a port,
   `/` to filter and `Ctrl+K` (or `Cmd+K`) for the command menu.
-- **Proxy status:** shows whether the portless proxy is running, on which port and TLD.
+- **Proxy status and control:** shows whether the portless proxy is running, on which port and
+  TLD. Click it to start, stop or restart the proxy. A proxy started with sudo cannot be stopped
+  from the page; Studio shows the `sudo` command to run instead.
+- **Health panel:** the header's Health button turns amber or red when something needs attention,
+  such as a proxy left running as root, two proxies at once, an HTTPS certificate Chrome does not
+  trust, or another program on Studio's port. Each problem comes with a button that fixes it, or
+  the command to copy when it needs sudo. The same checks run in `portless-studio doctor`.
+- **Route health:** each route's dot is green when its port answers, amber when it answers with a
+  server error and red when an app stops answering; the tooltip says `200 in 12 ms`.
+- **Stop a dev server** from its row, after a confirmation that names the process and port. Only
+  your own processes that listen on a port Studio shows can be stopped.
+- **Restart or stop Studio** from the Health panel. As a login service, systemd or launchd do it;
+  started from a terminal, Studio can only stop.
 - **Install portless:** when the portless command is missing, the page says so and can run
   `npm install -g portless` for you, showing npm's output.
 
@@ -115,8 +128,10 @@ portless alias db.myapp 5432      # a port something else opened, at https://db.
 
 The server listens on `127.0.0.1` only and rejects requests whose `Host` or `Origin` is not local,
 so other websites open in your browser cannot read your routes. Creating, renaming and removing
-names, and installing portless, also need a token that changes on every run. The install always
-runs the same fixed command; nothing from the request reaches it.
+names, installing portless, controlling the proxy or Studio and stopping a dev server also need a
+token that changes on every run. The install always runs the same fixed command; nothing from the
+request reaches it. A dev server can be stopped only when it belongs to your user and listens on a
+port Studio shows, and Studio never runs a command that needs sudo.
 
 ## Develop
 

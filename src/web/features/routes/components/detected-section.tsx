@@ -17,6 +17,11 @@ type DetectedSectionProps = {
   onName: (detected: DetectedPort) => void;
   onIgnore: (detected: DetectedPort) => void;
   onNameAll: () => void;
+  /** Port whose row asks to confirm stopping its server. */
+  confirmingStop: number | null;
+  onRequestStop: (detected: DetectedPort) => void;
+  onConfirmStop: (detected: DetectedPort) => void;
+  onCancelStop: () => void;
 };
 
 /** Dev servers found on this machine that portless does not know yet, ready to be named. */
@@ -30,6 +35,10 @@ export function DetectedSection({
   onName,
   onIgnore,
   onNameAll,
+  confirmingStop,
+  onRequestStop,
+  onConfirmStop,
+  onCancelStop,
 }: DetectedSectionProps) {
   const suggested = detected.filter((item) => item.suggestedName !== null).length;
   const count =
@@ -69,8 +78,12 @@ export function DetectedSection({
           <DetectedRow
             key={item.port}
             detected={item}
+            confirmingStop={confirmingStop === item.port}
             onName={() => onName(item)}
             onIgnore={() => onIgnore(item)}
+            onRequestStop={() => onRequestStop(item)}
+            onConfirmStop={() => onConfirmStop(item)}
+            onCancelStop={onCancelStop}
           />
         ))}
       </ul>

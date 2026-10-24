@@ -2,15 +2,22 @@ import type {
   ApiError,
   ConfigResponse,
   CreateAliasRequest,
+  DoctorFixResponse,
+  DoctorReport,
   InstallPortlessResponse,
+  ProxyAction,
+  ProxyActionResponse,
   RenameAliasRequest,
   Snapshot,
+  StudioAction,
+  StudioActionResponse,
 } from "../../../../core/api/contract.ts";
 import {
   DEFAULT_CONFIG,
   parseConfig,
   type StudioConfig,
 } from "../../../../core/config/studio-config.ts";
+import type { DoctorCheck } from "../../../../core/doctor/doctor-check.ts";
 import type { DetectedPort } from "../../../../core/ports/detected-port.ts";
 import { err, ok, type Result } from "../../../../core/result.ts";
 import { type Route, routeUrl } from "../../../../core/routes/route.ts";
@@ -25,6 +32,10 @@ export type InMemoryRoutesGatewayOptions = {
   autoNameDelayMs?: number;
   /** Where the fake config file lives, shown in the settings panel. */
   configPath?: string;
+  /** `root` shows a proxy started with sudo, which Studio cannot stop. */
+  proxyOwner?: "you" | "root";
+  /** Whether the fake Studio runs as a login service, so it can restart itself. */
+  loginService?: boolean;
 };
 
 export const DEMO_CONFIG_PATH = "~/.portless-studio/config.json";
@@ -46,6 +57,7 @@ export class InMemoryRoutesGateway implements RoutesGateway {
   // Every port listening on the fake machine; `snapshot.detected` is the part not named or ignored.
   #listening: DetectedPort[];
   #autoNameTimer: ReturnType<typeof setTimeout> | undefined;
+  #proxyOwner: "you" | "root";
 
   constructor(
     initial: Snapshot,
@@ -57,6 +69,7 @@ export class InMemoryRoutesGateway implements RoutesGateway {
     this.#options = options;
     this.#config = { ...DEFAULT_CONFIG, autoName: initial.autoName };
     this.#listening = [...initial.detected];
+    this.#proxyOwner = options.proxyOwner ?? "you";
   }
 
   async getSnapshot(): Promise<Result<Snapshot, ApiError>> {
@@ -182,6 +195,188 @@ export class InMemoryRoutesGateway implements RoutesGateway {
     this.#config = { ...this.#config, ignoredPorts };
     this.#update(this.#snapshot.routes);
     return ok(null);
+  }
+
+  async getDoctor(): Promise<Result<DoctorReport, ApiError>> {
+    return ok({ checks: this.#checks() });
+  }
+
+  /** Runs the fake fixes the way the server would: only actions the checks offer right now. */
+  async runDoctorFix(id: string): Promise<Result<DoctorFixResponse, ApiError>> {
+    const action = this.#checks().find((check) => check.id === id)?.fix?.action;
+    if (!action)
+      return err({ error: "not_found", message: `There is no fix Studio can run for "${id}".` });
+    let message: string;
+    if (action === "use-http-1355") {
+      this.#config = { ...this.#config, proxyPort: 1355, proxyHttps: false };
+      if (this.#proxyOwner === "root" && this.#snapshot.proxy.running) {
+        message =
+          "Saved HTTP on port 1355. Stop the current proxy with `sudo portless proxy stop`.";
+      } else {
+        this.#setProxy({ running: true, port: 1355, https: false });
+        message = "Restarted the proxy on port 1355.";
+      }
+    } else {
+      const done = await this.controlProxy(action === "start-proxy" ? "start" : "restart");
+      if (!done.ok) return done;
+      message = done.value.message;
+    }
+    return ok({ message, checks: this.#checks() });
+  }
+
+  async controlProxy(action: ProxyAction): Promise<Result<ProxyActionResponse, ApiError>> {
+    const { proxy } = this.#snapshot;
+    if (action !== "start" && proxy.running && this.#proxyOwner === "root") {
+      return err({
+        error: "needs_admin",
+        message: "The proxy runs as root (pid 3694271), so stopping it needs sudo.",
+        command: "sudo portless proxy stop",
+      });
+    }
+    if (action === "stop") {
+      this.#setProxy({ running: false });
+      return ok({ message: "Stopped the proxy." });
+    }
+    const port = this.#config.proxyPort;
+    this.#proxyOwner = "you";
+    this.#setProxy({ running: true, port, https: this.#config.proxyHttps });
+    return ok({
+      message:
+        action === "restart"
+          ? `Restarted the proxy on port ${port}.`
+          : `Started the proxy on port ${port}.`,
+    });
+  }
+
+  async controlStudio(action: StudioAction): Promise<Result<StudioActionResponse, ApiError>> {
+    const service = this.#options.loginService ?? true;
+    if (action === "restart" && !service) {
+      return err({
+        error: "unsupported",
+        message: "Studio was started from a terminal, so nothing would start it again.",
+        command: "portless-studio service install",
+      });
+    }
+    return ok({
+      message: action === "restart" ? "Studio is restarting." : "Studio is stopping.",
+      startCommand: service ? "systemctl --user start portless-studio" : "portless-studio",
+    });
+  }
+
+  /** Stops a fake dev server: a detected port disappears, a route stops answering. */
+  async stopProcess(pid: number): Promise<Result<null, ApiError>> {
+    const detected = this.#listening.find((item) => item.pid === pid);
+    const route = this.#snapshot.routes.find((item) => item.listenerPid === pid);
+    if (!detected && !route) {
+      return err({
+        error: "process_not_allowed",
+        message: `Process ${pid} does not serve a port Studio shows.`,
+      });
+    }
+    this.#listening = this.#listening.filter((item) => item.pid !== pid);
+    const routes = this.#snapshot.routes.map((item) => {
+      if (item.listenerPid !== pid) return item;
+      const { listenerPid: _stopped, ...rest } = item;
+      return { ...rest, health: { state: "down" as const, checkedAt: this.#now() } };
+    });
+    this.#update(routes);
+    return ok(null);
+  }
+
+  /** The checks the demo machine fails, built from the fake state like the server's doctor. */
+  #checks(): DoctorCheck[] {
+    const { proxy, portless } = this.#snapshot;
+    const checks: DoctorCheck[] = [
+      portless.installed
+        ? {
+            id: "portless",
+            status: "ok",
+            title: `portless ${portless.version ?? ""} is installed`.replace("  ", " "),
+            detail: "Studio names ports and starts the proxy through it.",
+          }
+        : {
+            id: "portless",
+            status: "fail",
+            title: "portless is not installed",
+            detail: "Without it no port gets a name. Install it, then run the checks again.",
+            fix: { label: "Install portless", command: "npm install -g portless" },
+          },
+      {
+        id: "config",
+        status: "ok",
+        title: "The config file is valid",
+        detail: this.#options.configPath ?? DEMO_CONFIG_PATH,
+      },
+    ];
+    if (portless.installed) {
+      checks.push(
+        proxy.running
+          ? {
+              id: "proxy-running",
+              status: "ok",
+              title: "The proxy is running",
+              detail: `It serves ${proxy.https ? "HTTPS" : "HTTP"} on port ${proxy.port}.`,
+            }
+          : {
+              id: "proxy-running",
+              status: "warn",
+              title: "The proxy is not running",
+              detail: "Names do not open until it runs.",
+              fix: {
+                label: `Start the proxy on port ${this.#config.proxyPort}`,
+                action: "start-proxy",
+                command: `portless proxy start --port ${this.#config.proxyPort} --no-tls`,
+              },
+            },
+      );
+      if (proxy.running && this.#proxyOwner === "root") {
+        checks.push({
+          id: "proxy-owner",
+          status: "warn",
+          title: "The proxy runs as root",
+          detail:
+            "It was started with sudo (pid 3694271, port 443), so Studio cannot stop or restart " +
+            "it. Stop it once; Studio then starts its own proxy over HTTP on port 1355.",
+          fix: { label: "Stop it once with sudo", command: "sudo portless proxy stop" },
+        });
+      } else if (proxy.running) {
+        checks.push({
+          id: "proxy-owner",
+          status: "ok",
+          title: "The proxy runs as you",
+          detail: "Studio can stop and restart it.",
+          fix: { label: "Restart the proxy", action: "restart-proxy" },
+        });
+      }
+      if (proxy.running && proxy.https) {
+        checks.push({
+          id: "https-trust",
+          status: "warn",
+          title: "Chrome may not trust the HTTPS certificate",
+          detail:
+            "The portless certificate is not in Chrome's certificate store. On Linux, Chrome " +
+            "reads ~/.pki/nssdb and not the system store, so names show " +
+            "ERR_CERT_AUTHORITY_INVALID.",
+          fix: { label: "Switch to HTTP on port 1355", action: "use-http-1355" },
+        });
+      }
+    }
+    checks.push({
+      id: "studio-port",
+      status: "ok",
+      title: `Studio answers on port ${this.#config.port}`,
+      detail: "Its port belongs to Studio.",
+    });
+    return checks;
+  }
+
+  #setProxy(change: Partial<Snapshot["proxy"]>): void {
+    const proxy = { ...this.#snapshot.proxy, ...change };
+    const routes = this.#snapshot.routes.map((route) => ({
+      ...route,
+      url: routeUrl(route.hostname, proxy),
+    }));
+    this.#publish({ ...this.#snapshot, proxy, routes, readAt: this.#now() });
   }
 
   #configResponse(): ConfigResponse {

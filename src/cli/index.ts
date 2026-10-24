@@ -17,6 +17,7 @@ import {
 } from "./cli-args.ts";
 import { runCommand } from "./command-runner.ts";
 import { editConfig, printConfig } from "./config-command.ts";
+import { runDoctorCommand } from "./doctor-command.ts";
 import { runInit } from "./init.ts";
 import {
   installService,
@@ -33,6 +34,7 @@ import {
   type StudioAlias,
   unregisterStudioAlias,
 } from "./studio-alias.ts";
+import { createStudioServiceControl } from "./studio-service-control.ts";
 
 const print = (line: string) => console.log(line);
 
@@ -62,16 +64,38 @@ async function main(): Promise<void> {
       else await printConfig(configStore, print);
       return;
     }
+    case "doctor":
+      await doctor();
+      return;
     case "start":
       await start(options.overrides);
       return;
   }
 }
 
+async function doctor(): Promise<void> {
+  const env = await serviceEnv();
+  const studioService = createStudioServiceControl({
+    env: env.ok ? env.value : null,
+    exitSelf: async () => {},
+  });
+  const services = createStudioServices({ studioService });
+  const code = await runDoctorCommand(() => services.doctor.check(), print);
+  // The services may hold timers or watchers; the report is all doctor does.
+  process.exit(code);
+}
+
 async function start(overrides: StartOverrides): Promise<void> {
   const config = await readConfig(createStudioServices().configStore);
   const settings = resolveStartSettings(overrides, config);
-  const services = createStudioServices({ studioPort: settings.port });
+  // Replaced by the real shutdown once the server runs; the page can ask Studio to stop itself.
+  let shutdown: () => Promise<void> = async () => process.exit(0);
+  const env = await serviceEnv();
+  const studioService = createStudioServiceControl({
+    env: env.ok ? env.value : null,
+    exitSelf: () => shutdown(),
+  });
+  const services = createStudioServices({ studioPort: settings.port, studioService });
 
   const webDir = resolveWebDir();
   let server: RunningServer;
@@ -87,6 +111,8 @@ async function start(overrides: StartOverrides): Promise<void> {
     process.exit(1);
   }
 
+  // The runtime starts the proxy right after the server; wait for it so the printed URL is real.
+  await waitForProxy(server.registry);
   const alias: StudioAlias = settings.register
     ? await registerStudioAlias(server.registry, server.port)
     : { url: null, owned: false };
@@ -107,6 +133,7 @@ async function start(overrides: StartOverrides): Promise<void> {
     await server.close();
     process.exit(0);
   };
+  shutdown = stop;
   process.on("SIGINT", stop);
   process.on("SIGTERM", stop);
 }
@@ -253,3 +280,14 @@ main().catch((error: unknown) => {
   console.error(error instanceof Error ? error.message : String(error));
   process.exit(1);
 });
+
+async function waitForProxy(
+  registry: { readSnapshot(): Promise<{ proxy: { running: boolean } }> },
+  timeoutMs = 3000,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if ((await registry.readSnapshot()).proxy.running) return;
+    await new Promise((resolve) => setTimeout(resolve, 150));
+  }
+}

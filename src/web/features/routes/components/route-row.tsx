@@ -3,7 +3,7 @@ import { formatUptime } from "../../../shared/lib/format-uptime.ts";
 import { Badge } from "../../../shared/ui/badge.tsx";
 import { Button } from "../../../shared/ui/button.tsx";
 import { Icon } from "../../../shared/ui/icons/icon.tsx";
-import { StatusDot } from "../../../shared/ui/status-dot.tsx";
+import { RouteHealthDot } from "./route-health-dot.tsx";
 import styles from "./route-row.module.css";
 import { TunnelLinks } from "./tunnel-links.tsx";
 
@@ -11,29 +11,34 @@ export type RouteRowProps = {
   route: Route;
   now: number;
   selected: boolean;
-  /** The row asks "Remove this alias?" instead of showing its actions. */
-  confirmingRemove: boolean;
+  /** The row asks "Remove this alias?" or "Stop this server?" instead of showing its actions. */
+  confirming: RowConfirmation | null;
   onSelect: () => void;
   onOpen: () => void;
   onCopy: () => void;
   onRename: () => void;
   onRequestRemove: () => void;
-  onConfirmRemove: () => void;
-  onCancelRemove: () => void;
+  /** Shown only when the route's port has a known pid. */
+  onRequestStop: () => void;
+  onConfirm: () => void;
+  onCancelConfirm: () => void;
 };
+
+export type RowConfirmation = "remove" | "stop";
 
 export function RouteRow({
   route,
   now,
   selected,
-  confirmingRemove,
+  confirming,
   onSelect,
   onOpen,
   onCopy,
   onRename,
   onRequestRemove,
-  onConfirmRemove,
-  onCancelRemove,
+  onRequestStop,
+  onConfirm,
+  onCancelConfirm,
 }: RouteRowProps) {
   const uptime = formatUptime(route.registeredAt, now);
   const isAlias = route.kind === "alias";
@@ -46,7 +51,7 @@ export function RouteRow({
       onPointerDown={onSelect}
       onFocus={onSelect}
     >
-      <StatusDot tone={isAlias ? "neutral" : "success"} />
+      <RouteHealthDot route={route} />
 
       <div className={styles.identity}>
         <a href={route.url} target="_blank" rel="noreferrer" className={styles.name} tabIndex={-1}>
@@ -70,14 +75,18 @@ export function RouteRow({
         </span>
       </div>
 
-      {confirmingRemove ? (
+      {confirming ? (
         <div className={styles.confirm}>
-          <span className={styles.confirmText}>Remove {route.name}?</span>
-          <Button size="xs" variant="ghost" onClick={onCancelRemove}>
+          <span className={styles.confirmText}>
+            {confirming === "remove"
+              ? `Remove ${route.name}?`
+              : `Stop :${route.port} (pid ${route.listenerPid})?`}
+          </span>
+          <Button size="xs" variant="ghost" onClick={onCancelConfirm}>
             Cancel
           </Button>
-          <Button size="xs" variant="danger" onClick={onConfirmRemove} autoFocus>
-            Remove
+          <Button size="xs" variant="danger" onClick={onConfirm} autoFocus>
+            {confirming === "remove" ? "Remove" : "Stop"}
           </Button>
         </div>
       ) : (
@@ -102,6 +111,18 @@ export function RouteRow({
           >
             <Icon name="copy" size={14} />
           </Button>
+          {route.listenerPid !== undefined ? (
+            <Button
+              size="xs"
+              variant="ghost"
+              iconOnly
+              aria-label={`Stop the server of ${route.name}`}
+              title={`Stop the server (pid ${route.listenerPid})`}
+              onClick={onRequestStop}
+            >
+              <Icon name="power" size={14} />
+            </Button>
+          ) : null}
           {isAlias ? (
             <>
               <Button

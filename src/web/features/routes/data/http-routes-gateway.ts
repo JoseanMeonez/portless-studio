@@ -3,14 +3,21 @@ import {
   type ApiError,
   type ConfigResponse,
   type CreateAliasRequest,
+  type DoctorFixResponse,
+  type DoctorReport,
   type InstallPortlessResponse,
+  type ProxyAction,
+  type ProxyActionResponse,
   type RenameAliasRequest,
   type Session,
   SNAPSHOT_EVENT,
   type Snapshot,
+  type StudioAction,
+  type StudioActionResponse,
   TOKEN_HEADER,
 } from "../../../../core/api/contract.ts";
 import { parseConfig, type StudioConfig } from "../../../../core/config/studio-config.ts";
+import type { DoctorCheck } from "../../../../core/doctor/doctor-check.ts";
 import { err, ok, type Result } from "../../../../core/result.ts";
 import type { ConnectionListener, RoutesGateway, SnapshotListener } from "./routes-gateway.ts";
 
@@ -130,6 +137,41 @@ export class HttpRoutesGateway implements RoutesGateway {
     return this.#write(API_PATHS.ignoreDetected(port), "POST");
   }
 
+  async getDoctor(): Promise<Result<DoctorReport, ApiError>> {
+    const response = await this.#request(API_PATHS.doctor, { method: "GET" });
+    if (!response.ok) return response;
+    const checks = readChecks(response.value);
+    return checks ? ok({ checks }) : unreadable("health checks");
+  }
+
+  async runDoctorFix(id: string): Promise<Result<DoctorFixResponse, ApiError>> {
+    const response = await this.#send(API_PATHS.doctorFix(id), "POST");
+    if (!response.ok) return response;
+    const checks = readChecks(response.value);
+    return checks
+      ? ok({ message: readMessage(response.value), checks })
+      : unreadable("health checks");
+  }
+
+  async controlProxy(action: ProxyAction): Promise<Result<ProxyActionResponse, ApiError>> {
+    const response = await this.#send(API_PATHS.proxy(action), "POST");
+    return response.ok ? ok({ message: readMessage(response.value) }) : response;
+  }
+
+  async controlStudio(action: StudioAction): Promise<Result<StudioActionResponse, ApiError>> {
+    const response = await this.#send(API_PATHS.studio(action), "POST");
+    if (!response.ok) return response;
+    const body = response.value as Partial<StudioActionResponse> | null;
+    return ok({
+      message: readMessage(body),
+      startCommand: typeof body?.startCommand === "string" ? body.startCommand : "portless-studio",
+    });
+  }
+
+  stopProcess(pid: number): Promise<Result<null, ApiError>> {
+    return this.#write(API_PATHS.stopProcess(pid), "POST");
+  }
+
   async #write(path: string, method: string, body?: unknown): Promise<Result<null, ApiError>> {
     const response = await this.#send(path, method, body);
     return response.ok ? ok(null) : response;
@@ -237,6 +279,20 @@ function readConfigResponse(value: unknown): Result<ConfigResponse, ApiError> {
     return err({ error: "internal", message: "The server sent settings this app cannot read." });
   }
   return ok({ config: config.value, path: body.path });
+}
+
+function readChecks(value: unknown): DoctorCheck[] | null {
+  const checks = (value as { checks?: unknown } | null)?.checks;
+  return Array.isArray(checks) ? (checks as DoctorCheck[]) : null;
+}
+
+function readMessage(value: unknown): string {
+  const message = (value as { message?: unknown } | null)?.message;
+  return typeof message === "string" ? message : "";
+}
+
+function unreadable(what: string): Result<never, ApiError> {
+  return err({ error: "internal", message: `The server sent ${what} this app cannot read.` });
 }
 
 function isApiError(value: unknown): value is ApiError {

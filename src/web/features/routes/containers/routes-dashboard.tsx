@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import type { StudioActionResponse } from "../../../../core/api/contract.ts";
 import type { DetectedPort } from "../../../../core/ports/detected-port.ts";
 import type { Route } from "../../../../core/routes/route.ts";
 import { modifierLabel } from "../../../shared/lib/keyboard.ts";
@@ -11,15 +12,21 @@ import { LoadingRows } from "../components/loading-rows.tsx";
 import { NoMatches } from "../components/no-matches.tsx";
 import { ProxyBanner } from "../components/proxy-banner.tsx";
 import { RouteList } from "../components/route-list.tsx";
+import type { RowConfirmation } from "../components/route-row.tsx";
 import { ShortcutHints } from "../components/shortcut-hints.tsx";
+import { StudioStopped } from "../components/studio-stopped.tsx";
 import { apiErrorMessage } from "../hooks/route-messages.ts";
+import { useDoctor } from "../hooks/use-doctor.ts";
 import { useFilter } from "../hooks/use-filter.ts";
 import { useKeyboardNavigation } from "../hooks/use-keyboard-navigation.ts";
 import { useNow } from "../hooks/use-now.ts";
 import { useRouteActions } from "../hooks/use-route-actions.ts";
 import { useRoutes } from "../hooks/use-routes.ts";
+import { useServiceControl } from "../hooks/use-service-control.ts";
+import { useStopProcess } from "../hooks/use-stop-process.ts";
 import { AliasDialogContainer, type AliasDialogRequest } from "./alias-dialog-container.tsx";
 import { DetectedContainer } from "./detected-container.tsx";
+import { HealthPanelContainer } from "./health-panel-container.tsx";
 import { InstallPortlessContainer } from "./install-portless-container.tsx";
 import { RouteCommandMenu } from "./route-command-menu.tsx";
 import styles from "./routes-dashboard.module.css";
@@ -48,11 +55,20 @@ export function RoutesDashboard({ theme, onToggleTheme }: RoutesDashboardProps) 
   const actions = useRouteActions();
   const toast = useToast();
   const now = useNow();
+  const proxy = snapshot?.proxy ?? null;
+  // Run the checks again whenever the proxy changes: most problems are about it.
+  const doctor = useDoctor(proxy ? `${proxy.running}:${proxy.port}:${proxy.https}` : "");
+  const services = useServiceControl();
+  const stopProcess = useStopProcess();
 
   const [dialog, setDialog] = useState<AliasDialogRequest | null>(null);
   const [commandMenuOpen, setCommandMenuOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [confirmingRemove, setConfirmingRemove] = useState<string | null>(null);
+  const [healthOpen, setHealthOpen] = useState(false);
+  const [stopped, setStopped] = useState<StudioActionResponse | null>(null);
+  const [confirming, setConfirming] = useState<{ name: string; action: RowConfirmation } | null>(
+    null,
+  );
   const filterInput = useRef<HTMLInputElement>(null);
   const list = useRef<HTMLDivElement>(null);
   const modifier = modifierLabel();
@@ -77,21 +93,28 @@ export function RoutesDashboard({ theme, onToggleTheme }: RoutesDashboardProps) 
       });
   };
   const requestRemove = (route: Route) => {
-    if (route.kind === "alias") setConfirmingRemove(route.name);
+    if (route.kind === "alias") setConfirming({ name: route.name, action: "remove" });
     else
       toast({
         title: `${route.name} is an app`,
         description: "It goes away when its dev server stops.",
       });
   };
-  const confirmRemove = async (route: Route) => {
-    setConfirmingRemove(null);
-    await actions.removeAlias(route);
+  const confirmRowAction = async (route: Route, action: RowConfirmation) => {
+    setConfirming(null);
+    if (action === "remove") await actions.removeAlias(route);
+    else if (route.listenerPid !== undefined) {
+      await stopProcess({ pid: route.listenerPid, port: route.port });
+    }
+  };
+  const proxyAction = (action: "start" | "stop" | "restart") => {
+    void services.controlProxy(action).then(() => doctor.refresh());
   };
 
   const navigation = useKeyboardNavigation({
     itemCount: filter.visible.length,
-    enabled: dialog === null && !commandMenuOpen && !settingsOpen && snapshot !== null,
+    enabled:
+      dialog === null && !commandMenuOpen && !settingsOpen && !healthOpen && snapshot !== null,
     onOpen: (index) => withRoute(routeAt(index), actions.open),
     onCopy: (index) => withRoute(routeAt(index), (route) => void actions.copyUrl(route)),
     onRename: (index) => withRoute(routeAt(index), requestRename),
@@ -100,7 +123,7 @@ export function RoutesDashboard({ theme, onToggleTheme }: RoutesDashboardProps) 
     onFocusFilter: () => filterInput.current?.focus(),
     onToggleCommandMenu: () => setCommandMenuOpen((open) => !open),
     onOpenSettings: openSettings,
-    onEscape: () => setConfirmingRemove(null),
+    onEscape: () => setConfirming(null),
   });
   const selected = routeAt(navigation.selectedIndex) ?? null;
 
@@ -113,6 +136,15 @@ export function RoutesDashboard({ theme, onToggleTheme }: RoutesDashboardProps) 
     filter.setQuery(query);
     navigation.select(0);
   };
+
+  if (stopped) {
+    return (
+      <StudioStopped
+        startCommand={stopped.startCommand}
+        onCopy={(command) => void actions.copyCommand(command)}
+      />
+    );
+  }
 
   return (
     <div className={styles.page}>
@@ -127,6 +159,11 @@ export function RoutesDashboard({ theme, onToggleTheme }: RoutesDashboardProps) 
         onOpenCommandMenu={() => setCommandMenuOpen(true)}
         onNamePort={openCreate}
         onOpenSettings={openSettings}
+        health={doctor.status}
+        healthLabel={doctor.label}
+        onOpenHealth={() => setHealthOpen(true)}
+        proxyBusy={services.proxyBusy}
+        onProxyAction={proxyAction}
       />
 
       <main className={styles.main}>
@@ -176,14 +213,15 @@ export function RoutesDashboard({ theme, onToggleTheme }: RoutesDashboardProps) 
                   routes={filter.visible}
                   now={now}
                   selectedIndex={navigation.selectedIndex}
-                  confirmingRemove={confirmingRemove}
+                  confirming={confirming}
                   onSelect={navigation.select}
                   onOpen={actions.open}
                   onCopy={(route) => void actions.copyUrl(route)}
                   onRename={requestRename}
                   onRequestRemove={requestRemove}
-                  onConfirmRemove={(route) => void confirmRemove(route)}
-                  onCancelRemove={() => setConfirmingRemove(null)}
+                  onRequestStop={(route) => setConfirming({ name: route.name, action: "stop" })}
+                  onConfirm={(route, action) => void confirmRowAction(route, action)}
+                  onCancelConfirm={() => setConfirming(null)}
                 />
               ) : (
                 <NoMatches query={filter.query} onClear={() => setQuery("")} />
@@ -207,6 +245,15 @@ export function RoutesDashboard({ theme, onToggleTheme }: RoutesDashboardProps) 
 
       {settingsOpen ? <SettingsDialogContainer onClose={() => setSettingsOpen(false)} /> : null}
 
+      {healthOpen ? (
+        <HealthPanelContainer
+          doctor={doctor}
+          services={services}
+          onStudioStopped={setStopped}
+          onClose={() => setHealthOpen(false)}
+        />
+      ) : null}
+
       {commandMenuOpen ? (
         <RouteCommandMenu
           routes={routes}
@@ -217,6 +264,9 @@ export function RoutesDashboard({ theme, onToggleTheme }: RoutesDashboardProps) 
           onToggleTheme={onToggleTheme}
           onFocusFilter={() => filterInput.current?.focus()}
           onOpenSettings={openSettings}
+          onOpenHealth={() => setHealthOpen(true)}
+          proxyRunning={snapshot?.proxy.running ?? false}
+          onProxyAction={proxyAction}
         />
       ) : null}
     </div>

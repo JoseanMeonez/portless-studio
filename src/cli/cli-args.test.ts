@@ -29,6 +29,11 @@ describe("parseCliArgs", () => {
     expect(parseCliArgs(["--nope"])).toMatchObject({ ok: false });
   });
 
+  it("reads doctor and refuses flags it does not take", () => {
+    expect(parseCliArgs(["doctor"])).toEqual({ ok: true, value: { command: "doctor" } });
+    expect(parseCliArgs(["doctor", "--port", "1"])).toMatchObject({ ok: false });
+  });
+
   it("reads init and its --yes flag", () => {
     expect(parseCliArgs(["init"])).toEqual({ ok: true, value: { command: "init", yes: false } });
     expect(parseCliArgs(["init", "--yes"])).toEqual({

@@ -11,12 +11,14 @@ import {
   TOKEN_HEADER,
 } from "../../../core/api/contract.ts";
 import { DEFAULT_CONFIG } from "../../../core/config/studio-config.ts";
+import type { DoctorCheck } from "../../../core/doctor/doctor-check.ts";
 import { err, ok, type Result } from "../../../core/result.ts";
 import type { Route } from "../../../core/routes/route.ts";
 import type { AppError } from "../../application/app-error.ts";
 import type { ListeningPort, PortScanner } from "../../application/port-scanner.ts";
 import type { PortlessState, RouteRegistry } from "../../application/route-registry.ts";
 import { StudioRuntime } from "../../application/studio-runtime.ts";
+import type { PreparedStudioAction } from "../../application/studio-service.ts";
 import { JsonConfigStore } from "../../infrastructure/config/json-config-store.ts";
 import { createHttpServer, type HttpServer } from "./http-server.ts";
 
@@ -86,12 +88,70 @@ let webDir: string;
 let fake: ReturnType<typeof fakeRegistry>;
 let configDir: string;
 let configFile: string;
+let ops: ReturnType<typeof fakeOperations>;
+
+const CHECK: DoctorCheck = {
+  id: "proxy-running",
+  status: "warn",
+  title: "The proxy is not running",
+  detail: "Names do not open until it runs.",
+  fix: { label: "Start the proxy on port 1355", action: "start-proxy" },
+};
+
+/** Doctor, proxy, Studio and process operations, recording what the server asks of them. */
+function fakeOperations() {
+  const calls: string[] = [];
+  const state = {
+    calls,
+    proxyResult: ok("Stopped the proxy.") as Result<string, AppError>,
+    studioResult: null as Result<PreparedStudioAction, AppError> | null,
+    stopResult: ok({ pid: 51, port: 5173 }) as Result<{ pid: number; port: number }, AppError>,
+  };
+  return {
+    state,
+    options: {
+      doctor: {
+        check: async () => [CHECK],
+        fix: async (id: string) => {
+          calls.push(`fix ${id}`);
+          return ok({ message: "Started the proxy on port 1355.", checks: [] });
+        },
+      },
+      controlProxy: async (action: string) => {
+        calls.push(`proxy ${action}`);
+        return state.proxyResult;
+      },
+      studioService: {
+        status: async () => null,
+        prepare: async (action: string) => {
+          calls.push(`prepare ${action}`);
+          return (
+            state.studioResult ??
+            ok({
+              message: "Studio is stopping.",
+              startCommand: "portless-studio",
+              run: async () => {
+                calls.push(`run ${action}`);
+              },
+            })
+          );
+        },
+      },
+      stopProcess: async (pid: string) => {
+        calls.push(`stop ${pid}`);
+        return state.stopResult;
+      },
+    },
+  };
+}
 
 const devServer: ListeningPort = { port: 5173, pid: 51, processName: "node", cwd: "/code/app" };
 const scanner: PortScanner = { scan: async () => [devServer], answersHttp: async () => true };
 
 async function start(withWeb = true) {
   fake = fakeRegistry();
+  const operations = fakeOperations();
+  ops = operations;
   const studio = new StudioRuntime({
     registry: fake.registry,
     scanner,
@@ -106,6 +166,7 @@ async function start(withWeb = true) {
     studio,
     token: TOKEN,
     webDir: withWeb ? webDir : undefined,
+    ...operations.options,
   });
   await new Promise<void>((resolve) => http.server.listen(0, "127.0.0.1", resolve));
   port = (http.server.address() as AddressInfo).port;
@@ -254,6 +315,93 @@ describe("API writes", () => {
     const reply = await send("POST", API_PATHS.aliases, write, "{nope");
     expect(reply.status).toBe(400);
     expect(json(reply)).toMatchObject({ error: "invalid_request" });
+  });
+});
+
+describe("doctor", () => {
+  it("returns the checks without a token", async () => {
+    const reply = await send("GET", API_PATHS.doctor);
+    expect(reply.status).toBe(200);
+    expect(json(reply)).toEqual({ checks: [CHECK] });
+  });
+
+  it("runs a fix only with the token", async () => {
+    expect((await send("POST", API_PATHS.doctorFix("proxy-running"))).status).toBe(403);
+    const reply = await send("POST", API_PATHS.doctorFix("proxy-running"), write);
+    expect(reply.status).toBe(200);
+    expect(json(reply)).toEqual({ message: "Started the proxy on port 1355.", checks: [] });
+    expect(ops.state.calls).toEqual(["fix proxy-running"]);
+  });
+});
+
+describe("proxy and Studio control", () => {
+  it("stops the proxy with the token and answers with what happened", async () => {
+    expect((await send("POST", API_PATHS.proxy("stop"))).status).toBe(403);
+    const reply = await send("POST", API_PATHS.proxy("stop"), write);
+    expect(reply.status).toBe(200);
+    expect(json(reply)).toEqual({ message: "Stopped the proxy." });
+    expect(ops.state.calls).toEqual(["proxy stop"]);
+  });
+
+  it("returns the sudo command when the proxy belongs to root", async () => {
+    ops.state.proxyResult = err({
+      code: "needs_admin",
+      message: "The proxy runs as root (pid 1), so stopping it needs sudo.",
+      command: "sudo portless proxy stop",
+    });
+    const reply = await send("POST", API_PATHS.proxy("restart"), write);
+    expect(reply.status).toBe(409);
+    expect(json(reply)).toMatchObject({
+      error: "needs_admin",
+      command: "sudo portless proxy stop",
+    });
+  });
+
+  it("rejects an unknown proxy action", async () => {
+    const reply = await send("POST", "/api/proxy/explode", write);
+    expect(reply.status).toBe(404);
+    expect(ops.state.calls).toEqual([]);
+  });
+
+  it("answers a Studio stop before running it", async () => {
+    expect((await send("POST", API_PATHS.studio("stop"))).status).toBe(403);
+    const reply = await send("POST", API_PATHS.studio("stop"), write);
+    expect(reply.status).toBe(202);
+    expect(json(reply)).toEqual({
+      message: "Studio is stopping.",
+      startCommand: "portless-studio",
+    });
+    await vi.waitFor(() => expect(ops.state.calls).toEqual(["prepare stop", "run stop"]));
+  });
+
+  it("passes on a Studio action this system cannot do", async () => {
+    ops.state.studioResult = err({
+      code: "unsupported",
+      message: "Windows cannot restart Studio.",
+    });
+    const reply = await send("POST", API_PATHS.studio("restart"), write);
+    expect(reply.status).toBe(501);
+    expect(ops.state.calls).toEqual(["prepare restart"]);
+  });
+});
+
+describe("stopping a dev server", () => {
+  it("needs the token", async () => {
+    expect((await send("POST", API_PATHS.stopProcess(51))).status).toBe(403);
+    expect(ops.state.calls).toEqual([]);
+  });
+
+  it("stops the process and answers 204", async () => {
+    const reply = await send("POST", API_PATHS.stopProcess(51), write);
+    expect(reply.status).toBe(204);
+    expect(ops.state.calls).toEqual(["stop 51"]);
+  });
+
+  it("returns process_not_allowed as 403 with the message", async () => {
+    ops.state.stopResult = err({ code: "process_not_allowed", message: "Not yours." });
+    const reply = await send("POST", API_PATHS.stopProcess(1), write);
+    expect(reply.status).toBe(403);
+    expect(json(reply)).toMatchObject({ error: "process_not_allowed", message: "Not yours." });
   });
 });
 

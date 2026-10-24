@@ -18,7 +18,11 @@ export function nameErrorMessage(error: RouteNameError): string {
   return NAME_MESSAGES[error];
 }
 
-/** The server's message is usually the most specific; a few codes get a clearer hint instead. */
+/**
+ * The server's message is usually the most specific; a few codes get a clearer hint instead. A
+ * command the person can run themselves, such as one with sudo, is added at the end.
+ */
 export function apiErrorMessage(error: ApiError): string {
-  return API_MESSAGES[error.error] ?? error.message;
+  const message = API_MESSAGES[error.error] ?? error.message;
+  return error.command ? `${message} Run: ${error.command}` : message;
 }

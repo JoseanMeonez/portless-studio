@@ -1,15 +1,30 @@
 import { randomBytes } from "node:crypto";
 import type { AddressInfo } from "node:net";
+import * as os from "node:os";
+import type { ProxyAction } from "../core/api/contract.ts";
 import type { DetectedPort } from "../core/ports/detected-port.ts";
+import type { Result } from "../core/result.ts";
+import type { AppError } from "./application/app-error.ts";
 import type { ConfigStore } from "./application/config-store.ts";
+import { createDoctorService, type DoctorService } from "./application/doctor.ts";
 import type { PortScanner } from "./application/port-scanner.ts";
+import { controlProxy } from "./application/proxy-control.ts";
 import type { RouteRegistry } from "./application/route-registry.ts";
+import { stopProcess } from "./application/stop-process.ts";
 import { StudioRuntime } from "./application/studio-runtime.ts";
+import type { StudioServiceControl } from "./application/studio-service.ts";
 import { defaultConfigPath, JsonConfigStore } from "./infrastructure/config/json-config-store.ts";
 import { PortlessRegistry } from "./infrastructure/portless/portless-registry.ts";
 import { resolveStateDir } from "./infrastructure/portless/state-files.ts";
+import { collectDoctorFacts } from "./infrastructure/system/doctor-facts.ts";
 import { ProjectInfoReader } from "./infrastructure/system/project-info.ts";
-import { createPortScanner } from "./infrastructure/system/system-port-scanner.ts";
+import { nodeSystemIo } from "./infrastructure/system/system-io.ts";
+import {
+  createPortScanner,
+  listPortsFor,
+  probeHttpResponse,
+} from "./infrastructure/system/system-port-scanner.ts";
+import { SystemProcessControl } from "./infrastructure/system/system-process-control.ts";
 import { createHttpServer } from "./interface/http/http-server.ts";
 
 export { defaultConfigPath } from "./infrastructure/config/json-config-store.ts";
@@ -24,6 +39,12 @@ export type StudioServices = {
   configStore: ConfigStore;
   /** One scan with the current config, same filtering as the UI. */
   detectPorts(): Promise<DetectedPort[]>;
+  /** Health checks and the fixes Studio can run itself. */
+  doctor: DoctorService;
+  controlProxy(action: ProxyAction): Promise<Result<string, AppError>>;
+  stopProcess(pid: string): Promise<Result<{ pid: number; port: number }, AppError>>;
+  /** Restart and stop for Studio itself, when the CLI provides them. */
+  studioService?: StudioServiceControl | undefined;
 };
 
 export type StudioServicesOptions = {
@@ -37,14 +58,17 @@ export type StudioServicesOptions = {
   configPath?: string | undefined;
   /** Studio's own port, left out of detected ports. */
   studioPort?: number | undefined;
+  /** Restart and stop for Studio itself; the doctor also reads the login service from it. */
+  studioService?: StudioServiceControl | undefined;
 };
 
 // Lets startServer reuse the runtime behind services built here, so both share one scan cache.
 const runtimes = new WeakMap<StudioServices, StudioRuntime>();
 
 export function createStudioServices(options: StudioServicesOptions = {}): StudioServices {
+  const stateDir = options.stateDir ?? resolveStateDir();
   const registry = new PortlessRegistry({
-    stateDir: options.stateDir ?? resolveStateDir(),
+    stateDir,
     bin: options.portlessBin ?? (process.env.PORTLESS_BIN || "portless"),
     ...(options.npmBin === undefined ? {} : { npmBin: options.npmBin }),
   });
@@ -56,12 +80,50 @@ export function createStudioServices(options: StudioServicesOptions = {}): Studi
     configStore,
     projects: new ProjectInfoReader(),
     studioPort: options.studioPort ?? null,
+    probe: (port) => probeHttpResponse(port),
+  });
+  const uid = typeof process.getuid === "function" ? process.getuid() : null;
+  const processes = new SystemProcessControl({
+    platform: process.platform,
+    io: nodeSystemIo,
+    uid,
+    userName: os.userInfo().username,
+  });
+  const proxy = (action: ProxyAction) =>
+    controlProxy(action, { registry, processes, config: () => runtime.settings() });
+  const studioService = options.studioService;
+  const doctor = createDoctorService({
+    collect: () =>
+      collectDoctorFacts({
+        platform: process.platform,
+        homeDir: os.homedir(),
+        stateDir,
+        uid,
+        registry,
+        configStore,
+        processes,
+        io: nodeSystemIo,
+        listPorts: listPortsFor(process.platform, nodeSystemIo),
+        probe: (port) => probeHttpResponse(port),
+        ...(studioService ? { loginService: () => studioService.status() } : {}),
+      }),
+    controlProxy: proxy,
+    updateConfig: (config) => runtime.updateConfig(config),
   });
   const services: StudioServices = {
     registry,
     scanner,
     configStore,
     detectPorts: () => runtime.detectPorts(),
+    doctor,
+    controlProxy: proxy,
+    stopProcess: (pid) =>
+      stopProcess(pid, {
+        processes,
+        stoppablePids: () => runtime.stoppablePids(),
+        selfPid: process.pid,
+      }),
+    studioService,
   };
   runtimes.set(services, runtime);
   return services;
@@ -113,6 +175,10 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     studio,
     token,
     webDir: options.webDir,
+    doctor: services.doctor,
+    controlProxy: services.controlProxy,
+    stopProcess: services.stopProcess,
+    ...(services.studioService ? { studioService: services.studioService } : {}),
   });
 
   await new Promise<void>((resolve, reject) => {

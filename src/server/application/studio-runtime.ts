@@ -2,12 +2,13 @@ import type { ConfigResponse, Snapshot } from "../../core/api/contract.ts";
 import { DEFAULT_CONFIG, parseConfig, type StudioConfig } from "../../core/config/studio-config.ts";
 import type { DetectedPort } from "../../core/ports/detected-port.ts";
 import { err, ok, type Result } from "../../core/result.ts";
+import { healthFromProbe, type Route, type RouteHealth } from "../../core/routes/route.ts";
 import { parsePort } from "../../core/routes/route-name.ts";
 import { type AppError, appError } from "./app-error.ts";
 import { AutoNamer } from "./auto-namer.ts";
 import type { ConfigStore } from "./config-store.ts";
 import { discoverPorts, type ProjectInfoSource } from "./port-discovery.ts";
-import type { ListeningPort, PortScanner } from "./port-scanner.ts";
+import type { ListeningPort, PortScanner, ProbePort } from "./port-scanner.ts";
 import type { PortlessState, RouteRegistry } from "./route-registry.ts";
 
 export type StudioRuntimeOptions = {
@@ -19,6 +20,9 @@ export type StudioRuntimeOptions = {
   studioPort?: number | null;
   /** Where auto mode reports each name it gives; stdout by default. */
   log?: (line: string) => void;
+  /** Checks whether a route's port answers; without it routes carry no health. */
+  probe?: ProbePort;
+  now?: () => number;
 };
 
 type ScanResult = { ports: ListeningPort[]; at: number };
@@ -35,6 +39,10 @@ export class StudioRuntime {
   readonly #projects: ProjectInfoSource;
   readonly #namer: AutoNamer;
   readonly #log: (line: string) => void;
+  readonly #probe: ProbePort | null;
+  readonly #now: () => number;
+  /** Last probe of each routed port; only refreshed while someone watches. */
+  #health = new Map<number, RouteHealth>();
   #studioPort: number | null;
   /** Last config that parsed; a broken file keeps Studio running on it. */
   #config: StudioConfig = DEFAULT_CONFIG;
@@ -57,6 +65,8 @@ export class StudioRuntime {
     this.#projects = options.projects;
     this.#studioPort = options.studioPort ?? null;
     this.#log = options.log ?? ((line) => console.log(line));
+    this.#probe = options.probe ?? null;
+    this.#now = options.now ?? Date.now;
     this.#namer = new AutoNamer(this.#registry, this.#log);
   }
 
@@ -111,7 +121,7 @@ export class StudioRuntime {
     return {
       proxy: state.proxy,
       portless: state.portless,
-      routes: state.routes,
+      routes: this.#withDetails(state.routes),
       detected,
       autoName: config.autoName,
       readAt: state.readAt,
@@ -124,9 +134,32 @@ export class StudioRuntime {
     return this.#detect(state, await this.#currentConfig(), true);
   }
 
+  /** The config in effect: the file as last read, or the defaults while it is broken. */
+  settings(): Promise<StudioConfig> {
+    return this.#currentConfig();
+  }
+
+  /**
+   * pid -> port for every process listening on a detected or routed port, from a fresh scan.
+   * These are the only processes the UI may stop.
+   */
+  async stoppablePids(): Promise<Map<number, number>> {
+    const state = await this.#registry.readSnapshot();
+    const detected = await this.#detect(state, await this.#currentConfig(), true);
+    const pids = new Map<number, number>();
+    for (const item of detected) if (item.pid !== null) pids.set(item.pid, item.port);
+    const pidByPort = this.#pidByPort();
+    for (const route of state.routes) {
+      const pid = pidByPort.get(route.port);
+      if (pid !== undefined) pids.set(pid, route.port);
+    }
+    return pids;
+  }
+
   /** Calls `onChange` when routes, detected ports or the config change. Returns an unsubscribe. */
   watch(onChange: () => void): () => void {
     this.#watchers.add(onChange);
+    if (this.#watchers.size === 1 && this.#probe) void this.#refreshHealth();
     this.#stopRegistryWatch ??= this.#registry.watch(() => this.#notify());
     if (!this.#timer) void this.#currentConfig().then(() => this.#reschedule());
     return () => {
@@ -208,13 +241,58 @@ export class StudioRuntime {
       const config = await this.#currentConfig();
       const detected = await this.#detect(state, config, true);
       if (config.autoName) await this.#namer.name(detected);
-      if (JSON.stringify(detected) !== this.#lastDetected) this.#notify();
+      const healthChanged = await this.#probeRoutes(state.routes);
+      if (healthChanged || JSON.stringify(detected) !== this.#lastDetected) this.#notify();
     } catch (error) {
       this.#log(`port scan failed: ${(error as Error).message}`);
     } finally {
       this.#ticking = false;
       this.#reschedule();
     }
+  }
+
+  /** Adds the listening pid and the last health to each route, when known. */
+  #withDetails(routes: Route[]): Route[] {
+    const pidByPort = this.#pidByPort();
+    return routes.map((route) => {
+      const pid = pidByPort.get(route.port);
+      const health = this.#health.get(route.port);
+      return {
+        ...route,
+        ...(pid === undefined ? {} : { listenerPid: pid }),
+        ...(health === undefined ? {} : { health }),
+      };
+    });
+  }
+
+  #pidByPort(): Map<number, number> {
+    const pids = new Map<number, number>();
+    for (const port of this.#scan?.ports ?? [])
+      if (port.pid !== null) pids.set(port.port, port.pid);
+    return pids;
+  }
+
+  async #refreshHealth(): Promise<void> {
+    const state = await this.#registry.readSnapshot();
+    if (await this.#probeRoutes(state.routes)) this.#notify();
+  }
+
+  /** Probes every routed port while someone watches; true when a state or status changed. */
+  async #probeRoutes(routes: Route[]): Promise<boolean> {
+    const probe = this.#probe;
+    if (!probe || this.#watchers.size === 0) return false;
+    const ports = [...new Set(routes.map((route) => route.port))];
+    const answers = await Promise.all(ports.map((port) => probe(port).catch(() => null)));
+    const checkedAt = this.#now();
+    const next = new Map(
+      ports.map((port, index) => [port, healthFromProbe(answers[index] ?? null, checkedAt)]),
+    );
+    // Latency changes on every probe; only a new state or status is worth a push.
+    const key = (health: Map<number, RouteHealth>) =>
+      JSON.stringify([...health].map(([port, item]) => [port, item.state, item.status ?? null]));
+    const changed = key(next) !== key(this.#health);
+    this.#health = next;
+    return changed;
   }
 
   async #currentConfig(): Promise<StudioConfig> {

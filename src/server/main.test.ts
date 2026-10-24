@@ -98,12 +98,17 @@ describe("open with", () => {
 });
 
 describe("startServer", () => {
+  // The real scanner starts PowerShell on Windows, which alone can outlast a test's timeout.
+  function servicesWithFakeScanner(portlessBin: string): StudioServices {
+    return { ...createStudioServices({ stateDir: dir, portlessBin }), scanner };
+  }
+
   it("serves the snapshot of the given state directory on loopback", async () => {
     fs.writeFileSync(
       path.join(dir, "routes.json"),
       JSON.stringify([{ hostname: "db.localhost", port: 5432, pid: 0 }]),
     );
-    running = await startServer({ port: 0, stateDir: dir, portlessBin: "portless" });
+    running = await startServer({ port: 0, services: servicesWithFakeScanner("portless") });
     expect(running.url).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/);
     expect(running.token.length).toBeGreaterThanOrEqual(32);
 
@@ -123,8 +128,7 @@ describe("startServer", () => {
   it("reports portless as missing when its binary does not exist", async () => {
     running = await startServer({
       port: 0,
-      stateDir: dir,
-      portlessBin: path.join(dir, "no-such-portless"),
+      services: servicesWithFakeScanner(path.join(dir, "no-such-portless")),
     });
     const response = await fetch(`${running.url}${API_PATHS.snapshot}`);
     const snapshot = (await response.json()) as { portless: unknown };

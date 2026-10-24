@@ -34,6 +34,8 @@ export type RunProcessOptions = {
   /** Stops the command, and on Windows its whole process tree, after this long. */
   timeoutMs?: number;
   platform?: NodeJS.Platform;
+  /** How Windows finds commands; tests replace it with a fixed list of files. */
+  lookup?: WindowsLookup;
 };
 
 // cmd.exe exits with 9009 when the command it was asked to run does not exist.
@@ -44,6 +46,8 @@ const DRAIN_AFTER_EXIT_MS = 1000;
 const CMD_META = /([()\][%!^"`<>&|;, *?])/g;
 const DIRECT_EXTENSIONS = new Set([".exe", ".com"]);
 const BATCH_EXTENSIONS = new Set([".cmd", ".bat"]);
+// Commands cmd.exe runs itself, so no file on PATH holds them.
+const CMD_BUILTINS = new Set(["start", "echo", "dir", "type", "ver", "set", "mklink"]);
 
 /**
  * How to start `bin` with `args`. Outside Windows, directly. On Windows, an `.exe` found on PATH
@@ -136,7 +140,21 @@ export function runProcess(
   options: RunProcessOptions = {},
 ): Promise<RunOutcome> {
   const platform = options.platform ?? process.platform;
-  const plan = planSpawn(bin, args, platform);
+  const lookup = options.lookup ?? nodeWindowsLookup();
+  // cmd.exe does not always exit with 9009 for a missing command (a path to a missing file
+  // exits with 1), so on Windows a command the PATH lookup cannot find is missing up front.
+  if (platform === "win32" && isMissingOnWindows(bin, lookup)) {
+    return Promise.resolve({
+      exitCode: null,
+      stdout: "",
+      stderr: "",
+      combined: "",
+      missing: true,
+      timedOut: false,
+      error: `Command not found: ${bin}`,
+    });
+  }
+  const plan = planSpawn(bin, args, platform, lookup);
   const viaCmd = plan.windowsVerbatimArguments;
 
   return new Promise((resolve) => {
@@ -198,6 +216,11 @@ export function runProcess(
       }, options.timeoutMs);
     }
   });
+}
+
+function isMissingOnWindows(bin: string, lookup: WindowsLookup): boolean {
+  if (CMD_BUILTINS.has(bin.toLowerCase())) return false;
+  return resolveWindowsCommand(bin, lookup) === null;
 }
 
 function exitOutcome(

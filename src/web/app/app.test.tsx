@@ -71,7 +71,11 @@ describe("routes list", () => {
     await user.keyboard("jjk{Enter}");
 
     expect((await rowOf("docs")).getAttribute("aria-current")).toBe("true");
-    expect(open).toHaveBeenCalledWith("https://docs.localhost", "_blank", "noopener,noreferrer");
+    expect(open).toHaveBeenCalledWith(
+      "http://docs.localhost:1355",
+      "_blank",
+      "noopener,noreferrer",
+    );
   });
 
   it("updates the list when the server sends a new snapshot", async () => {
@@ -115,7 +119,7 @@ describe("Name a port dialog", () => {
 
     await user.type(within(dialog).getByLabelText("Name"), "cache");
     await user.type(within(dialog).getByLabelText("Port"), "6380");
-    expect(within(dialog).getByText("https://cache.localhost")).toBeTruthy();
+    expect(within(dialog).getByText("http://cache.localhost:1355")).toBeTruthy();
     await user.click(within(dialog).getByRole("button", { name: "Name port" }));
 
     expect(createAlias).toHaveBeenCalledWith({ name: "cache", port: 6380 });
@@ -177,7 +181,7 @@ describe("command menu", () => {
     await user.keyboard("{Enter}");
 
     expect(open).toHaveBeenCalledWith(
-      "https://storybook.localhost",
+      "http://storybook.localhost:1355",
       "_blank",
       "noopener,noreferrer",
     );

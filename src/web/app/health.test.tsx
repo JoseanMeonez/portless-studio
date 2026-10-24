@@ -1,12 +1,22 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import type { Snapshot } from "../../core/api/contract.ts";
+import { routeUrl } from "../../core/routes/route.ts";
 import { createSampleSnapshot, InMemoryRoutesGateway } from "../features/routes/index.ts";
 import { App } from "./app.tsx";
 
 const NOW = Date.UTC(2026, 9, 24, 12, 0, 0);
 
+/** The demo with the proxy on HTTPS 443, so the certificate check has something to warn about. */
+function httpsSnapshot(): Snapshot {
+  const sample = createSampleSnapshot(NOW);
+  const proxy = { ...sample.proxy, port: 443, https: true };
+  const routes = sample.routes.map((route) => ({ ...route, url: routeUrl(route.hostname, proxy) }));
+  return { ...sample, proxy, routes };
+}
+
 function setup(options: { proxyOwner?: "you" | "root"; loginService?: boolean } = {}) {
-  const gateway = new InMemoryRoutesGateway(createSampleSnapshot(NOW), () => NOW, options);
+  const gateway = new InMemoryRoutesGateway(httpsSnapshot(), () => NOW, options);
   const user = userEvent.setup();
   vi.spyOn(window, "open").mockReturnValue(null);
   render(<App gateway={gateway} />);

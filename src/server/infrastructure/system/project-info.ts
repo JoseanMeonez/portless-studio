@@ -20,8 +20,9 @@ export class ProjectInfoReader implements ProjectInfoSource {
   readonly #cache = new Map<string, { info: ProjectInfo; gitDir: string | null }>();
 
   /**
-   * Home is compared by its real path (folders reported by the system are real paths) and, on
-   * Windows and macOS, whose file names ignore case, without regard to case.
+   * Home is compared by real path on both sides, so a symlinked home, macOS temp folders under
+   * `/var` (really `/private/var`) and Windows short names (`RUNNER~1`) still match. On Windows
+   * and macOS, whose file names ignore case, the comparison ignores case too.
    */
   constructor(home: string = os.homedir(), platform: NodeJS.Platform = process.platform) {
     this.#ignoreCase = platform === "win32" || platform === "darwin";
@@ -30,6 +31,10 @@ export class ProjectInfoReader implements ProjectInfoSource {
 
   #key(dir: string): string {
     return this.#ignoreCase ? dir.toLowerCase() : dir;
+  }
+
+  #isHome(dir: string): boolean {
+    return this.#key(dir) === this.#home || this.#key(realPath(dir)) === this.#home;
   }
 
   /** The folder walk is cached per folder; the branch is read again each time, it is one file. */
@@ -53,7 +58,7 @@ export class ProjectInfoReader implements ProjectInfoSource {
       rootDir: null,
     };
     let dir = cwd;
-    while (this.#key(dir) !== this.#home) {
+    while (!this.#isHome(dir)) {
       const packageName = readPackageName(dir);
       if (info.packageName === null && packageName !== null) {
         info.packageName = packageName;

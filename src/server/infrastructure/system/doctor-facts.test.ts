@@ -191,6 +191,13 @@ describe("collectDoctorFacts", () => {
     expect(facts.proxyProcesses).toHaveLength(2);
   });
 
+  it("builds paths for the platform it describes", async () => {
+    const facts = await collectDoctorFacts(
+      options({ platform: "win32", stateDir: "C:\\Users\\dev\\.portless" }),
+    );
+    expect(facts.caFile).toBe("C:\\Users\\dev\\.portless\\ca.pem");
+  });
+
   it("reports certutil missing when the NSS store exists", async () => {
     const io = linuxIo(async () => ({ exitCode: null, stdout: "" }));
     const withStore: SystemIo = {

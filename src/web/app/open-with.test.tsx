@@ -91,7 +91,7 @@ describe("row menu", () => {
     const { gateway, user } = setup();
     const row = await routeRow("storybook");
     await user.keyboard("{Control>}");
-    await user.click(within(row).getByText("storybook.localhost"));
+    await user.click(within(row).getByText("storybook.localhost:1355"));
     await user.keyboard("{/Control}");
     await user.click(
       within(await menu()).getByRole("menuitem", { name: "Reveal in File manager" }),
@@ -104,7 +104,7 @@ describe("row menu", () => {
 
   it("opens from the keyboard on the selected row, moves with arrows and closes with Esc", async () => {
     const { user } = setup();
-    await user.click(within(await routeRow("storybook")).getByText("storybook.localhost"));
+    await user.click(within(await routeRow("storybook")).getByText("storybook.localhost:1355"));
     await user.keyboard(".");
     expect((await menu()).getAttribute("aria-label")).toBe("Actions for storybook");
     const actions = await menu();
@@ -133,7 +133,7 @@ describe("row menu", () => {
 
     fireEvent.contextMenu(await routeRow("storybook"));
     await user.click(within(await menu()).getByRole("menuitem", { name: "Copy URL" }));
-    expect(await navigator.clipboard.readText()).toBe("https://storybook.localhost");
+    expect(await navigator.clipboard.readText()).toBe("http://storybook.localhost:1355");
   });
 
   it("opens the route in the browser", async () => {
@@ -142,7 +142,7 @@ describe("row menu", () => {
     fireEvent.contextMenu(await routeRow("storybook"));
     await user.click(within(await menu()).getByRole("menuitem", { name: "Open in browser" }));
     expect(open).toHaveBeenCalledWith(
-      "https://storybook.localhost",
+      "http://storybook.localhost:1355",
       "_blank",
       "noopener,noreferrer",
     );

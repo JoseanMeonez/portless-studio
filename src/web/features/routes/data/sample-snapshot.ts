@@ -151,7 +151,8 @@ export const SAMPLE_LATE_SERVER: DetectedPort = {
  * `portlessInstalled: false` shows the install flow instead.
  */
 export function createSampleSnapshot(now: number, portlessInstalled = true): Snapshot {
-  const proxy: ProxyStatus = { running: true, port: 443, https: true, tlds: ["localhost"] };
+  // Studio's own default: HTTP on 1355, which needs no sudo.
+  const proxy: ProxyStatus = { running: true, port: 1355, https: false, tlds: ["localhost"] };
   const routes = SAMPLE_ROUTES.map((sample): Route => {
     const hostname = `${sample.name}.${proxy.tlds[0]}`;
     return {

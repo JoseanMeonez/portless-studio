@@ -185,12 +185,17 @@ export async function collectDoctorFacts(options: DoctorFactsOptions): Promise<D
     config,
     configError: stored.ok ? null : stored.error.message,
     configPath: configStore.path,
-    caFile: path.join(options.stateDir, "ca.pem"),
+    caFile: pathsOf(platform).join(options.stateDir, "ca.pem"),
     browserTrust: https ? await browserTrust(options) : "unknown",
     studioPort: { port: config.port, holder: await portHolder(config.port, options) },
     loginService,
     ...(systemNotifier === undefined ? {} : { systemNotifier }),
   };
+}
+
+/** Paths are built for the platform the facts describe, not the one running the code. */
+function pathsOf(platform: NodeJS.Platform): typeof path.posix {
+  return platform === "win32" ? path.win32 : path.posix;
 }
 
 /** Reads, never changes, the certificate store the browsers of this system use. */
@@ -213,8 +218,8 @@ async function browserTrust(options: DoctorFactsOptions): Promise<BrowserTrust> 
   return "unknown";
 }
 
-async function chromeTrust({ io, homeDir }: DoctorFactsOptions): Promise<BrowserTrust> {
-  const store = path.join(homeDir, ".pki", "nssdb");
+async function chromeTrust({ io, homeDir, platform }: DoctorFactsOptions): Promise<BrowserTrust> {
+  const store = pathsOf(platform).join(homeDir, ".pki", "nssdb");
   if (io.readDir(store).length === 0) return "no-store";
   const listed = await io.run("certutil", ["-L", "-d", `sql:${store}`]);
   if (listed.exitCode === null) return "no-certutil";

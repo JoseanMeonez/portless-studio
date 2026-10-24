@@ -90,6 +90,19 @@ describe("runProcess", () => {
     expect(outcome.missing).toBe(true);
   });
 
+  it("reports a Windows command PATH cannot find as missing without starting cmd.exe", async () => {
+    const lookup = windows([]);
+    for (const bin of ["portless", "C:\\tools\\no-such-portless"]) {
+      const outcome = await runProcess(bin, ["--version"], { platform: "win32", lookup });
+      expect(outcome).toMatchObject({
+        exitCode: null,
+        missing: true,
+        timedOut: false,
+        error: `Command not found: ${bin}`,
+      });
+    }
+  });
+
   it("stops a command that runs past its timeout and resolves once", async () => {
     const started = Date.now();
     const outcome = await runProcess(node, ["-e", "setTimeout(() => {}, 10000)"], {

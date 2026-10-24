@@ -131,7 +131,8 @@ describe("ProjectInfoReader home folder", () => {
     expect(new ProjectInfoReader(home, "win32").read(cwd).repoName).toBeNull();
   });
 
-  it("compares case exactly on Linux", () => {
+  // Only a case-sensitive file system can hold the two spellings apart; macOS and Windows cannot.
+  it.runIf(process.platform === "linux")("compares case exactly on Linux", () => {
     const cwd = setup();
     expect(new ProjectInfoReader(path.join(dir, "HOME", "Dev"), "linux").read(cwd).repoName).toBe(
       "dev",
@@ -143,5 +144,14 @@ describe("ProjectInfoReader home folder", () => {
     const link = path.join(dir, "link-home");
     fs.symlinkSync(path.join(dir, "home", "dev"), link);
     expect(new ProjectInfoReader(link, "linux").read(cwd).repoName).toBeNull();
+  });
+
+  it("stops at home when both home and the folder sit under a symlink", () => {
+    // macOS temp folders live under /var, a symlink to /private/var.
+    setup();
+    const link = path.join(dir, "link-root");
+    fs.symlinkSync(path.join(dir, "home"), link);
+    const reader = new ProjectInfoReader(path.join(link, "dev"), "linux");
+    expect(reader.read(path.join(link, "dev", "shop")).repoName).toBeNull();
   });
 });

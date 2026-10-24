@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { pathToFileURL } from "node:url";
 import type { CommandResult, CommandRunner } from "./command-runner.ts";
 import {
   installService,
@@ -231,9 +232,8 @@ describe("resolveServiceEntry", () => {
   });
 
   it("uses the built entry", () => {
-    expect(resolveServiceEntry("file:///repo/dist/cli/index.js")).toEqual({
-      ok: true,
-      value: "/repo/dist/cli/index.js",
-    });
+    // Absolute on every system: Windows adds the drive letter.
+    const entry = path.resolve("/repo/dist/cli/index.js");
+    expect(resolveServiceEntry(pathToFileURL(entry).href)).toEqual({ ok: true, value: entry });
   });
 });

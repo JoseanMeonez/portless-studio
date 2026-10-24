@@ -180,6 +180,9 @@ export function RoutesDashboard({
           "Studio has not seen the process behind this route, so it does not know where it runs.",
       });
   };
+  const collapseAll = () =>
+    views.collapsed.collapseAll(views.sections.map((section) => section.key));
+
   const nextView = () => {
     const list = viewsConfig.views;
     const at = list.findIndex((view) => view.id === viewState.saved.id);
@@ -278,6 +281,8 @@ export function RoutesDashboard({
     onToggleCommandMenu: () => setCommandMenuOpen((open) => !open),
     onOpenSettings: openSettings,
     onNextView: nextView,
+    onCollapseAll: collapseAll,
+    onExpandAll: views.collapsed.expandAll,
     onOpenViewMenu: () => setViewMenuOpen(true),
     onShowShortcuts: () => setShortcutsOpen(true),
     onEscape: () => setConfirming(null),
@@ -493,6 +498,8 @@ export function RoutesDashboard({
               onGroupByChange={viewState.setGroupBy}
               onSortChange={viewState.setSort}
               onFiltersChange={viewState.setFilters}
+              onCollapseAll={collapseAll}
+              onExpandAll={views.collapsed.expandAll}
             />
             {views.visibleDetected.length > 0 ? (
               <DetectedContainer
@@ -632,6 +639,8 @@ export function RoutesDashboard({
           onToggleTheme={onToggleTheme}
           onFocusFilter={() => filterInput.current?.focus()}
           onOpenSettings={openSettings}
+          onCollapseAll={collapseAll}
+          onExpandAll={views.collapsed.expandAll}
           onOpenHealth={() => setHealthOpen(true)}
           onShowShortcuts={() => setShortcutsOpen(true)}
           onStopStudio={() => setHealthOpen(true)}

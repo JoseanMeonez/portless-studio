@@ -10,20 +10,14 @@ export function useCollapsedGroups(viewId: string) {
   const [collapsed, setCollapsed] = useState<Record<string, string[]>>(readStored);
   const keys = collapsed[viewId];
 
-  const toggle = useCallback(
-    (groupKey: string) => {
+  const update = useCallback(
+    (change: (current: string[]) => string[]) => {
       setCollapsed((previous) => {
-        const current = previous[viewId] ?? [];
-        const next = {
-          ...previous,
-          [viewId]: current.includes(groupKey)
-            ? current.filter((key) => key !== groupKey)
-            : [...current, groupKey],
-        };
+        const next = { ...previous, [viewId]: change(previous[viewId] ?? []) };
         try {
           localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
         } catch {
-          // Not remembered, but still closed for this visit.
+          // Not remembered, but still applied for this visit.
         }
         return next;
       });
@@ -31,10 +25,32 @@ export function useCollapsedGroups(viewId: string) {
     [viewId],
   );
 
+  const toggle = useCallback(
+    (groupKey: string) =>
+      update((current) =>
+        current.includes(groupKey)
+          ? current.filter((key) => key !== groupKey)
+          : [...current, groupKey],
+      ),
+    [update],
+  );
+
+  /** Closes every group whose key is given; the list comes from the groups on screen. */
+  const collapseAll = useCallback(
+    (groupKeys: readonly string[]) => update(() => [...groupKeys]),
+    [update],
+  );
+  const expandAll = useCallback(() => update(() => []), [update]);
+
   // Stable between renders, so lists built from it are not rebuilt on every keystroke.
   return useMemo(
-    () => ({ isCollapsed: (groupKey: string) => (keys ?? []).includes(groupKey), toggle }),
-    [keys, toggle],
+    () => ({
+      isCollapsed: (groupKey: string) => (keys ?? []).includes(groupKey),
+      toggle,
+      collapseAll,
+      expandAll,
+    }),
+    [keys, toggle, collapseAll, expandAll],
   );
 }
 

@@ -24,6 +24,9 @@ type ViewControlsProps = {
   onGroupByChange: (groupBy: ViewGroupBy) => void;
   onSortChange: (sort: ViewSort) => void;
   onFiltersChange: (filters: ViewFilters) => void;
+  /** Shown only when the list is grouped. */
+  onCollapseAll?: (() => void) | undefined;
+  onExpandAll?: (() => void) | undefined;
 };
 
 export const GROUP_LABELS: Record<ViewGroupBy, string> = {
@@ -57,6 +60,8 @@ export function ViewControls({
   onGroupByChange,
   onSortChange,
   onFiltersChange,
+  onCollapseAll,
+  onExpandAll,
 }: ViewControlsProps) {
   const { filters, sort } = view;
   const toggle = <K extends keyof ViewFilters>(field: K, value: ViewFilters[K][number]) => {
@@ -114,6 +119,30 @@ export function ViewControls({
           className={sort.direction === "desc" ? styles.flipped : undefined}
         />
       </Button>
+      {view.groupBy !== "none" && onCollapseAll && onExpandAll ? (
+        <>
+          <Button
+            size="sm"
+            variant="ghost"
+            iconOnly
+            aria-label="Collapse all groups"
+            title="Collapse all groups ( [ )"
+            onClick={onCollapseAll}
+          >
+            <Icon name="chevronRight" size={14} />
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            iconOnly
+            aria-label="Expand all groups"
+            title="Expand all groups ( ] )"
+            onClick={onExpandAll}
+          >
+            <Icon name="chevronDown" size={14} />
+          </Button>
+        </>
+      ) : null}
 
       <span className={styles.divider} aria-hidden="true" />
 

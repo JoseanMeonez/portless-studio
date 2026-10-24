@@ -20,6 +20,8 @@ export type ShortcutId =
   | "open-terminal"
   | "name-port"
   | "next-view"
+  | "collapse-all"
+  | "expand-all"
   | "view-menu"
   | "command-menu"
   | "settings"
@@ -130,6 +132,14 @@ export const SHORTCUTS: readonly Shortcut[] = [
   },
   { id: "name-port", group: "Actions", label: "Name a port", keys: ["n"], combos: [["N"]] },
   { id: "next-view", group: "Views", label: "Next view", keys: ["v"], combos: [["V"]] },
+  {
+    id: "collapse-all",
+    group: "Views",
+    label: "Collapse all groups",
+    keys: ["["],
+    combos: [["["]],
+  },
+  { id: "expand-all", group: "Views", label: "Expand all groups", keys: ["]"], combos: [["]"]] },
   {
     id: "view-menu",
     group: "Views",

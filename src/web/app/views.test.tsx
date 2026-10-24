@@ -67,6 +67,28 @@ describe("views: grouping", () => {
     expect(screen.queryByRole("list", { name: "acme-monorepo" })).toBeNull();
   });
 
+  it("collapses and expands every group at once, by button and by [ and ]", async () => {
+    const { user } = setup();
+    await groupHeader("acme-monorepo");
+    const expandedOf = () =>
+      screen
+        .getAllByRole("button", { name: /routes?$/ })
+        .filter((button) => button.hasAttribute("aria-expanded"))
+        .map((button) => button.getAttribute("aria-expanded"));
+
+    await user.click(screen.getByRole("button", { name: "Collapse all groups" }));
+    expect(new Set(expandedOf())).toEqual(new Set(["false"]));
+
+    await user.click(screen.getByRole("button", { name: "Expand all groups" }));
+    expect(new Set(expandedOf())).toEqual(new Set(["true"]));
+
+    (document.activeElement as HTMLElement | null)?.blur();
+    await user.keyboard("[[");
+    expect(new Set(expandedOf())).toEqual(new Set(["false"]));
+    await user.keyboard("]");
+    expect(new Set(expandedOf())).toEqual(new Set(["true"]));
+  });
+
   it("walks the keyboard across groups and skips collapsed ones", async () => {
     const { user } = setup();
     await user.click(await groupHeader("acme-monorepo"));

@@ -28,6 +28,8 @@ type KeyboardNavigationOptions = {
   onToggleCommandMenu: () => void;
   onOpenSettings: () => void;
   onNextView: () => void;
+  onCollapseAll: () => void;
+  onExpandAll: () => void;
   onOpenViewMenu: () => void;
   onShowShortcuts: () => void;
   onEscape: () => void;
@@ -94,6 +96,8 @@ export function useKeyboardNavigation(options: KeyboardNavigationOptions) {
         "open-terminal": () => current.onTerminal(index),
         "name-port": current.onCreate,
         "next-view": current.onNextView,
+        "collapse-all": current.onCollapseAll,
+        "expand-all": current.onExpandAll,
         "view-menu": current.onOpenViewMenu,
         settings: current.onOpenSettings,
         help: current.onShowShortcuts,

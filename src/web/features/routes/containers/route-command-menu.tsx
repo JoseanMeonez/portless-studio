@@ -29,6 +29,8 @@ type RouteCommandMenuProps = {
   onToggleTheme: () => void;
   onFocusFilter: () => void;
   onOpenSettings: () => void;
+  onCollapseAll: () => void;
+  onExpandAll: () => void;
   onOpenHealth: () => void;
   onShowShortcuts: () => void;
   onStopStudio: () => void;
@@ -181,6 +183,22 @@ export function RouteCommandMenu(props: RouteCommandMenuProps) {
       label: "Open health panel",
       icon: "activity",
       onSelect: props.onOpenHealth,
+    },
+    {
+      id: "collapse-all",
+      group: "Views",
+      label: "Collapse all groups",
+      icon: "chevronRight",
+      shortcut: keys("collapse-all"),
+      onSelect: props.onCollapseAll,
+    },
+    {
+      id: "expand-all",
+      group: "Views",
+      label: "Expand all groups",
+      icon: "chevronDown",
+      shortcut: keys("expand-all"),
+      onSelect: props.onExpandAll,
     },
     {
       id: "settings",

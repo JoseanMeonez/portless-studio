@@ -1,3 +1,5 @@
+import type { StudioConfig } from "../config/studio-config.ts";
+import type { DetectedPort } from "../ports/detected-port.ts";
 import type { ProxyStatus, Route } from "../routes/route.ts";
 
 /**
@@ -14,6 +16,10 @@ export const API_PATHS = {
   alias: (name: string) => `/api/aliases/${encodeURIComponent(name)}`,
   /** POST: runs `npm install -g portless` on the server. A write, so it needs the token. */
   installPortless: "/api/portless/install",
+  /** GET returns the StudioConfig; PUT replaces it (a write, needs the token). */
+  config: "/api/config",
+  /** POST: adds the port to `ignoredPorts`, so it stops showing as detected. */
+  ignoreDetected: (port: number) => `/api/detected/${port}/ignore`,
 } as const;
 
 export const SNAPSHOT_EVENT = "snapshot";
@@ -37,6 +43,10 @@ export type Snapshot = {
   proxy: ProxyStatus;
   portless: PortlessInstallation;
   routes: Route[];
+  /** Ports that answer HTTP, are not ignored and have no portless route yet. */
+  detected: DetectedPort[];
+  /** Whether auto mode is on, so the UI can say so without fetching the config. */
+  autoName: boolean;
   /** Epoch milliseconds when the server read this state. */
   readAt: number;
 };
@@ -62,6 +72,13 @@ export type InstallPortlessResponse = {
   output: string;
 };
 
+/** GET /api/config and the body of PUT /api/config. */
+export type ConfigResponse = {
+  config: StudioConfig;
+  /** Where the JSON file lives, so people can edit it by hand. */
+  path: string;
+};
+
 export type ApiErrorCode =
   | "invalid_request"
   | "invalid_name"
@@ -75,6 +92,8 @@ export type ApiErrorCode =
   | "install_failed"
   /** Another install is still running. */
   | "install_in_progress"
+  /** PUT /api/config with a value parseConfig rejects; the message names the field. */
+  | "invalid_config"
   | "internal";
 
 /** Body of every non-2xx response. */

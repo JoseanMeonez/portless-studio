@@ -16,7 +16,7 @@
   "packageManager": "pnpm@12.14.0",
   "scripts": {
     "dev": "node --run dev:server & node --run dev:web",
-    "dev:server": "node --watch src/cli/index.ts --no-open --port 4321",
+    "dev:server": "node --watch src/cli/index.ts --no-open --port 4949",
     "dev:web": "vite",
     "build": "vite build && tsc -p tsconfig.node.json",
     "start": "node dist/cli/index.js",

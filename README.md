@@ -35,16 +35,16 @@ pnpm build
 pnpm start
 ```
 
-It starts on `http://127.0.0.1:4321`, registers itself in portless as `studio`, so it is also at
+It starts on `http://127.0.0.1:4949`, registers itself in portless as `studio`, so it is also at
 `https://studio.localhost`, and opens your browser.
 
 | Flag | Effect |
 | --- | --- |
-| `--port <n>` | Listen on another port. Default 4321. |
+| `--port <n>` | Listen on another port. Default 4949. |
 | `--no-open` | Do not open the browser. |
 | `--no-register` | Do not register the `studio` name in portless. |
 
-Want to see it without portless? Open `http://127.0.0.1:4321/?demo` for sample data, or
+Want to see it without portless? Open `http://127.0.0.1:4949/?demo` for sample data, or
 `?demo&noportless` to try the install flow with a fake install.
 
 ## Naming routes from agents and scripts
@@ -67,7 +67,7 @@ runs the same fixed command; nothing from the request reaches it.
 ## Develop
 
 ```bash
-pnpm dev          # API on :4321 and the web app with hot reload on :5173
+pnpm dev          # API on :4949 and the web app with hot reload on :5173
 pnpm test         # unit and component tests
 pnpm typecheck
 pnpm check        # lint and format check

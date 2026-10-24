@@ -2,7 +2,7 @@ import { parseArgs } from "node:util";
 import { err, ok, type Result } from "../core/result.ts";
 import { parsePort } from "../core/routes/route-name.ts";
 
-export const DEFAULT_PORT = 4321;
+export const DEFAULT_PORT = 4949;
 
 export type CliOptions =
   | { command: "help" }

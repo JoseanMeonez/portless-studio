@@ -1,8 +1,8 @@
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 
-// In development the API server runs on 4321 (see `pnpm dev:server`).
-const devServer = "http://127.0.0.1:4321";
+// In development the API server runs on 4949 (see `pnpm dev:server`).
+const devServer = "http://127.0.0.1:4949";
 
 export default defineConfig({
   root: "src/web",

@@ -11,6 +11,7 @@ import type {
   Snapshot,
   StudioAction,
   StudioActionResponse,
+  StudioEvent,
 } from "../../../../core/api/contract.ts";
 import {
   DEFAULT_CONFIG,
@@ -22,7 +23,12 @@ import type { DetectedPort } from "../../../../core/ports/detected-port.ts";
 import { err, ok, type Result } from "../../../../core/result.ts";
 import { type Route, routeUrl } from "../../../../core/routes/route.ts";
 import { parsePort, parseRouteName } from "../../../../core/routes/route-name.ts";
-import type { ConnectionListener, RoutesGateway, SnapshotListener } from "./routes-gateway.ts";
+import type {
+  ConnectionListener,
+  EventListener,
+  RoutesGateway,
+  SnapshotListener,
+} from "./routes-gateway.ts";
 
 export type InMemoryRoutesGatewayOptions = {
   /** How long the fake `npm install -g portless` takes. */
@@ -36,6 +42,8 @@ export type InMemoryRoutesGatewayOptions = {
   proxyOwner?: "you" | "root";
   /** Whether the fake Studio runs as a login service, so it can restart itself. */
   loginService?: boolean;
+  /** Sends notifications for new servers and the names auto mode gives, as the server does. */
+  events?: boolean;
 };
 
 export const DEMO_CONFIG_PATH = "~/.portless-studio/config.json";
@@ -50,6 +58,9 @@ export const DEMO_PORTLESS_VERSION = "0.4.2";
 export class InMemoryRoutesGateway implements RoutesGateway {
   #snapshot: Snapshot;
   readonly #listeners = new Set<SnapshotListener>();
+  readonly #eventListeners = new Set<EventListener>();
+  #events: StudioEvent[] = [];
+  #eventCount = 0;
   readonly #now: () => number;
   readonly #options: InMemoryRoutesGatewayOptions;
   #installing = false;
@@ -76,12 +87,28 @@ export class InMemoryRoutesGateway implements RoutesGateway {
     return ok(this.#snapshot);
   }
 
-  subscribe(listener: SnapshotListener, onConnectionChange?: ConnectionListener): () => void {
+  subscribe(
+    listener: SnapshotListener,
+    onConnectionChange?: ConnectionListener,
+    onEvent?: EventListener,
+  ): () => void {
     this.#listeners.add(listener);
     onConnectionChange?.("open");
+    if (onEvent) {
+      this.#eventListeners.add(onEvent);
+      // Like the server, a new connection first gets the recent events.
+      for (const event of this.#events) onEvent(event);
+    }
     return () => {
       this.#listeners.delete(listener);
+      if (onEvent) this.#eventListeners.delete(onEvent);
     };
+  }
+
+  /** Sends a notification, as the server does for a notable change. */
+  emitEvent(event: StudioEvent): void {
+    this.#events = [...this.#events, event].slice(-50);
+    for (const listener of this.#eventListeners) listener(event);
   }
 
   /** Replaces the whole state and notifies subscribers, as a server push would. */
@@ -95,6 +122,14 @@ export class InMemoryRoutesGateway implements RoutesGateway {
   startServer(port: DetectedPort): void {
     this.#listening = [...this.#listening.filter((item) => item.port !== port.port), port];
     this.#update(this.#snapshot.routes);
+    this.#demoEvent({
+      kind: "detected",
+      title: `New server on port ${port.port}`,
+      body: port.suggestedName
+        ? `${port.processName}, suggested name ${port.suggestedName}`
+        : `${port.processName}, no name suggested`,
+      target: { port: port.port },
+    });
     if (this.#config.autoName) this.#scheduleAutoName([port.port]);
   }
 
@@ -389,9 +424,24 @@ export class InMemoryRoutesGateway implements RoutesGateway {
     this.#autoNameTimer = setTimeout(async () => {
       for (const detected of this.#snapshot.detected) {
         if (!ports.includes(detected.port) || detected.suggestedName === null) continue;
-        await this.createAlias({ name: detected.suggestedName, port: detected.port });
+        const name = detected.suggestedName;
+        const created = await this.createAlias({ name, port: detected.port });
+        if (created.ok) {
+          this.#demoEvent({
+            kind: "named",
+            title: `Named ${name}`,
+            body: `Port ${detected.port} opens at ${this.#find(name)?.url ?? name}`,
+            target: { route: name, port: detected.port },
+          });
+        }
       }
     }, this.#options.autoNameDelayMs ?? 1500);
+  }
+
+  #demoEvent(draft: Omit<StudioEvent, "id" | "at">): void {
+    if (!this.#options.events) return;
+    this.#eventCount += 1;
+    this.emitEvent({ ...draft, id: `demo-${this.#eventCount}`, at: Date.now() });
   }
 
   #find(name: string): Route | undefined {

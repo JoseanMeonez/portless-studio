@@ -11,6 +11,7 @@ import type {
   Snapshot,
   StudioAction,
   StudioActionResponse,
+  StudioEvent,
 } from "../../../../core/api/contract.ts";
 import type { StudioConfig } from "../../../../core/config/studio-config.ts";
 import type { Result } from "../../../../core/result.ts";
@@ -20,6 +21,8 @@ export type ConnectionState = "connecting" | "open" | "reconnecting";
 
 export type SnapshotListener = (snapshot: Snapshot) => void;
 export type ConnectionListener = (state: ConnectionState) => void;
+/** Gets each notable change; the recent ones arrive again after every (re)connect. */
+export type EventListener = (event: StudioEvent) => void;
 
 /**
  * Everything the routes feature needs from a backend. The UI depends only on this port, so a
@@ -28,8 +31,15 @@ export type ConnectionListener = (state: ConnectionState) => void;
 export interface RoutesGateway {
   /** Reads the current state once. */
   getSnapshot(): Promise<Result<Snapshot, ApiError>>;
-  /** Calls `listener` with every new snapshot until the returned function is called. */
-  subscribe(listener: SnapshotListener, onConnectionChange?: ConnectionListener): () => void;
+  /**
+   * Calls `listener` with every new snapshot, and `onEvent` with every notable change, until the
+   * returned function is called.
+   */
+  subscribe(
+    listener: SnapshotListener,
+    onConnectionChange?: ConnectionListener,
+    onEvent?: EventListener,
+  ): () => void;
   /** Also names a detected port: it then leaves `detected` and shows up in `routes`. */
   createAlias(request: CreateAliasRequest): Promise<Result<null, ApiError>>;
   renameAlias(currentName: string, request: RenameAliasRequest): Promise<Result<null, ApiError>>;

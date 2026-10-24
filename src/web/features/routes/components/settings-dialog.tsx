@@ -74,11 +74,42 @@ export function SettingsDialog({ form, onCopyPath, onClose }: SettingsDialogProp
               checked={draft.autoName}
               onChange={(value) => form.change("autoName", value)}
             />
+            <TextField
+              label="Remove auto names after"
+              mono
+              inputMode="numeric"
+              value={draft.autoRemoveMinutes}
+              error={errors.autoRemoveAfterMinutes ?? null}
+              hint="Minutes a name auto mode gave survives once its server stops. 0 keeps them. Names you or an agent gave are never removed."
+              className={styles.short}
+              onChange={(event) => form.change("autoRemoveMinutes", event.target.value)}
+            />
             <Switch
               label={"Register “studio” in portless"}
               description="Open Studio itself at studio.localhost."
               checked={draft.registerStudioAlias}
               onChange={(value) => form.change("registerStudioAlias", value)}
+            />
+          </fieldset>
+
+          <fieldset className={styles.group}>
+            <legend className={styles.legend}>Notifications</legend>
+            <Switch
+              label="Desktop notifications"
+              description="New servers, names and stopped routes show as system notifications while Studio is in the background. This needs a Studio tab open."
+              checked={draft.desktopNotifications}
+              onChange={(value) => void form.setDesktopNotifications(value)}
+            />
+            {errors.desktopNotifications ? (
+              <p className={styles.formError} role="alert">
+                {errors.desktopNotifications}
+              </p>
+            ) : null}
+            <Switch
+              label="System notifications"
+              description="With no Studio tab open, Studio asks the system to show new names and stopped routes. Clicking one opens Studio on Linux and Windows."
+              checked={draft.systemNotifications}
+              onChange={(value) => form.change("systemNotifications", value)}
             />
           </fieldset>
 

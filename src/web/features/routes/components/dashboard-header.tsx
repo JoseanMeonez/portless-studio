@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import type { ProxyAction } from "../../../../core/api/contract.ts";
 import type { DoctorStatus } from "../../../../core/doctor/doctor-check.ts";
 import type { ProxyStatus } from "../../../../core/routes/route.ts";
@@ -30,6 +31,8 @@ type DashboardHeaderProps = {
   onOpenHealth: () => void;
   proxyBusy: ProxyAction | null;
   onProxyAction: (action: ProxyAction) => void;
+  /** The notifications bell, placed with the other actions. */
+  notifications?: ReactNode;
 };
 
 const HEALTH_TONES = { ok: "success", warn: "warning", fail: "danger" } as const;
@@ -50,6 +53,7 @@ export function DashboardHeader({
   onOpenHealth,
   proxyBusy,
   onProxyAction,
+  notifications,
 }: DashboardHeaderProps) {
   return (
     <header className={styles.header}>
@@ -103,6 +107,7 @@ export function DashboardHeader({
             <Kbd>{modifierLabel}</Kbd>
             <Kbd>K</Kbd>
           </Button>
+          {notifications}
           <Button
             variant="ghost"
             size="sm"
@@ -120,6 +125,7 @@ export function DashboardHeader({
             onClick={onToggleTheme}
             aria-label={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
             title="Toggle theme"
+            className={styles.themeToggle}
           >
             <Icon name={theme === "dark" ? "sun" : "moon"} />
           </Button>

@@ -17,6 +17,18 @@ export function Toaster({ toasts, onDismiss }: ToasterProps) {
           <div className={styles.body}>
             <p className={styles.title}>{toast.title}</p>
             {toast.description ? <p className={styles.description}>{toast.description}</p> : null}
+            {toast.action ? (
+              <button
+                type="button"
+                className={styles.action}
+                onClick={() => {
+                  toast.action?.onClick();
+                  onDismiss(toast.id);
+                }}
+              >
+                {toast.action.label}
+              </button>
+            ) : null}
           </div>
           <button
             type="button"

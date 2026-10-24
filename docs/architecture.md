@@ -82,8 +82,25 @@ Two more ports feed port detection and settings:
 `scanIntervalMs` while a browser is watching or auto mode is on, builds the full `Snapshot`
 (portless state plus detected ports), and, in auto mode, names each new dev server through
 `RouteRegistry.createAlias`. A detected port must answer HTTP, have no route, not be ignored, not be
-another Studio (they send `x-portless-studio`), and run on a known runtime (`node`, `python`, `bun`
-and similar) or from a binary built inside the project.
+another Studio (they send `x-portless-studio`), not belong to a portless proxy, and run on a known
+runtime (`node`, `python`, `bun` and similar) or from a binary built inside the project. A port is
+the proxy's when portless recorded it in `proxy.port`, or when the process listening on it runs
+`portless proxy start` (`proxyPidsAmong` in `infrastructure/system/doctor-facts.ts` reads the
+command line of just the listening pids: `/proc` on Linux, `ps -p` on macOS; Windows relies on
+`proxy.port` only).
+
+### Names auto mode gives back
+
+Auto mode records each name it gives in `auto-named.json`, next to the config file, as
+`{ "autoNamed": [{ "name", "port", "createdAt" }] }` (port `AutoNamedStore`,
+`infrastructure/config/json-auto-named-store.ts`). It is a separate file because Studio writes it
+on its own and nobody needs to edit it. On every scan, a recorded name whose port is closed starts
+a clock; once the port has been closed for `autoRemoveAfterMinutes` (default 10, `0` keeps names
+forever) Studio removes the alias through `RouteRegistry.removeAlias` and logs it. The clock lives
+in memory, so a Studio restart starts it again. A recorded name that no longer points at its port,
+or is gone, belongs to someone else now: it is dropped from the list, never removed. Names a person
+or an agent gave are never in the list. When the same project comes back on another port while its
+old name is still waiting, auto mode moves that name to the new port instead of adding `-<port>`.
 
 `StudioRuntime` also adds three optional fields to each route in the snapshot: `listenerPid`, the
 process listening on the route's port in the last scan; `project`, the repository (and linked git
@@ -105,6 +122,40 @@ and the last selected row in `localStorage`.
 Every keyboard shortcut is declared once in `features/routes/hooks/shortcut-registry.ts`. The
 keyboard hook dispatches from it, the command menu shows its keys and the `?` dialog lists it, so
 the three cannot drift apart.
+
+## Notifications
+
+`application/studio-events.ts` compares what Studio saw last with what it sees now
+(`eventsBetween`, a pure function) and turns the difference into `StudioEvent`s
+(`core/api/contract.ts`): `detected` (a new dev server), `named` (a route appeared or was
+renamed), `removed`, `down` and `up` (route health), and `proxy` (started or stopped). Each has a
+title, a body and a target, a route name or a port. `EventLog` keeps the last 50 in memory.
+
+The events stream (`GET /api/events`) carries them as `event` messages next to the `snapshot`
+ones, and replays the recent ones to every page that connects. An event is written after the
+snapshot that shows its change, so the item it points at is already in the list.
+
+The page shows each new event as a toast with a Show button, and lists the recent ones under the
+bell in the header with an unread count (what was read is kept in `localStorage`). Show clears the
+search and filters that hide the item, opens its group, selects it and scrolls to it. Events
+older than the page get no toast. With `desktopNotifications` on, the browser has granted
+permission and the tab is in the background, the page also shows a browser notification whose
+click focuses the tab and shows the item. This needs a Studio tab open.
+
+With `systemNotifications` on and no tab watching, Studio asks the operating system to show
+`named` and `down` events (`SystemNotifier`, `infrastructure/system/os-notifier.ts`), and keeps
+probing route health so `down` can happen. The command runs through `execute` and the server
+never waits for it:
+
+| System | Command | Click |
+| --- | --- | --- |
+| Linux | `notify-send --app-name="portless studio" --action=open=Open` | Opens Studio with `xdg-open`. Older `notify-send` without `--action` shows the notification only. Without `notify-send`, nothing is shown and the doctor says so. |
+| macOS | `osascript -e 'display notification ...'` | None: AppleScript notifications cannot react to a click. |
+| Windows | A PowerShell toast through `Windows.UI.Notifications`, sent as `-EncodedCommand` | Opens Studio through protocol activation. Best effort: it needs Windows PowerShell 5. |
+
+The link a click opens is Studio's own route when it has one, otherwise `http://localhost:<port>`,
+with `?focus=<route name>` or `?focus=port:<number>`; the page shows that item and drops the
+parameter.
 
 ## Health checks and control
 

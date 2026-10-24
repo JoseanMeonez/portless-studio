@@ -13,10 +13,15 @@ import type { RouteRegistry } from "./application/route-registry.ts";
 import { stopProcess } from "./application/stop-process.ts";
 import { StudioRuntime } from "./application/studio-runtime.ts";
 import type { StudioServiceControl } from "./application/studio-service.ts";
+import {
+  autoNamedPathFor,
+  JsonAutoNamedStore,
+} from "./infrastructure/config/json-auto-named-store.ts";
 import { defaultConfigPath, JsonConfigStore } from "./infrastructure/config/json-config-store.ts";
 import { PortlessRegistry } from "./infrastructure/portless/portless-registry.ts";
 import { resolveStateDir } from "./infrastructure/portless/state-files.ts";
-import { collectDoctorFacts } from "./infrastructure/system/doctor-facts.ts";
+import { collectDoctorFacts, proxyPidsAmong } from "./infrastructure/system/doctor-facts.ts";
+import { OsNotifier } from "./infrastructure/system/os-notifier.ts";
 import { ProjectInfoReader } from "./infrastructure/system/project-info.ts";
 import { nodeSystemIo } from "./infrastructure/system/system-io.ts";
 import {
@@ -73,7 +78,9 @@ export function createStudioServices(options: StudioServicesOptions = {}): Studi
     ...(options.npmBin === undefined ? {} : { npmBin: options.npmBin }),
   });
   const scanner = createPortScanner();
-  const configStore = new JsonConfigStore(options.configPath ?? defaultConfigPath());
+  const configPath = options.configPath ?? defaultConfigPath();
+  const configStore = new JsonConfigStore(configPath);
+  const notifier = new OsNotifier({ platform: process.platform });
   const runtime = new StudioRuntime({
     registry,
     scanner,
@@ -81,6 +88,9 @@ export function createStudioServices(options: StudioServicesOptions = {}): Studi
     projects: new ProjectInfoReader(),
     studioPort: options.studioPort ?? null,
     probe: (port) => probeHttpResponse(port),
+    proxyPids: (pids) => proxyPidsAmong(process.platform, nodeSystemIo, pids),
+    autoNamedStore: new JsonAutoNamedStore(autoNamedPathFor(configPath)),
+    notifier,
   });
   const uid = typeof process.getuid === "function" ? process.getuid() : null;
   const processes = new SystemProcessControl({
@@ -106,6 +116,7 @@ export function createStudioServices(options: StudioServicesOptions = {}): Studi
         listPorts: listPortsFor(process.platform, nodeSystemIo),
         probe: (port) => probeHttpResponse(port),
         ...(studioService ? { loginService: () => studioService.status() } : {}),
+        systemNotifier: () => notifier.availability(),
       }),
     controlProxy: proxy,
     updateConfig: (config) => runtime.updateConfig(config),

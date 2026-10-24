@@ -127,3 +127,55 @@ describe("settings", () => {
     expect(screen.getByRole("dialog", { name: "Settings" })).toBeTruthy();
   });
 });
+
+describe("notification settings", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("asks the browser for permission when desktop notifications are turned on and saves both switches and the auto-removal minutes", async () => {
+    const requestPermission = vi.fn(async () => "granted" as NotificationPermission);
+    vi.stubGlobal("Notification", { permission: "default", requestPermission });
+    const { user, gateway } = setup();
+    const updateConfig = vi.spyOn(gateway, "updateConfig");
+    const dialog = await openSettings(user);
+
+    expect(within(dialog).getByText(/needs a Studio tab open/)).toBeTruthy();
+    await user.click(within(dialog).getByRole("switch", { name: "Desktop notifications" }));
+    expect(requestPermission).toHaveBeenCalled();
+    await user.click(within(dialog).getByRole("switch", { name: "System notifications" }));
+    const minutes = within(dialog).getByLabelText("Remove auto names after");
+    expect((minutes as HTMLInputElement).value).toBe("10");
+    await user.clear(minutes);
+    await user.type(minutes, "0");
+    await user.click(within(dialog).getByRole("button", { name: "Save" }));
+
+    expect(updateConfig).toHaveBeenCalledWith(
+      expect.objectContaining({
+        desktopNotifications: true,
+        systemNotifications: true,
+        autoRemoveAfterMinutes: 0,
+      }),
+    );
+  });
+
+  it("leaves desktop notifications off when the browser denies permission", async () => {
+    const requestPermission = vi.fn(async () => "denied" as NotificationPermission);
+    vi.stubGlobal("Notification", { permission: "default", requestPermission });
+    const { user } = setup();
+    const dialog = await openSettings(user);
+
+    const toggle = within(dialog).getByRole("switch", { name: "Desktop notifications" });
+    await user.click(toggle);
+    expect(toggle.getAttribute("aria-checked")).toBe("false");
+    expect(await within(dialog).findByText(/blocked notifications/)).toBeTruthy();
+  });
+
+  it("rejects a negative number of minutes", async () => {
+    const { user } = setup();
+    const dialog = await openSettings(user);
+    const minutes = within(dialog).getByLabelText("Remove auto names after");
+    await user.clear(minutes);
+    await user.type(minutes, "-3");
+    await user.click(within(dialog).getByRole("button", { name: "Save" }));
+    expect(within(dialog).getByText("Use a whole number of minutes, 0 or more.")).toBeTruthy();
+  });
+});

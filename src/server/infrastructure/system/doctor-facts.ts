@@ -28,6 +28,8 @@ export type DoctorFactsOptions = {
   probe: ProbePort;
   /** Asks the login service manager; omitted when it cannot be known. */
   loginService?: () => Promise<LoginServiceState | null>;
+  /** Whether OS notifications can be shown here; omitted when not checked. */
+  systemNotifier?: () => Promise<"available" | "missing" | "unsupported">;
 };
 
 type ProcessRow = { pid: number; uid: number | null; args: string[] };
@@ -87,16 +89,42 @@ export async function listProxyProcesses(
   });
 }
 
+/**
+ * The pids among `pids` that run `portless proxy start`, so port detection never offers the proxy
+ * as a dev server, whatever port it listens on. Reads only those processes. Windows has no cheap
+ * way to read a command line, so it finds none there and relies on the `proxy.port` state file.
+ */
+export async function proxyPidsAmong(
+  platform: NodeJS.Platform,
+  io: SystemIo,
+  pids: readonly number[],
+): Promise<Set<number>> {
+  if (platform === "win32" || pids.length === 0) return new Set();
+  const rows: ProcessRow[] =
+    platform === "darwin"
+      ? parsePsProcesses(
+          (await io.run("ps", ["-o", "pid=,uid=,args=", "-p", pids.join(",")])).stdout,
+        )
+      : pids.flatMap((pid) => {
+          const cmdline = io.readFile(`/proc/${pid}/cmdline`);
+          return cmdline ? [{ pid, uid: null, args: cmdline.split("\0").filter(Boolean) }] : [];
+        });
+  return new Set(rows.filter((row) => parsePortlessProxyArgs(row.args)).map((row) => row.pid));
+}
+
 /** Gathers the facts the doctor checks. Each part is read once; nothing is changed. */
 export async function collectDoctorFacts(options: DoctorFactsOptions): Promise<DoctorFacts> {
   const { platform, registry, configStore } = options;
-  const [state, proxyPid, stored, proxyProcesses, loginService] = await Promise.all([
-    registry.readSnapshot(),
-    registry.proxyPid(),
-    configStore.read(),
-    listProxyProcesses(platform, options.io, options.uid),
-    options.loginService ? options.loginService() : Promise.resolve(null),
-  ]);
+  const [state, proxyPid, stored, proxyProcesses, loginService, systemNotifier] = await Promise.all(
+    [
+      registry.readSnapshot(),
+      registry.proxyPid(),
+      configStore.read(),
+      listProxyProcesses(platform, options.io, options.uid),
+      options.loginService ? options.loginService() : Promise.resolve(null),
+      options.systemNotifier ? options.systemNotifier() : Promise.resolve(undefined),
+    ],
+  );
   const config = stored.ok ? stored.value : DEFAULT_CONFIG;
   const proxyOwner =
     state.proxy.running && proxyPid !== null
@@ -118,6 +146,7 @@ export async function collectDoctorFacts(options: DoctorFactsOptions): Promise<D
     browserTrust: https && platform === "linux" ? await chromeTrust(options) : "unknown",
     studioPort: { port: config.port, holder: await portHolder(config.port, options) },
     loginService,
+    ...(systemNotifier === undefined ? {} : { systemNotifier }),
   };
 }
 

@@ -17,14 +17,20 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const show = useCallback<ShowToast>(
-    ({ title, description, tone = "neutral" }) => {
+    ({ title, description, tone = "neutral", action }) => {
       const id = nextId.current++;
-      setToasts((current) =>
-        [...current, { id, title, tone, description: description ?? null }].slice(-MAX_TOASTS),
-      );
+      const toast: Toast = {
+        id,
+        title,
+        tone,
+        description: description ?? null,
+        action: action ?? null,
+      };
+      setToasts((current) => [...current, toast].slice(-MAX_TOASTS));
       timers.current.set(
         id,
-        setTimeout(() => dismiss(id), VISIBLE_FOR_MS),
+        // A toast with a button stays a little longer, so there is time to reach it.
+        setTimeout(() => dismiss(id), action ? VISIBLE_FOR_MS * 2 : VISIBLE_FOR_MS),
       );
     },
     [dismiss],

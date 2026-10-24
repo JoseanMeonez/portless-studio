@@ -26,6 +26,23 @@ function facts(change: Partial<DoctorFacts> = {}): DoctorFacts {
 
 const byId = (checks: DoctorCheck[], id: string) => checks.find((check) => check.id === id);
 
+describe("diagnose system notifications", () => {
+  it("says, as information, that notify-send is missing when system notifications are on", () => {
+    const on = { ...DEFAULT_CONFIG, systemNotifications: true };
+    const check = byId(diagnose(facts({ config: on, systemNotifier: "missing" })), "notifications");
+    expect(check).toMatchObject({ status: "ok", title: "System notifications need notify-send" });
+    expect(check?.fix?.command).toBe("sudo apt install libnotify-bin");
+  });
+
+  it("says nothing when they work or are off", () => {
+    const on = { ...DEFAULT_CONFIG, systemNotifications: true };
+    expect(
+      byId(diagnose(facts({ config: on, systemNotifier: "available" })), "notifications"),
+    ).toBe(undefined);
+    expect(byId(diagnose(facts({ systemNotifier: "missing" })), "notifications")).toBe(undefined);
+  });
+});
+
 describe("diagnose", () => {
   it("reports nothing to fix on a healthy machine", () => {
     const checks = diagnose(facts());

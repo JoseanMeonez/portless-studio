@@ -35,6 +35,15 @@ export type StudioConfig = {
   defaultViewId: string;
   /** Rows pinned above every view: route names or `port:<number>`. */
   favorites: string[];
+  /**
+   * Minutes a name given by auto mode survives after its port closes; 0 keeps them forever.
+   * Names a person or an agent gave are never removed.
+   */
+  autoRemoveAfterMinutes: number;
+  /** Show a desktop notification from an open Studio tab while it is in the background. */
+  desktopNotifications: boolean;
+  /** Ask the operating system to notify when no Studio tab is open. */
+  systemNotifications: boolean;
 };
 
 export const DEFAULT_CONFIG: StudioConfig = {
@@ -51,6 +60,9 @@ export const DEFAULT_CONFIG: StudioConfig = {
   views: [DEFAULT_VIEW],
   defaultViewId: DEFAULT_VIEW.id,
   favorites: [],
+  autoRemoveAfterMinutes: 10,
+  desktopNotifications: false,
+  systemNotifications: false,
 };
 
 const MIN_SCAN_INTERVAL_MS = 1000;
@@ -72,6 +84,8 @@ export function parseConfig(input: unknown): Result<StudioConfig, string> {
     "registerStudioAlias",
     "startProxy",
     "proxyHttps",
+    "desktopNotifications",
+    "systemNotifications",
   ] as const) {
     const value = raw[key];
     if (value === undefined) continue;
@@ -95,6 +109,14 @@ export function parseConfig(input: unknown): Result<StudioConfig, string> {
       return err(`"scanIntervalMs" must be a whole number of at least ${MIN_SCAN_INTERVAL_MS}.`);
     }
     config.scanIntervalMs = value;
+  }
+
+  if (raw.autoRemoveAfterMinutes !== undefined) {
+    const value = raw.autoRemoveAfterMinutes;
+    if (typeof value !== "number" || !Number.isInteger(value) || value < 0) {
+      return err(`"autoRemoveAfterMinutes" must be a whole number, 0 or more.`);
+    }
+    config.autoRemoveAfterMinutes = value;
   }
 
   if (raw.ignoredPorts !== undefined) {

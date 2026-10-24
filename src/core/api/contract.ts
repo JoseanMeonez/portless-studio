@@ -11,7 +11,10 @@ export const API_PATHS = {
   /** Returns the per-run write token. Same-origin only, so other sites cannot read it. */
   session: "/api/session",
   snapshot: "/api/snapshot",
-  /** Server-sent events: one `snapshot` event on connect and after every change. */
+  /**
+   * Server-sent events: one `snapshot` event on connect and after every change, plus one `event`
+   * per notable change (`StudioEvent`), the recent ones replayed on connect.
+   */
   events: "/api/events",
   aliases: "/api/aliases",
   alias: (name: string) => `/api/aliases/${encodeURIComponent(name)}`,
@@ -37,6 +40,29 @@ export type ProxyAction = "start" | "stop" | "restart";
 export type StudioAction = "restart" | "stop";
 
 export const SNAPSHOT_EVENT = "snapshot";
+
+/** Server-sent event type that carries one `StudioEvent`. */
+export const STUDIO_EVENT = "event";
+
+/**
+ * What happened: a dev server appeared (`detected`), a route got a name (`named`) or lost it
+ * (`removed`), a route stopped (`down`) or started answering again (`up`), or the proxy started
+ * or stopped (`proxy`).
+ */
+export type StudioEventKind = "detected" | "named" | "removed" | "down" | "up" | "proxy";
+
+/** One notification. The page shows it in the app; the OS can show it too. */
+export type StudioEvent = {
+  /** Unique for this server run; the page uses it to show each event once. */
+  id: string;
+  kind: StudioEventKind;
+  title: string;
+  body: string;
+  /** What clicking the notification shows: a route by name, or a port. */
+  target: { route?: string; port?: number };
+  /** Epoch milliseconds. */
+  at: number;
+};
 
 /** Sent on every Studio response, so one Studio never lists another as a dev server. */
 export const STUDIO_HEADER = "x-portless-studio";

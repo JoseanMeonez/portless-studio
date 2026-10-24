@@ -19,9 +19,7 @@ export function createGateway(location: Pick<Location, "search">): RoutesGateway
     const gateway = new InMemoryRoutesGateway(
       createSampleSnapshot(Date.now(), installed),
       Date.now,
-      {
-        installDelayMs: 1500,
-      },
+      { installDelayMs: 1500, events: true },
     );
     // Shows a new server appearing, which auto mode names when it is on.
     setTimeout(() => gateway.startServer(SAMPLE_LATE_SERVER), DEMO_LATE_SERVER_MS);

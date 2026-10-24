@@ -1,15 +1,22 @@
-import type { ConfigResponse, Snapshot } from "../../core/api/contract.ts";
+import type { ConfigResponse, Snapshot, StudioEvent } from "../../core/api/contract.ts";
 import { DEFAULT_CONFIG, parseConfig, type StudioConfig } from "../../core/config/studio-config.ts";
 import { type DetectedPort, projectOf } from "../../core/ports/detected-port.ts";
 import { err, ok, type Result } from "../../core/result.ts";
 import { healthFromProbe, type Route, type RouteHealth } from "../../core/routes/route.ts";
 import { parsePort } from "../../core/routes/route-name.ts";
 import { type AppError, appError } from "./app-error.ts";
+import {
+  type AutoNamedEntry,
+  type AutoNamedStore,
+  memoryAutoNamedStore,
+} from "./auto-named-store.ts";
 import { AutoNamer } from "./auto-namer.ts";
 import type { ConfigStore } from "./config-store.ts";
 import { discoverPorts, type ProjectInfoSource } from "./port-discovery.ts";
 import type { ListeningPort, PortScanner, ProbePort } from "./port-scanner.ts";
 import type { PortlessState, RouteRegistry } from "./route-registry.ts";
+import { EventLog, eventsBetween, type Observation } from "./studio-events.ts";
+import { SYSTEM_NOTIFICATION_KINDS, type SystemNotifier } from "./system-notifier.ts";
 
 export type StudioRuntimeOptions = {
   registry: RouteRegistry;
@@ -23,9 +30,22 @@ export type StudioRuntimeOptions = {
   /** Checks whether a route's port answers; without it routes carry no health. */
   probe?: ProbePort;
   now?: () => number;
+  /** Which of these pids run a portless proxy; their ports are never offered as dev servers. */
+  proxyPids?: (pids: number[]) => Promise<ReadonlySet<number>>;
+  /** Remembers the names auto mode gave across restarts; in memory when omitted. */
+  autoNamedStore?: AutoNamedStore;
+  /** Shows events as OS notifications while no tab is open, when the config asks for it. */
+  notifier?: SystemNotifier;
 };
 
-type ScanResult = { ports: ListeningPort[]; at: number };
+type ScanResult = {
+  ports: ListeningPort[];
+  /** Ports a portless proxy process listens on, whatever the state files say. */
+  proxyPorts: number[];
+  at: number;
+};
+
+const MINUTE_MS = 60_000;
 
 /**
  * Everything Studio adds to portless: detected ports, auto mode and the config. Owns the scan
@@ -41,6 +61,16 @@ export class StudioRuntime {
   readonly #log: (line: string) => void;
   readonly #probe: ProbePort | null;
   readonly #now: () => number;
+  readonly #proxyPids: ((pids: number[]) => Promise<ReadonlySet<number>>) | null;
+  readonly #autoNamedStore: AutoNamedStore;
+  readonly #notifier: SystemNotifier | null;
+  readonly #events = new EventLog();
+  /** Names auto mode gave; null until read from the store. */
+  #autoNamed: AutoNamedEntry[] | null = null;
+  /** When each auto name's port was first seen closed, by name. */
+  readonly #closedSince = new Map<string, number>();
+  /** What the last events were computed from; null until the first look sets the baseline. */
+  #observed: Observation | null = null;
   /** Last probe of each routed port; only refreshed while someone watches. */
   #health = new Map<number, RouteHealth>();
   #studioPort: number | null;
@@ -67,7 +97,13 @@ export class StudioRuntime {
     this.#log = options.log ?? ((line) => console.log(line));
     this.#probe = options.probe ?? null;
     this.#now = options.now ?? Date.now;
-    this.#namer = new AutoNamer(this.#registry, this.#log);
+    this.#proxyPids = options.proxyPids ?? null;
+    this.#autoNamedStore = options.autoNamedStore ?? memoryAutoNamedStore();
+    this.#notifier = options.notifier ?? null;
+    this.#namer = new AutoNamer(this.#registry, this.#log, {
+      onNamed: (name, port) => this.#rememberAutoName(name, port),
+      canTake: (name) => this.#isAbandonedAutoName(name),
+    });
   }
 
   /** Follows config file edits and runs auto mode. Call once the server is up. */
@@ -75,7 +111,7 @@ export class StudioRuntime {
     if (this.#started) return;
     this.#started = true;
     this.#stopConfigWatch = this.#store.watch(() => void this.#reloadConfig());
-    void this.#reloadConfig().then(() => {
+    void Promise.all([this.#reloadConfig(), this.#loadAutoNamed()]).then(() => {
       this.#reschedule();
       void this.ensureProxy();
     });
@@ -118,7 +154,7 @@ export class StudioRuntime {
     const config = await this.#currentConfig();
     const detected = await this.#detect(state, config, false);
     this.#lastDetected = JSON.stringify(detected);
-    return {
+    const snapshot: Snapshot = {
       proxy: state.proxy,
       portless: state.portless,
       routes: this.#withDetails(state.routes),
@@ -126,6 +162,18 @@ export class StudioRuntime {
       autoName: config.autoName,
       readAt: state.readAt,
     };
+    this.#observe(snapshot, config);
+    return snapshot;
+  }
+
+  /** The last notable changes of this run, oldest first, for a page that connects later. */
+  recentEvents(): StudioEvent[] {
+    return this.#events.recent();
+  }
+
+  /** Calls `onEvent` with each new notable change. Returns an unsubscribe. */
+  watchEvents(onEvent: (event: StudioEvent) => void): () => void {
+    return this.#events.subscribe(onEvent);
   }
 
   /** One fresh scan with the current config, filtered the same way as the snapshot. */
@@ -209,15 +257,18 @@ export class StudioRuntime {
       scan: async () => scan.ports,
       answersHttp: (port) => this.#scanner.answersHttp(port),
     };
-    const excludedPorts = [this.#studioPort, state.proxy.port].filter((port) => port !== null);
+    const excludedPorts = [this.#studioPort, state.proxy.port, ...scan.proxyPorts].filter(
+      (port) => port !== null,
+    );
     return discoverPorts(cached, this.#projects, { config, routes: state.routes, excludedPorts });
   }
 
   /** Reuses a scan younger than `maxAgeMs`, and shares one scan between concurrent callers. */
   #scanPorts(maxAgeMs: number): Promise<ScanResult> {
     if (this.#scan && Date.now() - this.#scan.at < maxAgeMs) return Promise.resolve(this.#scan);
-    this.#scanning ??= this.#scanner.scan().then((ports) => {
-      this.#scan = { ports, at: Date.now() };
+    this.#scanning ??= this.#scanner.scan().then(async (ports) => {
+      const proxyPorts = await this.#proxyPortsAmong(ports).catch(() => []);
+      this.#scan = { ports, proxyPorts, at: Date.now() };
       this.#scanning = null;
       return this.#scan;
     });
@@ -227,7 +278,11 @@ export class StudioRuntime {
   #reschedule(): void {
     clearTimeout(this.#timer);
     this.#timer = undefined;
-    const active = this.#watchers.size > 0 || (this.#started && this.#config.autoName);
+    const config = this.#config;
+    // Auto names left to take back keep the loop going even after auto mode is turned off.
+    const background =
+      config.autoName || config.systemNotifications || (this.#autoNamed?.length ?? 0) > 0;
+    const active = this.#watchers.size > 0 || (this.#started && background);
     if (!active) return;
     this.#timer = setTimeout(() => void this.#tick(), this.#config.scanIntervalMs);
     this.#timer.unref();
@@ -237,11 +292,19 @@ export class StudioRuntime {
     if (this.#ticking) return;
     this.#ticking = true;
     try {
-      const state = await this.#registry.readSnapshot();
+      let state = await this.#registry.readSnapshot();
       const config = await this.#currentConfig();
-      const detected = await this.#detect(state, config, true);
-      if (config.autoName) await this.#namer.name(detected);
+      let detected = await this.#detect(state, config, true);
+      // Each step reads the routes again after the previous one changed them.
+      if (config.autoName && (await this.#namer.name(detected)) > 0) {
+        state = await this.#registry.readSnapshot();
+      }
+      if (await this.#removeAbandonedAutoNames(state, config)) {
+        state = await this.#registry.readSnapshot();
+      }
+      detected = await this.#detect(state, config, false);
       const healthChanged = await this.#probeRoutes(state.routes);
+      this.#observe({ ...state, routes: this.#withDetails(state.routes), detected }, config);
       if (healthChanged || JSON.stringify(detected) !== this.#lastDetected) this.#notify();
     } catch (error) {
       this.#log(`port scan failed: ${(error as Error).message}`);
@@ -284,7 +347,8 @@ export class StudioRuntime {
   /** Probes every routed port while someone watches; true when a state or status changed. */
   async #probeRoutes(routes: Route[]): Promise<boolean> {
     const probe = this.#probe;
-    if (!probe || this.#watchers.size === 0) return false;
+    // With OS notifications on, a route going down is worth noticing with no tab open too.
+    if (!probe || (this.#watchers.size === 0 && !this.#config.systemNotifications)) return false;
     const ports = [...new Set(routes.map((route) => route.port))];
     const answers = await Promise.all(ports.map((port) => probe(port).catch(() => null)));
     const checkedAt = this.#now();
@@ -297,6 +361,114 @@ export class StudioRuntime {
     const changed = key(next) !== key(this.#health);
     this.#health = next;
     return changed;
+  }
+
+  async #proxyPortsAmong(ports: ListeningPort[]): Promise<number[]> {
+    if (!this.#proxyPids) return [];
+    const pids = [...new Set(ports.flatMap((port) => (port.pid === null ? [] : [port.pid])))];
+    const proxies = await this.#proxyPids(pids);
+    return ports
+      .filter((port) => port.pid !== null && proxies.has(port.pid))
+      .map((port) => port.port);
+  }
+
+  /** Turns what changed since the last look into events, and tells the OS when nobody watches. */
+  #observe(snapshot: Pick<Snapshot, "routes" | "detected" | "proxy">, config: StudioConfig): void {
+    const next: Observation = {
+      routes: snapshot.routes,
+      detected: snapshot.detected,
+      proxy: snapshot.proxy,
+    };
+    const previous = this.#observed;
+    this.#observed = next;
+    if (!previous) return;
+    const events = this.#events.add(eventsBetween(previous, next));
+    const notifier = this.#notifier;
+    if (!notifier || !config.systemNotifications || this.#watchers.size > 0) return;
+    for (const event of events) {
+      if (SYSTEM_NOTIFICATION_KINDS.has(event.kind)) {
+        notifier.notify(event, this.#studioUrl(snapshot.routes, event, config));
+      }
+    }
+  }
+
+  /** Studio's page showing the event's item: through its own route when it has one. */
+  #studioUrl(routes: readonly Route[], event: StudioEvent, config: StudioConfig): string {
+    const port = this.#studioPort ?? config.port;
+    const own = routes.find((route) => route.port === port);
+    const url = new URL(own?.url ?? `http://localhost:${port}`);
+    const { route, port: targetPort } = event.target;
+    const focus = route ?? (targetPort === undefined ? null : `port:${targetPort}`);
+    if (focus !== null) url.searchParams.set("focus", focus);
+    return url.toString();
+  }
+
+  async #loadAutoNamed(): Promise<AutoNamedEntry[]> {
+    this.#autoNamed ??= await this.#autoNamedStore.read().catch(() => []);
+    return this.#autoNamed;
+  }
+
+  async #saveAutoNamed(entries: AutoNamedEntry[]): Promise<void> {
+    this.#autoNamed = entries;
+    await this.#autoNamedStore
+      .write(entries)
+      .catch((error: Error) => this.#log(`could not save the auto names: ${error.message}`));
+  }
+
+  async #rememberAutoName(name: string, port: number): Promise<void> {
+    const entries = (await this.#loadAutoNamed()).filter((entry) => entry.name !== name);
+    this.#closedSince.delete(name);
+    await this.#saveAutoNamed([...entries, { name, port, createdAt: this.#now() }]);
+  }
+
+  /** Auto mode gave this name and nothing listens on its port in the last scan. */
+  #isAbandonedAutoName(name: string): boolean {
+    const entry = this.#autoNamed?.find((item) => item.name === name);
+    if (!entry) return false;
+    return !(this.#scan?.ports ?? []).some((port) => port.port === entry.port);
+  }
+
+  /**
+   * Takes back auto names whose port has been closed for `autoRemoveAfterMinutes`. A name that
+   * no longer points where auto mode left it belongs to someone else now and is forgotten, not
+   * removed. Returns whether any name was removed.
+   */
+  async #removeAbandonedAutoNames(state: PortlessState, config: StudioConfig): Promise<boolean> {
+    const entries = await this.#loadAutoNamed();
+    if (entries.length === 0) return false;
+    const listening = new Set((this.#scan?.ports ?? []).map((port) => port.port));
+    const limitMs = config.autoRemoveAfterMinutes * MINUTE_MS;
+    const now = this.#now();
+    const keep: AutoNamedEntry[] = [];
+    let removedAny = false;
+    for (const entry of entries) {
+      const route = state.routes.find((item) => item.name === entry.name);
+      if (route?.kind !== "alias" || route.port !== entry.port) {
+        this.#closedSince.delete(entry.name);
+        continue;
+      }
+      if (listening.has(entry.port)) {
+        this.#closedSince.delete(entry.name);
+        keep.push(entry);
+        continue;
+      }
+      const since = this.#closedSince.get(entry.name) ?? now;
+      this.#closedSince.set(entry.name, since);
+      if (limitMs > 0 && now - since >= limitMs) {
+        const removed = await this.#registry.removeAlias(entry.name);
+        if (removed.ok) {
+          const minutes = config.autoRemoveAfterMinutes;
+          this.#log(`removed ${entry.name}: port ${entry.port} was closed for ${minutes} minutes`);
+          this.#closedSince.delete(entry.name);
+          removedAny = true;
+          continue;
+        }
+        this.#log(`could not remove ${entry.name}: ${removed.error.message}`);
+      }
+      keep.push(entry);
+    }
+    if (keep.length !== entries.length) await this.#saveAutoNamed(keep);
+    return removedAny;
   }
 
   async #currentConfig(): Promise<StudioConfig> {

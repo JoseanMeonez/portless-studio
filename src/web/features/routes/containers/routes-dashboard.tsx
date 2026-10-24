@@ -13,6 +13,7 @@ import { LoadingRows } from "../components/loading-rows.tsx";
 import { MoveToGroupDialog } from "../components/move-to-group-dialog.tsx";
 import { NameDialog } from "../components/name-dialog.tsx";
 import { NoMatches } from "../components/no-matches.tsx";
+import { NotificationsMenu } from "../components/notifications-menu.tsx";
 import { ProxyBanner } from "../components/proxy-banner.tsx";
 import { RouteList } from "../components/route-list.tsx";
 import type { RowConfirmation } from "../components/route-row.tsx";
@@ -25,6 +26,7 @@ import { readLastSelected, storeLastSelected } from "../hooks/last-selected.ts";
 import { apiErrorMessage } from "../hooks/route-messages.ts";
 import { useDoctor } from "../hooks/use-doctor.ts";
 import { useKeyboardNavigation } from "../hooks/use-keyboard-navigation.ts";
+import { type ItemTarget, parseFocus, useNotifications } from "../hooks/use-notifications.ts";
 import { useNow } from "../hooks/use-now.ts";
 import { useRouteActions } from "../hooks/use-route-actions.ts";
 import { useRouteViews } from "../hooks/use-route-views.ts";
@@ -58,7 +60,7 @@ type NameRequest =
  * shortcuts.
  */
 export function RoutesDashboard({ theme, onToggleTheme }: RoutesDashboardProps) {
-  const { snapshot, error, connection, reload } = useRoutes();
+  const { snapshot, error, connection, reload, events } = useRoutes();
   const routes = snapshot?.routes ?? NO_ROUTES;
   // Optional chaining tolerates a server older than the `portless` field.
   const portlessMissing = snapshot?.portless?.installed === false;
@@ -87,6 +89,10 @@ export function RoutesDashboard({ theme, onToggleTheme }: RoutesDashboardProps) 
   const [confirming, setConfirming] = useState<{ name: string; action: RowConfirmation } | null>(
     null,
   );
+  /** The item a notification asked to show, until it is on screen and selected. */
+  const [showing, setShowing] = useState<ItemTarget | null>(null);
+  const [scrollRequest, setScrollRequest] = useState(0);
+  const notifications = useNotifications(events, (target) => setShowing({ ...target }));
   const filterInput = useRef<HTMLInputElement>(null);
   const list = useRef<HTMLDivElement>(null);
   const modifier = modifierLabel();
@@ -221,10 +227,11 @@ export function RoutesDashboard({ theme, onToggleTheme }: RoutesDashboardProps) 
   const selected = routeAt(navigation.selectedIndex) ?? null;
   const selectRoute = (route: Route) => navigation.select(views.ordered.indexOf(route));
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: scrollRequest asks for a scroll even when the selection stays put.
   useEffect(() => {
     if (navigation.selectedIndex < 0) return;
     list.current?.querySelector('[aria-current="true"]')?.scrollIntoView?.({ block: "nearest" });
-  }, [navigation.selectedIndex]);
+  }, [navigation.selectedIndex, scrollRequest]);
 
   // The selection follows its route when the rows reorder (a favorite moves up, a view changes),
   // and starts on the route selected before the last reload.
@@ -256,6 +263,54 @@ export function RoutesDashboard({ theme, onToggleTheme }: RoutesDashboardProps) 
     navigation.select(0);
   };
 
+  // A system notification opens Studio with `?focus=`; show that item once, then drop the param.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const target = parseFocus(params.get("focus"));
+    if (!target) return;
+    params.delete("focus");
+    const rest = params.toString();
+    const { pathname, hash } = window.location;
+    window.history.replaceState(null, "", `${pathname}${rest ? `?${rest}` : ""}${hash}`);
+    setShowing(target);
+  }, []);
+
+  // Brings the item a notification points at on screen one step per render: clear the search and
+  // filters that hide it, open its group, then select and scroll to it.
+  useEffect(() => {
+    if (!showing || !snapshot) return;
+    const route =
+      routes.find((item) => item.name === showing.route) ??
+      routes.find((item) => item.port === showing.port);
+    const hidden = viewState.query !== "" || hasFilters(viewState.view.filters);
+    if (route) {
+      const index = views.ordered.indexOf(route);
+      if (index >= 0) {
+        followed.current = route.name;
+        navigation.select(index);
+        setScrollRequest((count) => count + 1);
+        setShowing(null);
+        return;
+      }
+      const section = views.sections.find((item) => item.routes.includes(route));
+      if (section && views.collapsed.isCollapsed(section.key)) views.collapsed.toggle(section.key);
+      else if (hidden) clearSearchAndFilters();
+      else setShowing(null);
+      return;
+    }
+    const item = detected.find((port) => port.port === showing.port);
+    if (item && !views.visibleDetected.includes(item) && hidden) {
+      clearSearchAndFilters();
+      return;
+    }
+    setShowing(null);
+    if (item) {
+      document.querySelector(`[data-port="${item.port}"]`)?.scrollIntoView?.({ block: "center" });
+    } else {
+      toast({ title: "Not here anymore", description: "That server or name is gone." });
+    }
+  });
+
   if (stopped) {
     return (
       <StudioStopped
@@ -283,6 +338,14 @@ export function RoutesDashboard({ theme, onToggleTheme }: RoutesDashboardProps) 
         onOpenHealth={() => setHealthOpen(true)}
         proxyBusy={services.proxyBusy}
         onProxyAction={proxyAction}
+        notifications={
+          <NotificationsMenu
+            events={notifications.recent}
+            unread={notifications.unread}
+            onOpen={notifications.markRead}
+            onSelect={(event) => setShowing({ ...event.target })}
+          />
+        }
       />
 
       <main className={styles.main}>

@@ -1,4 +1,4 @@
-import type { ApiError, Snapshot } from "../../../../core/api/contract.ts";
+import type { ApiError, Snapshot, StudioEvent } from "../../../../core/api/contract.ts";
 import type { ConnectionState, RoutesGateway } from "../data/routes-gateway.ts";
 
 export type RoutesState = {
@@ -7,9 +7,19 @@ export type RoutesState = {
   /** Why the first load failed. Cleared by the next snapshot. */
   error: ApiError | null;
   connection: ConnectionState;
+  /** Notable changes from the server, oldest first, each once. */
+  events: readonly StudioEvent[];
 };
 
-const INITIAL_STATE: RoutesState = { snapshot: null, error: null, connection: "connecting" };
+const INITIAL_STATE: RoutesState = {
+  snapshot: null,
+  error: null,
+  connection: "connecting",
+  events: [],
+};
+
+/** As many as the server keeps. */
+const MAX_EVENTS = 50;
 
 /**
  * Holds the routes state for `useSyncExternalStore`: loads once, then follows live updates while
@@ -51,6 +61,7 @@ export class RoutesStore {
     this.#stopLive = this.#gateway.subscribe(
       (snapshot) => this.#set({ snapshot, error: null }),
       (connection) => this.#set({ connection }),
+      (event) => this.#addEvent(event),
     );
     void this.reload();
   }
@@ -58,6 +69,13 @@ export class RoutesStore {
   #stop(): void {
     this.#stopLive?.();
     this.#stopLive = null;
+  }
+
+  #addEvent(event: StudioEvent): void {
+    // Every reconnect replays the recent events; keep the ones already here.
+    if (this.#state.events.some((item) => item.id === event.id)) return;
+    const events = [...this.#state.events, event].sort((a, b) => a.at - b.at).slice(-MAX_EVENTS);
+    this.#set({ events });
   }
 
   #set(change: Partial<RoutesState>): void {

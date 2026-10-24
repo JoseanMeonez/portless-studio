@@ -1,12 +1,15 @@
+import type { StudioEvent } from "../../core/api/contract.ts";
 import { DEFAULT_CONFIG, type StudioConfig } from "../../core/config/studio-config.ts";
-import { ok, type Result } from "../../core/result.ts";
+import { err, ok, type Result } from "../../core/result.ts";
 import type { Route } from "../../core/routes/route.ts";
-import type { AppError } from "./app-error.ts";
+import { type AppError, appError } from "./app-error.ts";
+import type { AutoNamedEntry, AutoNamedStore } from "./auto-named-store.ts";
 import type { ConfigStore } from "./config-store.ts";
 import type { ProjectInfoSource } from "./port-discovery.ts";
 import type { HttpProbe, ListeningPort, PortScanner, ProbePort } from "./port-scanner.ts";
 import type { PortlessState, RouteRegistry } from "./route-registry.ts";
 import { StudioRuntime } from "./studio-runtime.ts";
+import type { SystemNotifier } from "./system-notifier.ts";
 
 const FAST: StudioConfig = { ...DEFAULT_CONFIG, scanIntervalMs: 10 };
 
@@ -51,8 +54,12 @@ function fakeScanner(ports: ListeningPort[]) {
 function fakeRegistry(proxyRunning = true) {
   const listeners = new Set<() => void>();
   const created: string[] = [];
+  const removed: string[] = [];
   const proxyStarts: string[] = [];
   let routes: Route[] = [];
+  const changed = () => {
+    for (const listener of listeners) listener();
+  };
   const registry: RouteRegistry = {
     readSnapshot: async (): Promise<PortlessState> => ({
       proxy: { running: proxyRunning, port: 1355, https: false, tlds: ["localhost"] },
@@ -64,13 +71,21 @@ function fakeRegistry(proxyRunning = true) {
       listeners.add(onChange);
       return () => listeners.delete(onChange);
     },
-    createAlias: async (name, port) => {
+    createAlias: async (name, port, force): Promise<Result<void, AppError>> => {
+      if (!force && routes.some((route) => route.name === name)) {
+        return err(appError("name_taken", `${name} is already registered`));
+      }
       created.push(`${name} ${port}`);
-      routes = [...routes, { ...aliasRoute(name, port) }];
-      for (const listener of listeners) listener();
+      routes = [...routes.filter((route) => route.name !== name), aliasRoute(name, port)];
+      changed();
       return ok(undefined);
     },
-    removeAlias: async () => ok(undefined),
+    removeAlias: async (name) => {
+      removed.push(name);
+      routes = routes.filter((route) => route.name !== name);
+      changed();
+      return ok(undefined);
+    },
     stopProxy: async () => ok(undefined),
     proxyPid: async () => null,
     installPortless: async () => ok({ version: null, output: "" }),
@@ -79,7 +94,18 @@ function fakeRegistry(proxyRunning = true) {
       return ok(undefined);
     },
   };
-  return { registry, created, listeners, proxyStarts };
+  return { registry, created, removed, listeners, proxyStarts };
+}
+
+function memoryAutoNamed(initial: AutoNamedEntry[] = []) {
+  const store: AutoNamedStore & { entries: AutoNamedEntry[] } = {
+    entries: initial,
+    read: async () => store.entries,
+    write: async (entries) => {
+      store.entries = entries;
+    },
+  };
+  return store;
 }
 
 function aliasRoute(name: string, port: number): Route {
@@ -125,12 +151,17 @@ function build(
     proxyRunning?: boolean;
     probe?: ProbePort;
     projects?: ProjectInfoSource;
+    now?: () => number;
+    proxyPids?: (pids: number[]) => Promise<ReadonlySet<number>>;
+    autoNamed?: ReturnType<typeof memoryAutoNamed>;
+    notifier?: SystemNotifier;
   } = {},
 ) {
   const store = options.store ?? memoryStore();
   const scanner = fakeScanner(options.ports ?? [node(5173, "app"), node(4949, "studio")]);
   const fake = fakeRegistry(options.proxyRunning);
   const lines: string[] = [];
+  const autoNamed = options.autoNamed ?? memoryAutoNamed();
   runtime = new StudioRuntime({
     registry: fake.registry,
     scanner,
@@ -138,9 +169,13 @@ function build(
     projects: options.projects ?? projects,
     studioPort: 4949,
     log: (line) => lines.push(line),
+    autoNamedStore: autoNamed,
     ...(options.probe ? { probe: options.probe, now: () => 1000 } : {}),
+    ...(options.now ? { now: options.now } : {}),
+    ...(options.proxyPids ? { proxyPids: options.proxyPids } : {}),
+    ...(options.notifier ? { notifier: options.notifier } : {}),
   });
-  return { runtime, store, scanner, fake, lines };
+  return { runtime, store, scanner, fake, lines, autoNamed };
 }
 
 describe("StudioRuntime proxy", () => {
@@ -392,5 +427,237 @@ describe("StudioRuntime route details", () => {
     await runtime.readSnapshot();
     await new Promise((resolve) => setTimeout(resolve, 40));
     expect(probes).toBe(0);
+  });
+});
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+const MINUTE = 60_000;
+
+describe("StudioRuntime proxy ports", () => {
+  it("never offers or names a port a portless proxy listens on, even one not in proxy.port", async () => {
+    const { runtime, fake } = build({
+      store: memoryStore({ ...FAST, autoName: true }),
+      ports: [node(1356, "portless-studio"), node(5173, "app")],
+      proxyPids: async (pids) => new Set(pids.filter((pid) => pid === 1356)),
+    });
+    expect((await runtime.readSnapshot()).detected.map((item) => item.port)).toEqual([5173]);
+    runtime.start();
+    await vi.waitFor(() => expect(fake.created).toEqual(["app 5173"]));
+    await sleep(40);
+    expect(fake.created).toEqual(["app 5173"]);
+  });
+});
+
+describe("StudioRuntime auto removal", () => {
+  function autoMode(minutes = 10, autoNamed = memoryAutoNamed()) {
+    const clock = { now: 0 };
+    const built = build({
+      store: memoryStore({ ...FAST, autoName: true, autoRemoveAfterMinutes: minutes }),
+      ports: [node(5173, "app")],
+      now: () => clock.now,
+      autoNamed,
+    });
+    return { ...built, clock };
+  }
+
+  it("records the names auto mode gives", async () => {
+    const { runtime, fake, autoNamed } = autoMode();
+    runtime.start();
+    await vi.waitFor(() => expect(fake.created).toEqual(["app 5173"]));
+    await vi.waitFor(() =>
+      expect(autoNamed.entries).toEqual([{ name: "app", port: 5173, createdAt: 0 }]),
+    );
+  });
+
+  it("removes an auto name once its port has been closed for the grace period", async () => {
+    const { runtime, fake, scanner, clock, lines, autoNamed } = autoMode();
+    runtime.start();
+    await vi.waitFor(() => expect(autoNamed.entries).toHaveLength(1));
+
+    scanner.ports = [];
+    clock.now = 1000;
+    await sleep(40);
+    clock.now = 1000 + 9 * MINUTE;
+    await sleep(40);
+    expect(fake.removed).toEqual([]);
+
+    clock.now = 1000 + 10 * MINUTE;
+    await vi.waitFor(() => expect(fake.removed).toEqual(["app"]));
+    expect(lines).toContain("removed app: port 5173 was closed for 10 minutes");
+    await vi.waitFor(() => expect(autoNamed.entries).toEqual([]));
+  });
+
+  it("forgets the closed time when the port opens again", async () => {
+    const { runtime, fake, scanner, clock, autoNamed } = autoMode();
+    runtime.start();
+    await vi.waitFor(() => expect(autoNamed.entries).toHaveLength(1));
+    const listening = scanner.ports;
+
+    scanner.ports = [];
+    await sleep(40);
+    clock.now = 9 * MINUTE;
+    scanner.ports = listening;
+    await sleep(40);
+    scanner.ports = [];
+    clock.now = 12 * MINUTE;
+    await sleep(40);
+    expect(fake.removed).toEqual([]);
+  });
+
+  it("never removes names a person or an agent gave", async () => {
+    const { runtime, fake, scanner, clock, autoNamed } = autoMode();
+    await fake.registry.createAlias("mine", 6000, false);
+    runtime.start();
+    await vi.waitFor(() => expect(autoNamed.entries).toHaveLength(1));
+    // Someone points the auto name somewhere else: it is theirs now.
+    await fake.registry.createAlias("app", 7000, true);
+    scanner.ports = [];
+    await sleep(40);
+    clock.now = 60 * MINUTE;
+    await sleep(60);
+    expect(fake.removed).toEqual([]);
+    await vi.waitFor(() => expect(autoNamed.entries).toEqual([]));
+  });
+
+  it("keeps auto names forever when the grace period is 0", async () => {
+    const { runtime, fake, scanner, clock, autoNamed } = autoMode(0);
+    runtime.start();
+    await vi.waitFor(() => expect(autoNamed.entries).toHaveLength(1));
+    scanner.ports = [];
+    await sleep(40);
+    clock.now = 600 * MINUTE;
+    await sleep(60);
+    expect(fake.removed).toEqual([]);
+    expect(autoNamed.entries).toHaveLength(1);
+  });
+
+  it("removes auto names recorded by an earlier run", async () => {
+    const autoNamed = memoryAutoNamed([{ name: "old", port: 7000, createdAt: 5 }]);
+    const { runtime, fake, clock } = autoMode(10, autoNamed);
+    await fake.registry.createAlias("old", 7000, false);
+    runtime.start();
+    await sleep(40);
+    clock.now = 11 * MINUTE;
+    await vi.waitFor(() => expect(fake.removed).toEqual(["old"]));
+  });
+
+  it("moves its own name to the new port when the project comes back on another port", async () => {
+    const { runtime, fake, scanner, autoNamed } = autoMode();
+    runtime.start();
+    await vi.waitFor(() => expect(autoNamed.entries).toHaveLength(1));
+    scanner.ports = [node(5174, "app")];
+    await vi.waitFor(() => expect(fake.created).toEqual(["app 5173", "app 5174"]));
+    await vi.waitFor(() =>
+      expect(autoNamed.entries).toEqual([{ name: "app", port: 5174, createdAt: 0 }]),
+    );
+  });
+
+  it("does not take a name from a server that still listens", async () => {
+    const { runtime, fake, scanner, autoNamed } = autoMode();
+    runtime.start();
+    await vi.waitFor(() => expect(autoNamed.entries).toHaveLength(1));
+    scanner.ports = [node(5173, "app"), node(5174, "app")];
+    await vi.waitFor(() => expect(fake.created).toEqual(["app 5173", "app-5174 5174"]));
+  });
+});
+
+describe("StudioRuntime events", () => {
+  it("emits detected, named, removed, down and up, and keeps the recent ones", async () => {
+    const answers = new Map<number, HttpProbe | null>([
+      [3000, { status: 200, latencyMs: 1, studio: false }],
+    ]);
+    const { runtime, fake, scanner } = build({
+      ports: [node(3000, "web")],
+      probe: async (port) => answers.get(port) ?? null,
+    });
+    const heard: StudioEvent[] = [];
+    runtime.watchEvents((event) => heard.push(event));
+    runtime.watch(() => {});
+    await runtime.readSnapshot();
+
+    scanner.ports = [node(3000, "web"), node(5173, "app")];
+    await vi.waitFor(() => expect(heard.map((event) => event.kind)).toContain("detected"));
+
+    await fake.registry.createAlias("web", 3000, false);
+    await vi.waitFor(() => expect(heard.map((event) => event.kind)).toContain("named"));
+    await vi.waitFor(async () => {
+      const [route] = (await runtime.readSnapshot()).routes;
+      expect(route?.health?.state).toBe("up");
+    });
+
+    answers.set(3000, null);
+    await vi.waitFor(() => expect(heard.map((event) => event.kind)).toContain("down"));
+    answers.set(3000, { status: 200, latencyMs: 1, studio: false });
+    await vi.waitFor(() => expect(heard.map((event) => event.kind)).toContain("up"));
+
+    await fake.registry.removeAlias("web");
+    await vi.waitFor(() => expect(heard.map((event) => event.kind)).toContain("removed"));
+
+    expect(heard.map((event) => event.kind)).toEqual([
+      "detected",
+      "named",
+      "down",
+      "up",
+      "removed",
+    ]);
+    expect(heard.find((event) => event.kind === "detected")?.target).toEqual({ port: 5173 });
+    expect(runtime.recentEvents()).toEqual(heard);
+  });
+});
+
+describe("StudioRuntime system notifications", () => {
+  function recordingNotifier() {
+    const sent: Array<{ title: string; url: string }> = [];
+    const notifier: SystemNotifier = {
+      notify: (event, url) => {
+        sent.push({ title: event.title, url });
+      },
+    };
+    return { notifier, sent };
+  }
+
+  it("asks the OS to show names auto mode gives when no tab is open", async () => {
+    const { notifier, sent } = recordingNotifier();
+    const { runtime, scanner } = build({
+      store: memoryStore({ ...FAST, autoName: true, systemNotifications: true }),
+      ports: [],
+      notifier,
+    });
+    runtime.start();
+    await sleep(40);
+    scanner.ports = [node(5173, "app")];
+    await vi.waitFor(() =>
+      expect(sent).toEqual([{ title: "Named app", url: "http://localhost:4949/?focus=app" }]),
+    );
+  });
+
+  it("stays quiet while a tab is open or when the setting is off", async () => {
+    const open = recordingNotifier();
+    const watched = build({
+      store: memoryStore({ ...FAST, autoName: true, systemNotifications: true }),
+      ports: [],
+      notifier: open.notifier,
+    });
+    watched.runtime.watch(() => {});
+    watched.runtime.start();
+    await watched.runtime.readSnapshot();
+    watched.scanner.ports = [node(5173, "app")];
+    await vi.waitFor(() => expect(watched.fake.created).toEqual(["app 5173"]));
+    await sleep(40);
+    expect(open.sent).toEqual([]);
+    watched.runtime.stop();
+
+    const off = recordingNotifier();
+    const quiet = build({
+      store: memoryStore({ ...FAST, autoName: true }),
+      ports: [],
+      notifier: off.notifier,
+    });
+    quiet.runtime.start();
+    await sleep(40);
+    quiet.scanner.ports = [node(5173, "app")];
+    await vi.waitFor(() => expect(quiet.fake.created).toEqual(["app 5173"]));
+    await sleep(40);
+    expect(off.sent).toEqual([]);
   });
 });

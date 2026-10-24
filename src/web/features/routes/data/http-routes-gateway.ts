@@ -12,14 +12,21 @@ import {
   type Session,
   SNAPSHOT_EVENT,
   type Snapshot,
+  STUDIO_EVENT,
   type StudioAction,
   type StudioActionResponse,
+  type StudioEvent,
   TOKEN_HEADER,
 } from "../../../../core/api/contract.ts";
 import { parseConfig, type StudioConfig } from "../../../../core/config/studio-config.ts";
 import type { DoctorCheck } from "../../../../core/doctor/doctor-check.ts";
 import { err, ok, type Result } from "../../../../core/result.ts";
-import type { ConnectionListener, RoutesGateway, SnapshotListener } from "./routes-gateway.ts";
+import type {
+  ConnectionListener,
+  EventListener,
+  RoutesGateway,
+  SnapshotListener,
+} from "./routes-gateway.ts";
 
 type HttpRoutesGatewayOptions = {
   /** Origin of the API. Empty means the page's own origin, which is how the server serves it. */
@@ -62,7 +69,11 @@ export class HttpRoutesGateway implements RoutesGateway {
       : err({ error: "internal", message: "The server sent a snapshot this app cannot read." });
   }
 
-  subscribe(listener: SnapshotListener, onConnectionChange?: ConnectionListener): () => void {
+  subscribe(
+    listener: SnapshotListener,
+    onConnectionChange?: ConnectionListener,
+    onEvent?: EventListener,
+  ): () => void {
     let source: EventSource | null = null;
     let retryTimer: ReturnType<typeof setTimeout> | undefined;
     let failures = 0;
@@ -77,6 +88,10 @@ export class HttpRoutesGateway implements RoutesGateway {
       source.addEventListener(SNAPSHOT_EVENT, (event) => {
         const snapshot = parseSnapshot((event as MessageEvent<string>).data);
         if (snapshot) listener(snapshot);
+      });
+      source.addEventListener(STUDIO_EVENT, (event) => {
+        const studioEvent = toStudioEvent(parseJson((event as MessageEvent<string>).data));
+        if (studioEvent) onEvent?.(studioEvent);
       });
       // We reconnect ourselves: the browser gives up for good after some server errors.
       source.onerror = () => {
@@ -270,6 +285,24 @@ function toSnapshot(value: unknown): Snapshot | null {
     detected: Array.isArray(candidate.detected) ? candidate.detected : [],
     autoName: candidate.autoName === true,
   };
+}
+
+const EVENT_KINDS = new Set(["detected", "named", "removed", "down", "up", "proxy"]);
+
+/** An event this app can show, or null; unknown kinds from a newer server are skipped. */
+function toStudioEvent(value: unknown): StudioEvent | null {
+  if (typeof value !== "object" || value === null) return null;
+  const event = value as Partial<StudioEvent>;
+  const valid =
+    typeof event.id === "string" &&
+    typeof event.kind === "string" &&
+    EVENT_KINDS.has(event.kind) &&
+    typeof event.title === "string" &&
+    typeof event.body === "string" &&
+    typeof event.at === "number" &&
+    typeof event.target === "object" &&
+    event.target !== null;
+  return valid ? (event as StudioEvent) : null;
 }
 
 function readConfigResponse(value: unknown): Result<ConfigResponse, ApiError> {

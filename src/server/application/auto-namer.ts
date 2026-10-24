@@ -2,6 +2,16 @@ import type { DetectedPort } from "../../core/ports/detected-port.ts";
 import { parseRouteName } from "../../core/routes/route-name.ts";
 import type { RouteRegistry } from "./route-registry.ts";
 
+export type AutoNamerHooks = {
+  /** Called after each name auto mode gives. */
+  onNamed?: (name: string, port: number) => void | Promise<void>;
+  /**
+   * True when a taken name may move to the new port: auto mode gave it and its server is gone,
+   * so the project came back on another port.
+   */
+  canTake?: (name: string) => boolean;
+};
+
 /**
  * Auto mode: gives each detected port its suggested name. Every port and process pair gets one
  * attempt, so a name that keeps failing is not retried on every scan.
@@ -9,11 +19,13 @@ import type { RouteRegistry } from "./route-registry.ts";
 export class AutoNamer {
   readonly #registry: RouteRegistry;
   readonly #log: (line: string) => void;
+  readonly #hooks: AutoNamerHooks;
   readonly #attempted = new Set<string>();
 
-  constructor(registry: RouteRegistry, log: (line: string) => void) {
+  constructor(registry: RouteRegistry, log: (line: string) => void, hooks: AutoNamerHooks = {}) {
     this.#registry = registry;
     this.#log = log;
+    this.#hooks = hooks;
   }
 
   /** Returns how many ports got a name. */
@@ -38,9 +50,13 @@ export class AutoNamer {
         lastError = `"${candidate}" is not a valid name`;
         break;
       }
-      const created = await this.#registry.createAlias(name.value, port, false);
+      let created = await this.#registry.createAlias(name.value, port, false);
+      if (!created.ok && created.error.code === "name_taken" && this.#hooks.canTake?.(name.value)) {
+        created = await this.#registry.createAlias(name.value, port, true);
+      }
       if (created.ok) {
         this.#log(`named ${port} -> ${name.value}`);
+        await this.#hooks.onNamed?.(name.value, port);
         return true;
       }
       lastError = created.error.message;

@@ -524,6 +524,46 @@ describe("events", () => {
     expect(received[1]).toContain('"routes":[]');
     await vi.waitFor(() => expect(fake.listeners.size).toBe(0));
   });
+
+  it("sends notable changes as event messages and replays them to a page that connects later", async () => {
+    const stream = (onChunk: (text: string, stop: () => void) => void) =>
+      new Promise<string>((resolve) => {
+        let all = "";
+        const req = request({ host: "127.0.0.1", port, path: API_PATHS.events }, (res) => {
+          res.on("data", (chunk: Buffer) => {
+            all += chunk.toString();
+            onChunk(all, () => {
+              req.destroy();
+              resolve(all);
+            });
+          });
+        });
+        req.end();
+      });
+
+    let changed = false;
+    const first = await stream((all, stop) => {
+      if (!changed) {
+        changed = true;
+        fake.change([]);
+      }
+      if (all.includes("event: event\n")) stop();
+    });
+    const message = /event: event\ndata: (.*)\n\n/.exec(first)?.[1] ?? "null";
+    expect(JSON.parse(message)).toMatchObject({
+      kind: "removed",
+      title: "Removed db",
+      target: { port: 5432 },
+    });
+    // The snapshot without the route arrives before the event that talks about it.
+    expect(first.lastIndexOf("event: snapshot")).toBeLessThan(first.indexOf("event: event"));
+
+    const later = await stream((all, stop) => {
+      if (all.includes("event: event\n")) stop();
+    });
+    expect(later.indexOf("event: snapshot")).toBe(0);
+    expect(later).toContain('"title":"Removed db"');
+  });
 });
 
 describe("static files", () => {

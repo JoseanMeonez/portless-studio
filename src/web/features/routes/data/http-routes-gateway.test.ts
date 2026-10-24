@@ -3,6 +3,8 @@ import {
   type ConfigResponse,
   SNAPSHOT_EVENT,
   type Snapshot,
+  STUDIO_EVENT,
+  type StudioEvent,
   TOKEN_HEADER,
 } from "../../../../core/api/contract.ts";
 import { DEFAULT_CONFIG } from "../../../../core/config/studio-config.ts";
@@ -307,6 +309,28 @@ describe("HttpRoutesGateway live updates", () => {
     source?.emit(SNAPSHOT_EVENT, JSON.stringify(snapshot));
     source?.emit(SNAPSHOT_EVENT, "not json");
     expect(received).toEqual([snapshot]);
+  });
+
+  it("passes every studio event to the event listener and ignores malformed ones", () => {
+    const events: StudioEvent[] = [];
+    create().subscribe(
+      () => {},
+      undefined,
+      (event) => events.push(event),
+    );
+    const event: StudioEvent = {
+      id: "r-1",
+      kind: "named",
+      title: "Named app",
+      body: "Port 5173 opens at http://app.localhost",
+      target: { route: "app", port: 5173 },
+      at: 5,
+    };
+    const source = FakeEventSource.instances[0];
+    source?.emit(STUDIO_EVENT, JSON.stringify(event));
+    source?.emit(STUDIO_EVENT, JSON.stringify({ id: "x", kind: "nope" }));
+    source?.emit(STUDIO_EVENT, "not json");
+    expect(events).toEqual([event]);
   });
 
   it("reconnects with backoff after an error and reports the connection state", () => {

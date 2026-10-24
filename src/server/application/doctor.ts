@@ -48,6 +48,8 @@ export type DoctorFacts = {
   studioPort: { port: number; holder: PortHolder };
   /** Null when it cannot be known, e.g. when Studio runs from source. */
   loginService: LoginServiceState | null;
+  /** Whether OS notifications can be shown; absent when not checked. */
+  systemNotifier?: "available" | "missing" | "unsupported";
 };
 
 /** The checks, in the order people should read them. Pure, so every rule is easy to test. */
@@ -62,6 +64,7 @@ export function diagnose(facts: DoctorFacts): DoctorCheck[] {
   checks.push(studioPortCheck(facts));
   pushIf(checks, loginServiceCheck(facts));
   pushIf(checks, safariCheck(facts));
+  pushIf(checks, notificationsCheck(facts));
   return checks;
 }
 
@@ -332,6 +335,20 @@ function safariCheck({ platform }: DoctorFacts): DoctorCheck | null {
     detail:
       "Safari does not always send *.localhost names to this machine. If a name does not open " +
       "in Safari, use Chrome or Firefox, or open the route's local port.",
+  };
+}
+
+/** Information only: a missing notify-send costs OS notifications, nothing else. */
+function notificationsCheck({ config, systemNotifier }: DoctorFacts): DoctorCheck | null {
+  if (!config.systemNotifications || systemNotifier !== "missing") return null;
+  return {
+    id: "notifications",
+    status: "ok",
+    title: "System notifications need notify-send",
+    detail:
+      "Studio skips them on this machine. Notifications in an open Studio tab still work. " +
+      "The package is libnotify-bin on Debian and Ubuntu, libnotify elsewhere.",
+    fix: { label: "Install notify-send", command: "sudo apt install libnotify-bin" },
   };
 }
 

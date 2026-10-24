@@ -28,8 +28,42 @@ describe("parseConfig", () => {
     [{ scanIntervalMs: 10 }, '"scanIntervalMs" must be a whole number of at least 1000.'],
     [{ ignoredPorts: ["80"] }, '"ignoredPorts" must be a list of port numbers.'],
     [{ ignoredProcesses: [1] }, '"ignoredProcesses" must be a list of process names.'],
+    [{ autoRemoveAfterMinutes: -1 }, '"autoRemoveAfterMinutes" must be a whole number, 0 or more.'],
+    [
+      { autoRemoveAfterMinutes: 1.5 },
+      '"autoRemoveAfterMinutes" must be a whole number, 0 or more.',
+    ],
+    [{ desktopNotifications: "on" }, '"desktopNotifications" must be true or false.'],
+    [{ systemNotifications: 1 }, '"systemNotifications" must be true or false.'],
   ])("rejects %j", (input, error) => {
     expect(parseConfig(input)).toEqual({ ok: false, error });
+  });
+});
+
+describe("parseConfig notifications and auto removal", () => {
+  it("removes auto names after 10 minutes and sends no notifications outside the page by default", () => {
+    expect(DEFAULT_CONFIG).toMatchObject({
+      autoRemoveAfterMinutes: 10,
+      desktopNotifications: false,
+      systemNotifications: false,
+    });
+  });
+
+  it("keeps a config written before these fields valid", () => {
+    const old = { autoName: true, port: 4949, scanIntervalMs: 3000 };
+    expect(parseConfig(old)).toEqual({ ok: true, value: { ...DEFAULT_CONFIG, autoName: true } });
+  });
+
+  it("accepts 0 to turn auto removal off, and both notification switches", () => {
+    const result = parseConfig({
+      autoRemoveAfterMinutes: 0,
+      desktopNotifications: true,
+      systemNotifications: true,
+    });
+    expect(result).toMatchObject({
+      ok: true,
+      value: { autoRemoveAfterMinutes: 0, desktopNotifications: true, systemNotifications: true },
+    });
   });
 });
 

@@ -82,3 +82,10 @@
     display: none;
   }
 }
+
+/* Room for the notifications bell on the narrowest phones; the theme stays in the command menu. */
+@media (max-width: 400px) {
+  .actions .themeToggle {
+    display: none;
+  }
+}

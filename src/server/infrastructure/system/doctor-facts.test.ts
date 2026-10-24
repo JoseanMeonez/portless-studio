@@ -10,6 +10,7 @@ import {
   parseCertutilList,
   parsePortlessProxyArgs,
   parsePsProcesses,
+  proxyPidsAmong,
 } from "./doctor-facts.ts";
 import type { SystemIo } from "./system-io.ts";
 
@@ -181,5 +182,30 @@ describe("collectDoctorFacts", () => {
     const facts = await collectDoctorFacts(options({ configStore }));
     expect(facts.configError).toBe('"port" must be a number.');
     expect(facts.config).toEqual(DEFAULT_CONFIG);
+  });
+});
+
+describe("proxyPidsAmong", () => {
+  it("finds the portless proxies among listening pids on Linux, whatever port they use", async () => {
+    const pids = await proxyPidsAmong("linux", linuxIo(), [3701892, 3706312, 4242]);
+    expect(pids).toEqual(new Set([3701892]));
+  });
+
+  it("asks ps about just those pids on macOS", async () => {
+    const calls: string[][] = [];
+    const io = linuxIo(async (bin, args) => {
+      calls.push([bin, ...args]);
+      return {
+        exitCode: 0,
+        stdout: `  501   501 ${USER_PROXY.join(" ")}\n  777   501 /usr/local/bin/node server.js\n`,
+      };
+    });
+    expect(await proxyPidsAmong("darwin", io, [501, 777])).toEqual(new Set([501]));
+    expect(calls).toEqual([["ps", "-o", "pid=,uid=,args=", "-p", "501,777"]]);
+  });
+
+  it("finds none on Windows or with no pids", async () => {
+    expect(await proxyPidsAmong("win32", linuxIo(), [3701892])).toEqual(new Set());
+    expect(await proxyPidsAmong("darwin", linuxIo(), [])).toEqual(new Set());
   });
 });

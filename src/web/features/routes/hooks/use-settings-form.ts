@@ -10,11 +10,15 @@ export type SettingsField = keyof StudioConfig;
 export type FieldErrors = Partial<Record<SettingsField, string>>;
 
 /** What the form edits: numbers stay text until saving, so half-typed values are allowed. */
-type Draft = Omit<StudioConfig, "port" | "proxyPort" | "scanIntervalMs" | "ignoredPorts"> & {
+type Draft = Omit<
+  StudioConfig,
+  "port" | "proxyPort" | "scanIntervalMs" | "ignoredPorts" | "autoRemoveAfterMinutes"
+> & {
   port: string;
   proxyPort: string;
   scanSeconds: string;
   ignoredPorts: number[];
+  autoRemoveMinutes: string;
 };
 
 type LoadState =
@@ -23,6 +27,9 @@ type LoadState =
   | { status: "ready"; path: string };
 
 const SECONDS_MESSAGE = "Use a number of seconds, 1 or more.";
+const MINUTES_MESSAGE = "Use a whole number of minutes, 0 or more.";
+const BLOCKED_MESSAGE =
+  "The browser blocked notifications for this page. Allow them in the site settings, then try again.";
 const FIELDS = new Set<string>([
   "port",
   "autoName",
@@ -34,6 +41,9 @@ const FIELDS = new Set<string>([
   "scanIntervalMs",
   "ignoredPorts",
   "ignoredProcesses",
+  "autoRemoveAfterMinutes",
+  "desktopNotifications",
+  "systemNotifications",
 ]);
 
 /** Loads the Studio config, edits a copy and saves it, with errors shown next to each field. */
@@ -61,7 +71,12 @@ export function useSettingsForm({ onSaved }: { onSaved: () => void }) {
 
   const change = <K extends keyof Draft>(key: K, value: Draft[K]) => {
     setDraft((previous) => (previous ? { ...previous, [key]: value } : previous));
-    const field: SettingsField = key === "scanSeconds" ? "scanIntervalMs" : key;
+    const field: SettingsField =
+      key === "scanSeconds"
+        ? "scanIntervalMs"
+        : key === "autoRemoveMinutes"
+          ? "autoRemoveAfterMinutes"
+          : key;
     setErrors(({ [field]: _cleared, ...rest }) => rest);
     setFormError(null);
   };
@@ -104,6 +119,21 @@ export function useSettingsForm({ onSaved }: { onSaved: () => void }) {
       );
   };
 
+  /** Turning desktop notifications on first asks the browser for permission. */
+  const setDesktopNotifications = async (value: boolean) => {
+    if (!value) return change("desktopNotifications", false);
+    const api = globalThis.Notification;
+    if (!api) {
+      return setErrors({ desktopNotifications: "This browser cannot show notifications." });
+    }
+    const permission =
+      api.permission === "granted"
+        ? "granted"
+        : await api.requestPermission().catch(() => "denied");
+    if (permission === "granted") change("desktopNotifications", true);
+    else setErrors({ desktopNotifications: BLOCKED_MESSAGE });
+  };
+
   const save = async () => {
     if (!draft) return;
     const checked = toConfig(draft);
@@ -136,6 +166,7 @@ export function useSettingsForm({ onSaved }: { onSaved: () => void }) {
     removeIgnoredPort,
     addIgnoredProcess,
     removeIgnoredProcess,
+    setDesktopNotifications,
     save,
   };
 }
@@ -148,6 +179,7 @@ function toDraft(config: StudioConfig): Draft {
     port: String(config.port),
     proxyPort: String(config.proxyPort),
     scanSeconds: String(config.scanIntervalMs / 1000),
+    autoRemoveMinutes: String(config.autoRemoveAfterMinutes),
   };
 }
 
@@ -164,14 +196,19 @@ function toConfig(
   if (draft.scanSeconds.trim() === "" || !Number.isFinite(seconds) || seconds < 1) {
     errors.scanIntervalMs = SECONDS_MESSAGE;
   }
-  if (!port.ok || !proxyPort.ok || errors.scanIntervalMs) return { ok: false, errors };
+  const minutes = Number(draft.autoRemoveMinutes.trim());
+  if (draft.autoRemoveMinutes.trim() === "" || !Number.isInteger(minutes) || minutes < 0) {
+    errors.autoRemoveAfterMinutes = MINUTES_MESSAGE;
+  }
+  if (Object.keys(errors).length > 0) return { ok: false, errors };
 
-  const { scanSeconds: _seconds, ...rest } = draft;
+  const { scanSeconds: _seconds, autoRemoveMinutes: _minutes, ...rest } = draft;
   const parsed = parseConfig({
     ...rest,
-    port: port.value,
-    proxyPort: proxyPort.value,
+    port: port.ok ? port.value : 0,
+    proxyPort: proxyPort.ok ? proxyPort.value : 0,
     scanIntervalMs: Math.round(seconds * 1000),
+    autoRemoveAfterMinutes: minutes,
   });
   if (parsed.ok) return { ok: true, config: parsed.value };
   const field = fieldNamedIn(parsed.error);

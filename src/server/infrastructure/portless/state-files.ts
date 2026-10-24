@@ -32,13 +32,19 @@ export function resolveStateDir(env: NodeJS.ProcessEnv = process.env): string {
 
 export function readProxyStatus(dir: string): ProxyStatus {
   const port = toPort(Number.parseInt(readText(dir, PORT_FILE) ?? "", 10));
-  const pid = Number.parseInt(readText(dir, PID_FILE) ?? "", 10);
+  const pid = readProxyPid(dir);
   return {
-    running: Number.isInteger(pid) && pid > 0 && isProcessAlive(pid),
+    running: pid !== null && isProcessAlive(pid),
     port,
     https: fs.existsSync(path.join(dir, TLS_MARKER_FILE)),
     tlds: readTlds(dir),
   };
+}
+
+/** The pid in `proxy.pid`, alive or not; null when the file is missing or holds no pid. */
+export function readProxyPid(dir: string): number | null {
+  const pid = Number.parseInt(readText(dir, PID_FILE) ?? "", 10);
+  return Number.isInteger(pid) && pid > 0 ? pid : null;
 }
 
 /** Live routes from `routes.json`. Invalid entries and apps whose process died are left out. */

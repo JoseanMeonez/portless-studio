@@ -50,6 +50,11 @@ export function startProxy(
   return run(cli, ["proxy", "start", "--port", String(port), https ? "--https" : "--no-tls"]);
 }
 
+/** `portless proxy stop`; a proxy started with sudo makes it fail instead of asking. */
+export function stopProxy(cli: PortlessCli): Promise<Result<void, AppError>> {
+  return run(cli, ["proxy", "stop"]);
+}
+
 /** Runs `portless --version`; a binary that cannot start counts as not installed. */
 export async function detectPortless(cli: PortlessCli): Promise<PortlessInstallation> {
   const outcome = await execute(cli.bin, ["--version"], { stateDir: cli.stateDir });

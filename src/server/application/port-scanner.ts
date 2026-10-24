@@ -17,3 +17,14 @@ export interface PortScanner {
   /** True when the port answers an HTTP request on loopback within a short timeout. */
   answersHttp(port: number): Promise<boolean>;
 }
+
+/** One HTTP answer from a local port. */
+export type HttpProbe = {
+  status: number;
+  latencyMs: number;
+  /** The answer came from a Portless Studio (it sent `x-portless-studio`). */
+  studio: boolean;
+};
+
+/** Sends one request to a loopback port; null when nothing answered in time. */
+export type ProbePort = (port: number) => Promise<HttpProbe | null>;

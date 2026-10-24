@@ -16,6 +16,10 @@ const STATUS_BY_CODE: Record<ApiErrorCode, number> = {
   install_in_progress: 409,
   portless_unavailable: 503,
   install_failed: 502,
+  needs_admin: 409,
+  process_not_allowed: 403,
+  unsupported: 501,
+  command_failed: 502,
   internal: 500,
 };
 
@@ -34,8 +38,9 @@ export function sendError(
   code: ApiErrorCode,
   message: string,
   status = STATUS_BY_CODE[code],
+  command?: string,
 ): void {
-  const body: ApiError = { error: code, message };
+  const body: ApiError = command === undefined ? { error: code, message } : { error: code, message, command };
   sendJson(res, status, body);
 }
 

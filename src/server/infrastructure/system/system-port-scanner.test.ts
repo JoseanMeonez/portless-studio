@@ -2,7 +2,7 @@ import { createServer, type Server } from "node:http";
 import { type AddressInfo, createServer as createTcpServer } from "node:net";
 import { STUDIO_HEADER } from "../../../core/api/contract.ts";
 import type { ListeningPort } from "../../application/port-scanner.ts";
-import { probeHttp, SystemPortScanner } from "./system-port-scanner.ts";
+import { probeHttp, probeHttpResponse, SystemPortScanner } from "./system-port-scanner.ts";
 
 const servers: { close(callback: () => void): void }[] = [];
 
@@ -81,5 +81,31 @@ describe("SystemPortScanner", () => {
       throw new Error("boom");
     });
     expect(await scanner.scan()).toEqual([]);
+  });
+});
+
+describe("probeHttpResponse", () => {
+  it("returns the status and how long a 200 took", async () => {
+    const port = await listen(createServer((_req, res) => res.writeHead(200).end()));
+    const probe = await probeHttpResponse(port, 800);
+    expect(probe).toMatchObject({ status: 200, studio: false });
+    expect(probe?.latencyMs).toBeGreaterThanOrEqual(0);
+    expect(probe?.latencyMs).toBeLessThan(800);
+  });
+
+  it("returns a 500 as an answer, so the route reads as erroring rather than down", async () => {
+    const port = await listen(createServer((_req, res) => res.writeHead(500).end()));
+    expect(await probeHttpResponse(port, 800)).toMatchObject({ status: 500 });
+  });
+
+  it("marks an answer from a Portless Studio", async () => {
+    const port = await listen(
+      createServer((_req, res) => res.writeHead(200, { [STUDIO_HEADER]: "1" }).end()),
+    );
+    expect(await probeHttpResponse(port, 800)).toMatchObject({ studio: true });
+  });
+
+  it("is null for a closed port", async () => {
+    expect(await probeHttpResponse(await closedPort(), 800)).toBeNull();
   });
 });

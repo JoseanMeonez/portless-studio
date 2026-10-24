@@ -1,6 +1,6 @@
 import { request } from "node:http";
 import { STUDIO_HEADER } from "../../../core/api/contract.ts";
-import type { ListeningPort, PortScanner } from "../../application/port-scanner.ts";
+import type { HttpProbe, ListeningPort, PortScanner } from "../../application/port-scanner.ts";
 import { listLinuxPorts } from "./linux-ports.ts";
 import { listMacosPorts } from "./macos-ports.ts";
 import { nodeSystemIo, type SystemIo } from "./system-io.ts";
@@ -17,13 +17,14 @@ export function createPortScanner(
   platform: NodeJS.Platform = process.platform,
   io: SystemIo = nodeSystemIo,
 ): SystemPortScanner {
-  const list: ListPorts =
-    platform === "win32"
-      ? () => listWindowsPorts(io)
-      : platform === "darwin"
-        ? () => listMacosPorts(io)
-        : () => listLinuxPorts(io);
-  return new SystemPortScanner(list);
+  return new SystemPortScanner(listPortsFor(platform, io));
+}
+
+/** The raw listing for this operating system, without the HTTP check. */
+export function listPortsFor(platform: NodeJS.Platform, io: SystemIo): ListPorts {
+  if (platform === "win32") return () => listWindowsPorts(io);
+  if (platform === "darwin") return () => listMacosPorts(io);
+  return () => listLinuxPorts(io);
 }
 
 /**
@@ -76,23 +77,38 @@ export class SystemPortScanner implements PortScanner {
  * unless the response comes from a Portless Studio.
  */
 export async function probeHttp(port: number, timeoutMs = PROBE_TIMEOUT_MS): Promise<boolean> {
-  for (const host of LOOPBACK_HOSTS) {
-    if (await probeHost(host, port, timeoutMs)) return true;
-  }
-  return false;
+  const probe = await probeHttpResponse(port, timeoutMs);
+  return probe !== null && !probe.studio;
 }
 
-function probeHost(host: string, port: number, timeoutMs: number): Promise<boolean> {
+/** The first loopback address that answers `HEAD /`: its status and how long it took. */
+export async function probeHttpResponse(
+  port: number,
+  timeoutMs = PROBE_TIMEOUT_MS,
+): Promise<HttpProbe | null> {
+  for (const host of LOOPBACK_HOSTS) {
+    const probe = await probeHost(host, port, timeoutMs);
+    if (probe) return probe;
+  }
+  return null;
+}
+
+function probeHost(host: string, port: number, timeoutMs: number): Promise<HttpProbe | null> {
   return new Promise((resolve) => {
+    const started = performance.now();
     const options = { host, port, method: "HEAD", path: "/", timeout: timeoutMs, agent: false };
     const req = request(options, (res) => {
       res.resume();
       req.destroy();
-      resolve(res.headers[STUDIO_HEADER] === undefined);
+      resolve({
+        status: res.statusCode ?? 0,
+        latencyMs: Math.round(performance.now() - started),
+        studio: res.headers[STUDIO_HEADER] !== undefined,
+      });
     });
     req.on("timeout", () => req.destroy());
-    req.on("error", () => resolve(false));
-    req.on("close", () => resolve(false));
+    req.on("error", () => resolve(null));
+    req.on("close", () => resolve(null));
     req.end();
   });
 }

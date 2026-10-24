@@ -7,7 +7,7 @@ export type PortlessState = Omit<Snapshot, "detected" | "autoName">;
 
 /**
  * Where routes live and how they change. The portless adapter is one implementation; another
- * backend only has to implement these five methods.
+ * backend only has to implement these methods.
  */
 export interface RouteRegistry {
   readSnapshot(): Promise<PortlessState>;
@@ -23,4 +23,8 @@ export interface RouteRegistry {
   installPortless(): Promise<Result<InstallPortlessResponse, AppError>>;
   /** Starts the portless proxy in the background, never asking for a password. */
   startProxy(port: number, https: boolean): Promise<Result<void, AppError>>;
+  /** Stops the proxy portless knows about, never asking for a password. */
+  stopProxy(): Promise<Result<void, AppError>>;
+  /** Process id of the proxy portless recorded, or null when it never ran. */
+  proxyPid(): Promise<number | null>;
 }

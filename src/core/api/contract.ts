@@ -1,4 +1,5 @@
 import type { StudioConfig } from "../config/studio-config.ts";
+import type { DoctorCheck } from "../doctor/doctor-check.ts";
 import type { DetectedPort } from "../ports/detected-port.ts";
 import type { ProxyStatus, Route } from "../routes/route.ts";
 
@@ -20,7 +21,20 @@ export const API_PATHS = {
   config: "/api/config",
   /** POST: adds the port to `ignoredPorts`, so it stops showing as detected. */
   ignoreDetected: (port: number) => `/api/detected/${port}/ignore`,
+  /** GET: runs every health check and returns `DoctorReport`. */
+  doctor: "/api/doctor",
+  /** POST: runs the safe fix of the check with this id; answers `DoctorFixResponse`. */
+  doctorFix: (id: string) => `/api/doctor/fix/${encodeURIComponent(id)}`,
+  /** POST: starts, stops or restarts the portless proxy. */
+  proxy: (action: ProxyAction) => `/api/proxy/${action}`,
+  /** POST: restarts or stops Studio itself; answers 202 before Studio goes away. */
+  studio: (action: StudioAction) => `/api/studio/${action}`,
+  /** POST: stops a dev server listening on a detected or routed port. */
+  stopProcess: (pid: number) => `/api/processes/${pid}/stop`,
 } as const;
+
+export type ProxyAction = "start" | "stop" | "restart";
+export type StudioAction = "restart" | "stop";
 
 export const SNAPSHOT_EVENT = "snapshot";
 
@@ -75,6 +89,17 @@ export type InstallPortlessResponse = {
   output: string;
 };
 
+/** GET /api/doctor */
+export type DoctorReport = {
+  checks: DoctorCheck[];
+};
+
+/** POST /api/doctor/fix/:id, on success: what was done and the checks run again afterwards. */
+export type DoctorFixResponse = {
+  message: string;
+  checks: DoctorCheck[];
+};
+
 /** GET /api/config and the body of PUT /api/config. */
 export type ConfigResponse = {
   config: StudioConfig;
@@ -97,10 +122,20 @@ export type ApiErrorCode =
   | "install_in_progress"
   /** PUT /api/config with a value parseConfig rejects; the message names the field. */
   | "invalid_config"
+  /** The process belongs to root or another user; the error carries the command to run. */
+  | "needs_admin"
+  /** The pid does not listen on a detected or routed port, or is not the current user's. */
+  | "process_not_allowed"
+  /** This system cannot do it, e.g. restarting Studio as a service on Windows. */
+  | "unsupported"
+  /** A system command failed; the message carries what it printed. */
+  | "command_failed"
   | "internal";
 
 /** Body of every non-2xx response. */
 export type ApiError = {
   error: ApiErrorCode;
   message: string;
+  /** A command the person can copy and run instead, when the server cannot do it. */
+  command?: string;
 };

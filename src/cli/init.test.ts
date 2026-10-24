@@ -88,6 +88,8 @@ function fakeServices(options: FakeOptions = {}) {
         return ok(undefined);
       },
       removeAlias: async () => ok(undefined),
+      stopProxy: async () => ok(undefined),
+      proxyPid: async () => null,
       startProxy: async (port, https) => {
         calls.push(`proxy ${port} ${https}`);
         if (options.proxyStartFails) return err({ code: "internal", message: "port in use" });

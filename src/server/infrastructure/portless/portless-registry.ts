@@ -10,8 +10,9 @@ import {
   type PortlessCli,
   removeAlias,
   startProxy,
+  stopProxy,
 } from "./portless-cli.ts";
-import { readProxyStatus, readRoutes } from "./state-files.ts";
+import { readProxyPid, readProxyStatus, readRoutes } from "./state-files.ts";
 
 export type PortlessRegistryOptions = {
   stateDir: string;
@@ -144,6 +145,14 @@ export class PortlessRegistry implements RouteRegistry {
 
   startProxy(port: number, https: boolean): Promise<Result<void, AppError>> {
     return startProxy(this.#cli, port, https);
+  }
+
+  stopProxy(): Promise<Result<void, AppError>> {
+    return stopProxy(this.#cli);
+  }
+
+  async proxyPid(): Promise<number | null> {
+    return readProxyPid(this.#stateDir);
   }
 
   removeAlias(name: string): Promise<Result<void, AppError>> {

@@ -56,6 +56,14 @@ class FakeRegistry implements RouteRegistry {
     return ok(undefined);
   }
 
+  async stopProxy() {
+    return ok(undefined);
+  }
+
+  async proxyPid() {
+    return null;
+  }
+
   async installPortless() {
     this.calls.push("install");
     return this.installResult;

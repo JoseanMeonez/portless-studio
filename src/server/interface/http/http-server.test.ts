@@ -60,6 +60,8 @@ function fakeRegistry() {
       return ok(undefined);
     },
     startProxy: async () => ok(undefined),
+    stopProxy: async () => ok(undefined),
+    proxyPid: async () => null,
     installPortless: async () => {
       calls.push("install");
       return install.result;

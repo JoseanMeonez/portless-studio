@@ -23,6 +23,23 @@ export type Route = {
   /** URL to open in the browser, including the proxy port when it is not the default one. */
   url: string;
   tunnels: Tunnel[];
+  /** Process listening on `port`, when the port scan could see it. Absent when unknown. */
+  listenerPid?: number;
+  /** Whether `port` answers HTTP, from the last probe. Absent until the first probe. */
+  health?: RouteHealth;
+};
+
+/** `up` answered below 500, `error` answered 5xx, `down` did not answer at all. */
+export type RouteHealthState = "up" | "error" | "down";
+
+export type RouteHealth = {
+  state: RouteHealthState;
+  /** HTTP status of the answer; absent when the port did not answer. */
+  status?: number;
+  /** How long the answer took, in milliseconds; absent when the port did not answer. */
+  latencyMs?: number;
+  /** Epoch milliseconds of the probe. */
+  checkedAt: number;
 };
 
 export type ProxyStatus = {
@@ -33,6 +50,20 @@ export type ProxyStatus = {
   /** TLDs the proxy serves, the first one is the default (usually `localhost`). */
   tlds: string[];
 };
+
+/** Maps one HTTP probe to a health state; `null` means nothing answered. */
+export function healthFromProbe(
+  probe: { status: number; latencyMs: number } | null,
+  checkedAt: number,
+): RouteHealth {
+  if (probe === null) return { state: "down", checkedAt };
+  return {
+    state: probe.status >= 500 ? "error" : "up",
+    status: probe.status,
+    latencyMs: probe.latencyMs,
+    checkedAt,
+  };
+}
 
 /** Removes the first TLD the hostname ends with: `api.acme.localhost` -> `api.acme`. */
 export function nameFromHostname(hostname: string, tlds: readonly string[]): string {

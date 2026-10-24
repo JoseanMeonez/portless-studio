@@ -70,6 +70,8 @@ function fakeRegistry(proxyRunning = true) {
       return ok(undefined);
     },
     removeAlias: async () => ok(undefined),
+    stopProxy: async () => ok(undefined),
+    proxyPid: async () => null,
     installPortless: async () => ok({ version: null, output: "" }),
     startProxy: async (port, https) => {
       proxyStarts.push(`${port} ${https}`);

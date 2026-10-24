@@ -23,6 +23,8 @@ function registryTaking(taken: string[], failing: string[] = []) {
     removeAlias: async () => ok(undefined),
     installPortless: async () => ok({ version: null, output: "" }),
     startProxy: async () => ok(undefined),
+    stopProxy: async () => ok(undefined),
+    proxyPid: async () => null,
   };
   return { registry, calls };
 }

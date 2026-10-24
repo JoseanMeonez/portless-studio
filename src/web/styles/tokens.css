@@ -1,0 +1,173 @@
+/*
+ * Design tokens. Components read these through var(--...) and never hard-code colors or sizes.
+ * Light is the default; dark applies when the system asks for it, unless the user picked light,
+ * or when the user picked dark explicitly (data-theme on <html>).
+ */
+:root {
+  color-scheme: light;
+
+  --font-sans: "Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, "SFMono-Regular", "Menlo", "Consolas", monospace;
+
+  --text-2xs: 0.6875rem;
+  --text-xs: 0.75rem;
+  --text-sm: 0.8125rem;
+  --text-md: 0.875rem;
+  --text-lg: 1rem;
+  --text-xl: 1.25rem;
+  --leading-tight: 1.25;
+  --leading-normal: 1.5;
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+  --tracking-tight: -0.01em;
+
+  --space-0-5: 2px;
+  --space-1: 4px;
+  --space-1-5: 6px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+  --radius-full: 999px;
+
+  --control-height-xs: 22px;
+  --control-height-sm: 28px;
+  --control-height-md: 32px;
+  --control-height-lg: 40px;
+  --row-min-height: 56px;
+  --content-width: 1040px;
+  --dialog-width: 440px;
+  --command-width: 560px;
+  --dot-size: 8px;
+  --icon-size: 16px;
+
+  --duration-fast: 100ms;
+  --duration-normal: 160ms;
+  --duration-slow: 240ms;
+  --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+
+  --z-sticky: 10;
+  --z-overlay: 50;
+  --z-toast: 60;
+
+  /* Light palette */
+  --color-bg: #ffffff;
+  --color-bg-subtle: #fafafa;
+  --color-bg-muted: #f2f2f2;
+  --color-bg-hover: #f5f5f5;
+  --color-bg-selected: #f0f6ff;
+  --color-bg-overlay: rgb(0 0 0 / 0.32);
+  --color-border: #ebebeb;
+  --color-border-strong: #d4d4d4;
+  --color-text: #171717;
+  --color-text-secondary: #5c5c5c;
+  --color-text-tertiary: #737373;
+  --color-text-inverse: #ffffff;
+  --color-accent: #006bff;
+  --color-accent-hover: #005ee0;
+  --color-accent-text: #0060e6;
+  --color-accent-subtle: #ebf3ff;
+  --color-accent-ring: rgb(0 107 255 / 0.45);
+  --color-success: #12a150;
+  --color-success-text: #0b7a3b;
+  --color-success-subtle: #e9f8ef;
+  --color-warning: #e5a000;
+  --color-warning-text: #8a5a00;
+  --color-warning-subtle: #fff6e0;
+  --color-danger: #e5484d;
+  --color-danger-hover: #cf3c41;
+  --color-danger-text: #c42b31;
+  --color-danger-subtle: #fdecec;
+
+  --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.04);
+  --shadow-overlay:
+    0 1px 1px rgb(0 0 0 / 0.02), 0 8px 24px rgb(0 0 0 / 0.08), 0 24px 48px rgb(0 0 0 / 0.06);
+  --focus-ring: 0 0 0 2px var(--color-bg), 0 0 0 4px var(--color-accent-ring);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --color-bg: #0a0a0a;
+    --color-bg-subtle: #111111;
+    --color-bg-muted: #1a1a1a;
+    --color-bg-hover: #161616;
+    --color-bg-selected: #0f1a2b;
+    --color-bg-overlay: rgb(0 0 0 / 0.6);
+    --color-border: #232323;
+    --color-border-strong: #333333;
+    --color-text: #ededed;
+    --color-text-secondary: #a1a1a1;
+    --color-text-tertiary: #8f8f8f;
+    --color-text-inverse: #ffffff;
+    --color-accent: #006bff;
+    --color-accent-hover: #1a7aff;
+    --color-accent-text: #52a8ff;
+    --color-accent-subtle: #0d2240;
+    --color-accent-ring: rgb(82 168 255 / 0.55);
+    --color-success: #3ecf8e;
+    --color-success-text: #5fdba2;
+    --color-success-subtle: #0e2a1c;
+    --color-warning: #f5b638;
+    --color-warning-text: #f5c56a;
+    --color-warning-subtle: #2c2210;
+    --color-danger: #f2555a;
+    --color-danger-hover: #ff6b70;
+    --color-danger-text: #ff8589;
+    --color-danger-subtle: #2e1214;
+    --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.3);
+    --shadow-overlay: 0 0 0 1px rgb(255 255 255 / 0.06), 0 16px 48px rgb(0 0 0 / 0.6);
+  }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --color-bg: #0a0a0a;
+  --color-bg-subtle: #111111;
+  --color-bg-muted: #1a1a1a;
+  --color-bg-hover: #161616;
+  --color-bg-selected: #0f1a2b;
+  --color-bg-overlay: rgb(0 0 0 / 0.6);
+  --color-border: #232323;
+  --color-border-strong: #333333;
+  --color-text: #ededed;
+  --color-text-secondary: #a1a1a1;
+  --color-text-tertiary: #8f8f8f;
+  --color-text-inverse: #ffffff;
+  --color-accent: #006bff;
+  --color-accent-hover: #1a7aff;
+  --color-accent-text: #52a8ff;
+  --color-accent-subtle: #0d2240;
+  --color-accent-ring: rgb(82 168 255 / 0.55);
+  --color-success: #3ecf8e;
+  --color-success-text: #5fdba2;
+  --color-success-subtle: #0e2a1c;
+  --color-warning: #f5b638;
+  --color-warning-text: #f5c56a;
+  --color-warning-subtle: #2c2210;
+  --color-danger: #f2555a;
+  --color-danger-hover: #ff6b70;
+  --color-danger-text: #ff8589;
+  --color-danger-subtle: #2e1214;
+  --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.3);
+  --shadow-overlay: 0 0 0 1px rgb(255 255 255 / 0.06), 0 16px 48px rgb(0 0 0 / 0.6);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --duration-fast: 0ms;
+    --duration-normal: 0ms;
+    --duration-slow: 0ms;
+  }
+}

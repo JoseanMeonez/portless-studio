@@ -1,0 +1,27 @@
+.hints {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--space-2) var(--space-5);
+  margin: var(--space-6) 0 0;
+  padding: 0;
+  color: var(--color-text-tertiary);
+  font-size: var(--text-xs);
+  list-style: none;
+}
+
+.hint {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.hint span {
+  margin-left: var(--space-0-5);
+}
+
+@media (max-width: 720px) {
+  .hints {
+    display: none;
+  }
+}

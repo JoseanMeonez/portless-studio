@@ -56,8 +56,12 @@ export function RouteRow({
       </div>
 
       <div className={styles.meta}>
-        <TunnelLinks tunnels={route.tunnels} />
-        <Badge tone={isAlias ? "accent" : "neutral"}>{isAlias ? "Alias" : "App"}</Badge>
+        <div className={styles.tunnelCell}>
+          <TunnelLinks tunnels={route.tunnels} />
+        </div>
+        <Badge tone={isAlias ? "accent" : "neutral"} className={styles.kind}>
+          {isAlias ? "Alias" : "App"}
+        </Badge>
         <span className={styles.port} title="Local port">
           :{route.port}
         </span>

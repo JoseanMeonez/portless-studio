@@ -66,9 +66,20 @@
 }
 
 .meta {
-  display: flex;
+  display: grid;
+  /* Fixed columns so kind, port and uptime line up across rows whatever the tunnels are. */
+  grid-template-columns: auto 52px 7ch 9ch;
   align-items: center;
+  justify-items: end;
   gap: var(--space-3);
+}
+
+.kind {
+  justify-self: center;
+}
+
+.tunnelCell {
+  min-width: 0;
 }
 
 .port,
@@ -78,14 +89,6 @@
   font-size: var(--text-xs);
   font-variant-numeric: tabular-nums;
   text-align: right;
-}
-
-.port {
-  min-width: 6ch;
-}
-
-.uptime {
-  min-width: 7ch;
 }
 
 .actions,

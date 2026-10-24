@@ -57,6 +57,7 @@ export function DashboardHeader({
             size="sm"
             onClick={onOpenCommandMenu}
             aria-label="Open command menu"
+            className={styles.commandButton}
           >
             <Kbd>{modifierLabel}</Kbd>
             <Kbd>K</Kbd>
@@ -71,9 +72,15 @@ export function DashboardHeader({
           >
             <Icon name={theme === "dark" ? "sun" : "moon"} />
           </Button>
-          <Button variant="primary" size="sm" onClick={onNamePort} title="Name a port (N)">
+          <Button
+            variant="primary"
+            size="sm"
+            onClick={onNamePort}
+            title="Name a port (N)"
+            aria-label="Name a port"
+          >
             <Icon name="plus" size={14} />
-            Name a port
+            <span className={styles.namePortLabel}>Name a port</span>
           </Button>
         </div>
       </div>

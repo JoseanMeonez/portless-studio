@@ -64,3 +64,10 @@
     display: none;
   }
 }
+
+@media (max-width: 480px) {
+  .commandButton,
+  .namePortLabel {
+    display: none;
+  }
+}

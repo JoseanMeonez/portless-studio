@@ -248,6 +248,12 @@ export function SettingsDialog({
               checked={draft.openBrowser}
               onChange={(value) => form.change("openBrowser", value)}
             />
+            <Switch
+              label="Check for updates"
+              description="Once a day Studio asks the npm registry for the latest portless-studio version and says when a newer one is out. It sends nothing about this machine."
+              checked={draft.checkForUpdates}
+              onChange={(value) => form.change("checkForUpdates", value)}
+            />
             <TextField
               label="Studio port"
               mono

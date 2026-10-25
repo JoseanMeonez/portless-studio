@@ -20,13 +20,40 @@ ports have none. Studio shows both, live, and names a port in one click.
 
 The screenshots use the built-in sample data (`?demo`), not a real machine.
 
-## Quick start
+## Install
 
-Requires Node 24 or later.
+Requires Node 22 or later.
+
+To try it, run it straight from npm:
 
 ```bash
 npx portless-studio init
 ```
+
+For everyday use, and always for "start at login", install it globally:
+
+```bash
+npm i -g portless-studio
+portless-studio init
+```
+
+The login service starts Studio from the files npm installed. Run through `npx`, those files sit in
+npm's cache, which npm can clear at any time, and then Studio stops starting at login.
+
+To update, install the latest version and restart Studio:
+
+```bash
+npm i -g portless-studio@latest
+```
+
+To remove it, undo the setup first, then remove the package:
+
+```bash
+portless-studio uninstall
+npm rm -g portless-studio
+```
+
+## Quick start
 
 `init` asks a few questions and leaves everything working:
 
@@ -36,7 +63,7 @@ npx portless-studio init
 - Starts the portless proxy on port 1355 over HTTP, which needs no password, certificate or extra
   tool on macOS, Windows or Linux, and can set Studio to start when you log in.
 
-`init --yes` accepts every default without asking. After that, `npx portless-studio` starts
+`init --yes` accepts every default without asking. After that, `portless-studio` starts
 Studio at `http://127.0.0.1:4949`, registers it in portless as `studio` and opens your browser.
 Your apps open at names like `http://web.myapp.localhost:1355`: Chrome, Edge and Firefox send
 every `*.localhost` name to your own machine, with no hosts file and no DNS setup.
@@ -124,7 +151,7 @@ names the first port it opens and stops it on Ctrl+C. The terminal stays visible
 
 ## Platforms
 
-Studio runs on Linux, macOS and Windows with Node 24 and installs nothing beyond portless. Each
+Studio runs on Linux, macOS and Windows with Node 22 or later and installs nothing beyond portless. Each
 feature uses tools the system already has (`/proc` on Linux, `lsof` on macOS, `netstat` and
 PowerShell on Windows). [docs/platforms.md](docs/platforms.md) says what each system uses and what
 does not work the same everywhere.
@@ -161,6 +188,7 @@ does not work the same everywhere.
 | `PORTLESS_STATE_DIR` | portless state folder. Default `~/.portless`. |
 | `PORTLESS_BIN` | portless binary used to create and remove names. Default `portless`. |
 | `PORTLESS_STUDIO_URL` | Studio that `mcp`, `list`, `run` and `open` talk to. Default `http://127.0.0.1:<port>`. |
+| `PORTLESS_STUDIO_NO_UPDATE_CHECK` | `1` turns the daily update check off, whatever the config says. |
 | `EDITOR` | Editor that `config --edit` opens. |
 
 ## Config file
@@ -190,9 +218,21 @@ changes without a restart. Missing fields take their default.
 | `systemNotifications` | `false` | Asks the operating system to notify when no Studio tab is open. |
 | `nameTemplate` | `"{work}.{package}.{repo}"` | How suggested names are built. See [docs/naming.md](docs/naming.md). |
 | `projectIcons` | `{}` | Icon per project: an emoji, an http(s) image URL or a `data:image` URL. |
+| `checkForUpdates` | `true` | Once a day, asks npm whether a newer portless-studio exists. See "Update notice" below. |
 
 The `--port`, `--no-open` and `--no-register` flags win over the file for one run. Apps you add to
 the Open with menu live in `open-with.json` next to the config file.
+
+### Update notice
+
+Once a day Studio asks the npm registry for the latest version of portless-studio. When a newer
+one exists, it prints one line on start and shows a banner in the page with the command to update;
+dismissing the banner hides it until the next version. The request is a plain
+`GET https://registry.npmjs.org/portless-studio/latest`: Studio sends nothing about your machine,
+your projects or your routes. It gives up after 3 seconds and stays quiet when you are offline,
+and it keeps the time of the last check in `update-check.json` next to the config file. It never
+runs when the `CI` variable is set. Turn it off with `checkForUpdates: false`, the Settings
+switch, or `PORTLESS_STUDIO_NO_UPDATE_CHECK=1`.
 
 ## Keyboard shortcuts
 
@@ -241,7 +281,7 @@ that needs sudo once to start the proxy. For HTTPS, set `proxyHttps` to `true` a
 portless certificate: `portless-studio doctor` prints the exact command for your system, and the
 Health panel shows it too.
 
-**Does it work on Windows?** Yes, with Node 24 and PowerShell 5 (included in Windows 10 and 11).
+**Does it work on Windows?** Yes, with Node 22 or later and PowerShell 5 (included in Windows 10 and 11).
 Ports come from `netstat`, process details from PowerShell, and start at login uses a hidden
 script in the Startup folder. Windows has no service manager Studio can ask, so the page can stop
 Studio but not restart it, and the doctor only sees the proxy portless records.
@@ -252,10 +292,10 @@ made by its authors. It reads the state portless keeps in `~/.portless` and name
 the `portless` command, so anything you or an agent do with portless shows up in Studio, and
 Studio never changes how portless works.
 
-**How do I remove it?** Run `npx portless-studio uninstall`. It removes the login service, the
-names auto mode gave and the `studio` name, stops the proxy if Studio started it, and asks before
-deleting the settings folder. If you installed it globally, also run
-`npm uninstall -g portless-studio`. portless itself stays installed; remove it with
+**How do I remove it?** Run `portless-studio uninstall` (or `npx portless-studio uninstall` if you
+never installed it globally). It removes the login service, the names auto mode gave and the
+`studio` name, stops the proxy if Studio started it, and asks before deleting the settings folder.
+Then remove the package with `npm rm -g portless-studio`. portless itself stays installed; remove it with
 `npm uninstall -g portless`.
 
 ## Development

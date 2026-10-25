@@ -184,12 +184,19 @@ function parseFlags(args: string[], subcommand: string | null) {
                   open: { type: "boolean" },
                   register: { type: "boolean" },
                 };
-  const { values, positionals } = parseArgs({
-    args,
+  // parseArgs learned `allowNegative` in Node 22.4; reading `--no-<flag>` here keeps every Node 22.
+  const { args: positive, negated } = splitNegations(args, options);
+  const { values, positionals, tokens } = parseArgs({
+    args: positive,
     options,
-    allowNegative: true,
+    tokens: true,
     allowPositionals: subcommand === "service" || subcommand === "run" || subcommand === "open",
   });
+  for (const token of tokens) {
+    if (token.kind === "option" && options[token.name]?.type === "boolean") {
+      (values as Record<string, unknown>)[token.name] = !negated.has(token.index);
+    }
+  }
   return {
     positionals,
     values: values as {
@@ -205,4 +212,25 @@ function parseFlags(args: string[], subcommand: string | null) {
       cwd?: string;
     },
   };
+}
+
+/**
+ * Turns each `--no-<flag>` of a boolean option into `--<flag>` and remembers its position, so the
+ * last of `--open` and `--no-open` wins. Arguments after `--` are left alone.
+ */
+function splitNegations(
+  args: string[],
+  options: ParseArgsOptionsConfig,
+): { args: string[]; negated: Set<number> } {
+  const negated = new Set<number>();
+  const end = args.indexOf("--");
+  const positive = args.map((arg, index) => {
+    if (end !== -1 && index > end) return arg;
+    const match = /^--no-([^=]+)(=.*)?$/.exec(arg);
+    const name = match?.[1];
+    if (name === undefined || options[name]?.type !== "boolean") return arg;
+    negated.add(index);
+    return `--${name}${match?.[2] ?? ""}`;
+  });
+  return { args: positive, negated };
 }

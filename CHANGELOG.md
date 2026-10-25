@@ -12,6 +12,15 @@ All notable changes are listed here. Versions follow [Semantic Versioning](https
   `portless <name> <command>`, and checks the routes again right before naming.
 - The doctor warns when portless's routes file has entries Studio cannot read.
 - Releases publish to npm through Trusted Publishing and create a GitHub release.
+- Studio runs on Node 22 or later (it needed 24 before). CI tests Node 22 and 24 on Linux, macOS
+  and Windows.
+- Update notice: once a day Studio asks the npm registry for the latest version and, when a newer
+  one exists, prints one line on start and shows a dismissible banner in the page. Turn it off
+  with `checkForUpdates: false`, the Settings switch or `PORTLESS_STUDIO_NO_UPDATE_CHECK=1`; it
+  never runs in CI.
+- The README has an Install section: try it with `npx`, install globally for everyday use and
+  start at login, and how to update and uninstall. `service install` run from the npx cache now
+  prints the exact commands to move to a global install.
 
 ## 0.1.0 (2026-10-25)
 

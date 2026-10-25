@@ -93,6 +93,23 @@ describe("parseConfig notifications and auto removal", () => {
   });
 });
 
+describe("parseConfig update checks", () => {
+  it("checks for updates by default", () => {
+    expect(DEFAULT_CONFIG.checkForUpdates).toBe(true);
+  });
+
+  it("accepts false to turn the check off and rejects anything but a boolean", () => {
+    expect(parseConfig({ checkForUpdates: false })).toMatchObject({
+      ok: true,
+      value: { checkForUpdates: false },
+    });
+    expect(parseConfig({ checkForUpdates: "no" })).toEqual({
+      ok: false,
+      error: '"checkForUpdates" must be true or false.',
+    });
+  });
+});
+
 describe("parseConfig views and favorites", () => {
   const view = {
     id: "backends",

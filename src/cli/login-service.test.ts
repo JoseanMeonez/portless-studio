@@ -4,6 +4,7 @@ import * as path from "node:path";
 import { pathToFileURL } from "node:url";
 import type { CommandResult, CommandRunner } from "./command-runner.ts";
 import {
+  describeServiceInstall,
   installService,
   resolveServiceEntry,
   type ServiceEnv,
@@ -235,5 +236,46 @@ describe("resolveServiceEntry", () => {
     // Absolute on every system: Windows adds the drive letter.
     const entry = path.resolve("/repo/dist/cli/index.js");
     expect(resolveServiceEntry(pathToFileURL(entry).href)).toEqual({ ok: true, value: entry });
+  });
+});
+
+describe("describeServiceInstall", () => {
+  const installed = {
+    ok: true as const,
+    value: { file: "/home/u/.config/systemd/user/x.service" },
+  };
+
+  it("says where the service file is", () => {
+    expect(describeServiceInstall(installed, env("linux"))).toEqual({
+      ok: true,
+      value:
+        "Studio will start when you log in. Service file: /home/u/.config/systemd/user/x.service",
+    });
+  });
+
+  it("gives the exact commands to move off the npx cache", () => {
+    const fromNpx = { ...env("linux"), entryPath: "/home/u/.npm/_npx/abc/node_modules/x/index.js" };
+    const described = describeServiceInstall(installed, fromNpx);
+    expect(described.ok && described.value).toContain(
+      "Install Studio globally and set up the service again:\n" +
+        "  npm i -g portless-studio\n" +
+        "  portless-studio service install",
+    );
+  });
+
+  it("recognizes the npx cache in a Windows path", () => {
+    const fromNpx = {
+      ...env("win32"),
+      entryPath: "C:\\Users\\u\\AppData\\Local\\npm-cache\\_npx\\abc\\index.js",
+    };
+    const described = describeServiceInstall(installed, fromNpx);
+    expect(described.ok && described.value).toContain("npm i -g portless-studio");
+  });
+
+  it("passes on an install that failed", () => {
+    expect(describeServiceInstall({ ok: false, error: "no systemd" }, env("linux"))).toEqual({
+      ok: false,
+      error: "no systemd",
+    });
   });
 });

@@ -39,6 +39,19 @@ describe("settings", () => {
     expect(within(dialog).getByRole("button", { name: "Copy config path" })).toBeTruthy();
   });
 
+  it("turns the daily update check off", async () => {
+    const { user, gateway } = setup();
+    const updateConfig = vi.spyOn(gateway, "updateConfig");
+    const dialog = await openSettings(user);
+
+    const check = within(dialog).getByRole("switch", { name: "Check for updates" });
+    expect(check.getAttribute("aria-checked")).toBe("true");
+    await user.click(check);
+    await user.click(within(dialog).getByRole("button", { name: "Save" }));
+
+    expect(updateConfig).toHaveBeenCalledWith(expect.objectContaining({ checkForUpdates: false }));
+  });
+
   it("saves edited values, confirms and closes", async () => {
     const { user, gateway } = setup();
     const updateConfig = vi.spyOn(gateway, "updateConfig");

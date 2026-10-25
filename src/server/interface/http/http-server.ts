@@ -15,6 +15,7 @@ import {
   type TerminalsResponse,
   TOKEN_HEADER,
   TOKEN_PARAM,
+  type UpdateStatus,
 } from "../../../core/api/contract.ts";
 import type { Result } from "../../../core/result.ts";
 import type { AppError } from "../../application/app-error.ts";
@@ -58,6 +59,8 @@ export type HttpServerOptions = {
   terminals?: TerminalManager;
   /** Opens a link in the browser, for focus requests no open page answers. */
   openUrl?: (url: string) => void;
+  /** Whether a newer release exists; without it `/api/update` answers `unsupported`. */
+  updates?: { status(): Promise<UpdateStatus> };
 };
 
 export type HttpServer = {
@@ -170,6 +173,10 @@ export function createHttpServer(options: HttpServerOptions): HttpServer {
     if (pathname === API_PATHS.snapshot && method === "GET") {
       sendJson(res, 200, await options.studio.readSnapshot());
       return;
+    }
+    if (pathname === API_PATHS.update && method === "GET") {
+      if (!options.updates) return sendAppError(res, unsupported);
+      return sendJson(res, 200, await options.updates.status());
     }
     if (pathname === API_PATHS.config && method === "GET") {
       const result = await options.studio.readConfig();

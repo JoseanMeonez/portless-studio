@@ -21,6 +21,7 @@ import { stopProcess } from "./application/stop-process.ts";
 import { StudioRuntime } from "./application/studio-runtime.ts";
 import type { StudioServiceControl } from "./application/studio-service.ts";
 import { TerminalManager, type TerminalSpawner } from "./application/terminals.ts";
+import { UpdateChecker, updateChecksAllowed } from "./application/update-check.ts";
 import { systemAppCatalog } from "./infrastructure/apps/app-catalog.ts";
 import { createDetachedLauncher } from "./infrastructure/apps/detached-launcher.ts";
 import {
@@ -34,6 +35,7 @@ import {
   JsonAutoNamedStore,
 } from "./infrastructure/config/json-auto-named-store.ts";
 import { defaultConfigPath, JsonConfigStore } from "./infrastructure/config/json-config-store.ts";
+import { JsonUpdateCache, updateCheckPathFor } from "./infrastructure/config/json-update-cache.ts";
 import {
   type ProxyStartRecord,
   proxyStartRecordPathFor,
@@ -44,6 +46,7 @@ import { PortlessRegistry } from "./infrastructure/portless/portless-registry.ts
 import { inspectRoutesFile, resolveStateDir } from "./infrastructure/portless/state-files.ts";
 import { collectDoctorFacts, proxyPidsAmong } from "./infrastructure/system/doctor-facts.ts";
 import { FaviconFetcher } from "./infrastructure/system/favicon-fetcher.ts";
+import { fetchLatestVersion } from "./infrastructure/system/npm-registry.ts";
 import { OsNotifier } from "./infrastructure/system/os-notifier.ts";
 import { ProjectInfoReader } from "./infrastructure/system/project-info.ts";
 import { nodeSystemIo } from "./infrastructure/system/system-io.ts";
@@ -84,6 +87,8 @@ export type StudioServices = {
   terminals?: TerminalManager | undefined;
   /** Opens a link in the browser; the CLI provides it. */
   openUrl?: ((url: string) => void) | undefined;
+  /** Whether a newer release is on npm; only when the CLI passes the running version. */
+  updates?: UpdateChecker | undefined;
 };
 
 export type StudioServicesOptions = {
@@ -101,6 +106,11 @@ export type StudioServicesOptions = {
   studioService?: StudioServiceControl | undefined;
   /** Opens a link in the default browser, for focus requests no open page answers. */
   openUrl?: ((url: string) => void) | undefined;
+  /**
+   * The running version. With it, Studio asks npm at most once a day for a newer one, unless the
+   * config, `PORTLESS_STUDIO_NO_UPDATE_CHECK=1`, CI or a test run turns that off.
+   */
+  version?: string | undefined;
 };
 
 // Lets startServer reuse the runtime behind services built here, so both share one scan cache.
@@ -184,6 +194,17 @@ export function createStudioServices(options: StudioServicesOptions = {}): Studi
     controlProxy: proxy,
     updateConfig: (config) => runtime.updateConfig(config),
   });
+  const version = options.version;
+  const updates =
+    version === undefined
+      ? undefined
+      : new UpdateChecker({
+          current: version,
+          enabled: async () =>
+            updateChecksAllowed(process.env) && (await runtime.settings()).checkForUpdates,
+          fetchLatest: () => fetchLatestVersion(),
+          cache: new JsonUpdateCache(updateCheckPathFor(configPath)),
+        });
   const services: StudioServices = {
     registry,
     scanner,
@@ -201,6 +222,7 @@ export function createStudioServices(options: StudioServicesOptions = {}): Studi
     openWith,
     terminals,
     openUrl: options.openUrl,
+    updates,
   };
   runtimes.set(services, runtime);
   return services;
@@ -227,6 +249,7 @@ export function createUninstallServices(configPath = defaultConfigPath()): Unins
     recordPath,
     routeProjectsPathFor(configPath),
     openWithPathFor(configPath),
+    updateCheckPathFor(configPath),
   ];
   const processes = new SystemProcessControl({
     platform: process.platform,
@@ -298,6 +321,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     ...(services.openWith ? { openWith: services.openWith } : {}),
     ...(services.terminals ? { terminals: services.terminals } : {}),
     ...(services.openUrl ? { openUrl: services.openUrl } : {}),
+    ...(services.updates ? { updates: services.updates } : {}),
   });
 
   await new Promise<void>((resolve, reject) => {

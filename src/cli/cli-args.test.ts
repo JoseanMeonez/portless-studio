@@ -17,6 +17,33 @@ describe("parseCliArgs", () => {
     });
   });
 
+  it("lets the last of --open and --no-open win", () => {
+    expect(parseCliArgs(["--open", "--no-open"])).toMatchObject({
+      value: { overrides: { open: false } },
+    });
+    expect(parseCliArgs(["--no-open", "--open"])).toMatchObject({
+      value: { overrides: { open: true } },
+    });
+  });
+
+  it("reads --no-<flag> for every boolean flag and nothing else", () => {
+    expect(parseCliArgs(["doctor", "--no-json"])).toEqual({
+      ok: true,
+      value: { command: "doctor", json: false },
+    });
+    expect(parseCliArgs(["--no-port"])).toEqual({ ok: false, error: "Unknown option '--no-port'" });
+    expect(parseCliArgs(["--no-open=1"])).toEqual({
+      ok: false,
+      error: "Option '--open' does not take an argument",
+    });
+  });
+
+  it("leaves --no-<flag> after -- to the command", () => {
+    expect(parseCliArgs(["run", "--", "pnpm", "--no-open"])).toMatchObject({
+      value: { command: "run", argv: ["pnpm", "--no-open"] },
+    });
+  });
+
   it("reads --help and --version, also after a subcommand", () => {
     expect(parseCliArgs(["-h"])).toEqual({ ok: true, value: { command: "help" } });
     expect(parseCliArgs(["--version"])).toEqual({ ok: true, value: { command: "version" } });

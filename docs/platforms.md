@@ -1,6 +1,6 @@
 # Linux, macOS and Windows
 
-Portless Studio runs on Node 24 or later on all three systems and installs nothing beyond
+Portless Studio runs on Node 22 or later on all three systems and installs nothing beyond
 portless itself. Each feature uses tools the system already ships with. This page says which
 tool each feature uses on each system, where Studio keeps its files, and what does not work the
 same everywhere.

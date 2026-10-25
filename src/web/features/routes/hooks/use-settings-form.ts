@@ -50,6 +50,7 @@ const FIELDS = new Set<string>([
   "systemNotifications",
   "projectIcons",
   "nameTemplate",
+  "checkForUpdates",
 ]);
 
 /** A made-up project the name template preview renders. */

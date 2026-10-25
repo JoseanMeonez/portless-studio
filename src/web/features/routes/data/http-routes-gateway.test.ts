@@ -166,6 +166,26 @@ describe("HttpRoutesGateway writes", () => {
     });
   });
 
+  it("reads the update status without a token", async () => {
+    const body = {
+      current: "0.1.0",
+      latest: "0.2.0",
+      available: true,
+      command: "npm i -g portless-studio",
+    };
+    const { calls, fetch } = stubFetch(() => json(200, body));
+    const gateway = new HttpRoutesGateway({ fetch });
+
+    expect(await gateway.getUpdateStatus()).toEqual({ ok: true, value: body });
+    expect(calls.map((call) => [call.init.method, call.url])).toEqual([["GET", API_PATHS.update]]);
+  });
+
+  it("rejects an update status it cannot read", async () => {
+    const { fetch } = stubFetch(() => json(200, { current: "0.1.0" }));
+    const result = await new HttpRoutesGateway({ fetch }).getUpdateStatus();
+    expect(result.ok).toBe(false);
+  });
+
   it("reads the config without a token", async () => {
     const body: ConfigResponse = { config: DEFAULT_CONFIG, path: "/home/dev/.studio.json" };
     const { calls, fetch } = stubFetch(() => json(200, body));

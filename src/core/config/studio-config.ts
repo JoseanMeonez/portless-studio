@@ -60,6 +60,11 @@ export type StudioConfig = {
    * default `{work}.{package}.{repo}` gives `ed-1234.web.acme`; docs/naming.md lists every token.
    */
   nameTemplate: string;
+  /**
+   * Ask the npm registry once a day whether a newer portless-studio exists, and say so on start
+   * and in the page. `PORTLESS_STUDIO_NO_UPDATE_CHECK=1` also turns it off.
+   */
+  checkForUpdates: boolean;
 };
 
 export const DEFAULT_CONFIG: StudioConfig = {
@@ -95,6 +100,7 @@ export const DEFAULT_CONFIG: StudioConfig = {
   systemNotifications: false,
   projectIcons: {},
   nameTemplate: DEFAULT_NAME_TEMPLATE,
+  checkForUpdates: true,
 };
 
 const MIN_SCAN_INTERVAL_MS = 1000;
@@ -118,6 +124,7 @@ export function parseConfig(input: unknown): Result<StudioConfig, string> {
     "proxyHttps",
     "desktopNotifications",
     "systemNotifications",
+    "checkForUpdates",
   ] as const) {
     const value = raw[key];
     if (value === undefined) continue;

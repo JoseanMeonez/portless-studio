@@ -69,6 +69,8 @@ export const API_PATHS = {
   focus: "/api/focus",
   /** POST `FocusAck`: a page says whether it got the window to the front. */
   focusAck: "/api/focus/ack",
+  /** GET returns `UpdateStatus`: whether a newer portless-studio is on npm. Read-only. */
+  update: "/api/update",
 } as const;
 
 /**
@@ -213,6 +215,18 @@ export type Snapshot = {
   projectIcons?: Record<string, string>;
   /** Epoch milliseconds when the server read this state. */
   readAt: number;
+};
+
+/** GET /api/update */
+export type UpdateStatus = {
+  /** The version this Studio runs. */
+  current: string;
+  /** The latest version on npm, or null when checks are off or none succeeded yet. */
+  latest: string | null;
+  /** True when `latest` is newer than `current`. */
+  available: boolean;
+  /** How to update, e.g. `npm i -g portless-studio`. */
+  command: string;
 };
 
 /** POST /api/aliases */

@@ -311,6 +311,22 @@ whether it has the focus. When no page is open, or none says yes within 1.5 seco
 the page link with the browser opener the CLI passes in (`openUrl`), built by
 `StudioRuntime.pageUrl()`. Pages also read `?terminal=<id>` on load, next to `?focus=`.
 
+## Update notice
+
+`UpdateChecker` (`application/update-check.ts`) says whether a newer portless-studio is on npm.
+It reads the last check from `update-check.json` next to the config (`{ "checkedAt", "latest" }`,
+adapter `infrastructure/config/json-update-cache.ts`) and asks the registry again only when that
+check is a day old; a failed request is written down too, so an offline machine does not retry on
+every start. `fetchLatestVersion` (`infrastructure/system/npm-registry.ts`) sends one GET to
+`https://registry.npmjs.org/portless-studio/latest` with a 3-second timeout and returns null on
+any failure. `compareVersions` (`core/updates/version.ts`) compares the versions as semver.
+
+The checker exists only when the CLI passes the running version to `createStudioServices`, and it
+asks nothing while `checkForUpdates` is off, `PORTLESS_STUDIO_NO_UPDATE_CHECK=1` is set, or `CI` or
+`VITEST` is set (`updateChecksAllowed`). The CLI prints the notice once the check answers, without
+holding up the start. `GET /api/update` returns `UpdateStatus` and needs no token; the page asks
+once on load and keeps the version a person dismissed in `localStorage`.
+
 ## Uninstall
 
 `portless-studio uninstall` (`cli/uninstall.ts`) lists what it will undo and asks once: remove

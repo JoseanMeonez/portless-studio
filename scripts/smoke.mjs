@@ -24,6 +24,8 @@ const child = spawn(
       PORTLESS_STATE_DIR: path.join(scratch, "portless"),
       // A missing binary keeps the smoke test from touching a real portless install.
       PORTLESS_BIN: path.join(scratch, "no-portless"),
+      // The smoke test must not ask the npm registry for updates, in CI or on a laptop.
+      PORTLESS_STUDIO_NO_UPDATE_CHECK: "1",
     },
     stdio: ["ignore", "pipe", "pipe"],
   },

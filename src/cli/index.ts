@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { API_PATHS, type Snapshot } from "../core/api/contract.ts";
 import { DEFAULT_CONFIG, type StudioConfig } from "../core/config/studio-config.ts";
 import type { Result } from "../core/result.ts";
+import { updateMessage } from "../core/updates/version.ts";
 import type { ConfigStore } from "../server/application/config-store.ts";
 import {
   createStudioServices,
@@ -28,6 +29,7 @@ import { runOpenCommand } from "./focus-command.ts";
 import { runInit } from "./init.ts";
 import { runListCommand } from "./list-command.ts";
 import {
+  describeServiceInstall,
   installService,
   resolveServiceEntry,
   type ServiceEnv,
@@ -194,6 +196,7 @@ async function start(overrides: StartOverrides): Promise<void> {
     studioPort: settings.port,
     studioService,
     openUrl: openBrowser,
+    version: readVersion(),
   });
 
   const webDir = resolveWebDir();
@@ -223,6 +226,10 @@ async function start(overrides: StartOverrides): Promise<void> {
   if (!webDir) print("  API only: the UI runs through `pnpm dev:web`.");
 
   if (settings.open && webDir) openBrowser(alias.url ?? server.url);
+  // Never holds up the start: the line shows up once npm answers, or never when it does not.
+  void services.updates?.status().then((update) => {
+    if (update.available && update.latest) print(updateMessage(update.current, update.latest));
+  });
 
   let stopping = false;
   const stop = async () => {
@@ -252,7 +259,7 @@ async function init(yes: boolean): Promise<void> {
       installLoginService: async () => {
         const env = await serviceEnv();
         if (!env.ok) return env;
-        return describeInstall(await installService(env.value), env.value);
+        return describeServiceInstall(await installService(env.value), env.value);
       },
     });
   } finally {
@@ -304,7 +311,7 @@ async function service(action: ServiceAction): Promise<void> {
     process.exit(1);
   }
   if (action === "install") {
-    const described = describeInstall(await installService(env.value), env.value);
+    const described = describeServiceInstall(await installService(env.value), env.value);
     if (!described.ok) {
       console.error(`Error: ${described.error}`);
       process.exit(1);
@@ -328,22 +335,6 @@ async function service(action: ServiceAction): Promise<void> {
   const state = await serviceStatus(env.value);
   print(`Start at login: ${state.installed ? "installed" : "not installed"} (${state.file})`);
   print(`Running:        ${state.running ? "yes" : "no"}`);
-}
-
-function describeInstall(
-  installed: Result<{ file: string }, string>,
-  env: ServiceEnv,
-): Result<string, string> {
-  if (!installed.ok) return installed;
-  const lines = [`Studio will start when you log in. Service file: ${installed.value.file}`];
-  if (env.platform === "win32") lines.push("Start it now with: portless-studio");
-  if (env.entryPath.includes(`${path.sep}_npx${path.sep}`)) {
-    lines.push(
-      "Note: this runs from the npx cache, which npm can clear. Install Studio globally with " +
-        "`npm install -g portless-studio` and run `portless-studio service install` again.",
-    );
-  }
-  return { ok: true, value: lines.join("\n") };
 }
 
 async function serviceEnv(): Promise<Result<ServiceEnv, string>> {

@@ -67,6 +67,28 @@ export function resolveServiceEntry(moduleUrl: string): Result<string, string> {
   return ok(fileURLToPath(moduleUrl));
 }
 
+/**
+ * What `service install` and `init` print after installing. A service started from the npx cache
+ * breaks once npm clears it, so that case ends with the commands that move it to a global install.
+ */
+export function describeServiceInstall(
+  installed: Result<{ file: string }, string>,
+  env: ServiceEnv,
+): Result<string, string> {
+  if (!installed.ok) return installed;
+  const lines = [`Studio will start when you log in. Service file: ${installed.value.file}`];
+  if (env.platform === "win32") lines.push("Start it now with: portless-studio");
+  if (/[\\/]_npx[\\/]/.test(env.entryPath)) {
+    lines.push(
+      "Note: this runs Studio from the npx cache, which npm can clear, and then Studio no longer " +
+        "starts at login. Install Studio globally and set up the service again:",
+      "  npm i -g portless-studio",
+      "  portless-studio service install",
+    );
+  }
+  return ok(lines.join("\n"));
+}
+
 export async function installService(env: ServiceEnv): Promise<Result<{ file: string }, string>> {
   const file = serviceFile(env);
   fs.mkdirSync(path.dirname(file), { recursive: true });

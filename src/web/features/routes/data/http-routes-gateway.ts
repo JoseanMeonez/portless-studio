@@ -23,6 +23,7 @@ import {
   type StudioActionResponse,
   type StudioEvent,
   TOKEN_HEADER,
+  type UpdateStatus,
 } from "../../../../core/api/contract.ts";
 import { parseConfig, type StudioConfig } from "../../../../core/config/studio-config.ts";
 import type { DoctorCheck } from "../../../../core/doctor/doctor-check.ts";
@@ -167,6 +168,13 @@ export class HttpRoutesGateway implements RoutesGateway {
 
   ignoreDetected(port: number): Promise<Result<null, ApiError>> {
     return this.#write(API_PATHS.ignoreDetected(port), "POST");
+  }
+
+  async getUpdateStatus(): Promise<Result<UpdateStatus, ApiError>> {
+    const response = await this.#request(API_PATHS.update, { method: "GET" });
+    if (!response.ok) return response;
+    const status = readUpdateStatus(response.value);
+    return status ? ok(status) : unreadable("an update status");
   }
 
   async getDoctor(): Promise<Result<DoctorReport, ApiError>> {
@@ -387,6 +395,15 @@ function readChecks(value: unknown): DoctorCheck[] | null {
 function readMessage(value: unknown): string {
   const message = (value as { message?: unknown } | null)?.message;
   return typeof message === "string" ? message : "";
+}
+
+function readUpdateStatus(value: unknown): UpdateStatus | null {
+  if (typeof value !== "object" || value === null) return null;
+  const { current, latest, available, command } = value as Record<string, unknown>;
+  if (typeof current !== "string" || typeof command !== "string") return null;
+  if (latest !== null && typeof latest !== "string") return null;
+  if (typeof available !== "boolean") return null;
+  return { current, latest, available, command };
 }
 
 function unreadable(what: string): Result<never, ApiError> {

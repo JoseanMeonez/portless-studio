@@ -48,6 +48,7 @@ import {
   type RowMenuTarget,
 } from "./row-menu-container.tsx";
 import { SettingsDialogContainer } from "./settings-dialog-container.tsx";
+import { UpdateBannerContainer } from "./update-banner-container.tsx";
 
 /** What the dashboard asks of the terminals feature; the app root wires it in. */
 export type TerminalLauncher = {
@@ -445,6 +446,7 @@ export function RoutesDashboard({
       />
 
       <main className={styles.main}>
+        <UpdateBannerContainer onCopyCommand={(command) => void actions.copyCommand(command)} />
         {portlessMissing ? (
           <InstallPortlessContainer
             onCopyCommand={(command) => void actions.copyCommand(command)}

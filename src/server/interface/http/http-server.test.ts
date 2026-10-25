@@ -143,6 +143,14 @@ function fakeOperations() {
         calls.push(`stop ${pid}`);
         return state.stopResult;
       },
+      updates: {
+        status: async () => ({
+          current: "0.1.0",
+          latest: "0.2.0",
+          available: true,
+          command: "npm i -g portless-studio",
+        }),
+      },
     },
   };
 }
@@ -266,6 +274,23 @@ describe("API reads", () => {
     const reply = await send("GET", "/api/nope");
     expect(reply.status).toBe(404);
     expect(json(reply)).toMatchObject({ error: "not_found" });
+  });
+});
+
+describe("update notice", () => {
+  it("says whether a newer version exists, without the token", async () => {
+    const reply = await send("GET", API_PATHS.update);
+    expect(reply.status).toBe(200);
+    expect(json(reply)).toEqual({
+      current: "0.1.0",
+      latest: "0.2.0",
+      available: true,
+      command: "npm i -g portless-studio",
+    });
+  });
+
+  it("is read-only", async () => {
+    expect((await send("POST", API_PATHS.update, write)).status).toBe(404);
   });
 });
 

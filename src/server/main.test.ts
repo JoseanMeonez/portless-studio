@@ -89,11 +89,26 @@ describe("open with", () => {
     expect(apps.apps.at(-1)).toEqual({ id: "custom-1", name: "Helix", kind: "custom" });
   });
 
-  it("lets uninstall remove the files open-with and route projects write", () => {
+  it("lets uninstall remove the files open-with, route projects and update checks write", () => {
     const files = createUninstallServices(path.join(dir, "config.json")).studioFiles;
     expect(files).toEqual(
-      expect.arrayContaining(["config.json", "route-projects.json", "open-with.json"]),
+      expect.arrayContaining([
+        "config.json",
+        "route-projects.json",
+        "open-with.json",
+        "update-check.json",
+      ]),
     );
+  });
+
+  it("never asks npm for updates while tests run", async () => {
+    const services = createStudioServices({
+      configPath: path.join(dir, "config.json"),
+      stateDir: path.join(dir, "portless"),
+      version: "0.0.1",
+    });
+    expect(await services.updates?.status()).toMatchObject({ latest: null, available: false });
+    expect(fs.existsSync(path.join(dir, "update-check.json"))).toBe(false);
   });
 });
 

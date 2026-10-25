@@ -17,6 +17,7 @@ import type {
   StudioAction,
   StudioActionResponse,
   StudioEvent,
+  UpdateStatus,
 } from "../../../../core/api/contract.ts";
 import type { StudioConfig } from "../../../../core/config/studio-config.ts";
 import type { CustomApp } from "../../../../core/projects/custom-app.ts";
@@ -63,6 +64,8 @@ export interface RoutesGateway {
   updateConfig(config: StudioConfig): Promise<Result<ConfigResponse, ApiError>>;
   /** Stops showing a detected port by adding it to the ignored ports. */
   ignoreDetected(port: number): Promise<Result<null, ApiError>>;
+  /** Whether a newer portless-studio is on npm; backends without update checks leave it out. */
+  getUpdateStatus?(): Promise<Result<UpdateStatus, ApiError>>;
   /** Runs the health checks. */
   getDoctor(): Promise<Result<DoctorReport, ApiError>>;
   /** Runs the safe fix of one check and returns the checks again. */

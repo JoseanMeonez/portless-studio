@@ -39,15 +39,20 @@ child.stderr.on("data", (chunk) => {
   output += chunk;
 });
 
-function stop() {
-  if (child.exitCode === null && child.signalCode === null) child.kill();
-  fs.rmSync(scratch, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+// Studio writes its terminal list while it shuts down, so wait for it to exit before deleting the
+// scratch folder; deleting first races with that write (ENOTEMPTY).
+async function stop() {
+  if (child.exitCode === null && child.signalCode === null) {
+    const exited = new Promise((resolve) => child.once("exit", resolve));
+    child.kill();
+    await Promise.race([exited, new Promise((resolve) => setTimeout(resolve, 5000))]);
+  }
+  fs.rmSync(scratch, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
 }
 
 function fail(message) {
   console.error(`smoke: ${message}\n--- server output ---\n${output}`);
-  stop();
-  process.exit(1);
+  void stop().finally(() => process.exit(1));
 }
 
 async function waitForUrl() {
@@ -69,4 +74,4 @@ if (typeof snapshot !== "object" || snapshot === null || !Array.isArray(snapshot
   fail(`GET /api/snapshot did not return a snapshot: ${JSON.stringify(snapshot).slice(0, 200)}`);
 }
 console.log(`smoke: ${baseUrl}/api/snapshot answered with ${snapshot.routes.length} routes`);
-stop();
+await stop();

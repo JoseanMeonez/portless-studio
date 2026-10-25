@@ -27,10 +27,14 @@ const CONTENT_TYPES: Record<string, string> = {
 const COMPRESSIBLE = new Set([".html", ".js", ".mjs", ".css", ".json", ".map", ".svg", ".txt"]);
 const MIN_COMPRESS_BYTES = 1024;
 
-/** No inline scripts, no third parties, never framed. Vite builds need nothing more. */
+/**
+ * No inline scripts, no third parties, never framed. Inline styles are allowed because the
+ * terminal (xterm.js) paints ANSI colors through <style> elements it creates at runtime; scripts
+ * stay locked to the page's own files.
+ */
 const HTML_HEADERS = {
   "Content-Security-Policy":
-    "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; " +
+    "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; " +
     "font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; " +
     "form-action 'none'; frame-ancestors 'none'",
   "X-Frame-Options": "DENY",

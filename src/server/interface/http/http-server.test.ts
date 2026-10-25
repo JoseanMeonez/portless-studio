@@ -696,6 +696,9 @@ describe("static files", () => {
     expect(reply.body.toString()).toContain("<title>Studio</title>");
     expect(reply.headers["cache-control"]).toBe("no-cache");
     expect(reply.headers["content-security-policy"]).toContain("default-src 'self'");
+    // The terminal (xterm.js) paints ANSI colors through <style> elements it creates at runtime.
+    expect(reply.headers["content-security-policy"]).toContain("style-src 'self' 'unsafe-inline'");
+    expect(reply.headers["content-security-policy"]).toContain("script-src 'self';");
     expect(reply.headers["x-content-type-options"]).toBe("nosniff");
     expect(reply.headers["referrer-policy"]).toBe("no-referrer");
   });

@@ -26,13 +26,23 @@ macOS) to run any action by name. Keys that act on a route need a selected row.
 
 ## In the terminal panel
 
-These work while the panel has focus, the terminal screen included.
+These work while the panel has focus, the terminal screen included. The `?` sheet and the
+command menu list them under Terminal.
 
 | Keys | What it does |
 | --- | --- |
+| `Ctrl+B` / `Cmd+B` | Toggle terminal list: hide it (a dropdown picks the terminal) or show it |
+| `Ctrl+Shift+F` | Full screen terminal, on or off |
+| `Esc` | Leave full screen, from the list or the header (in the terminal screen it goes to the program) |
+| `↓`, `↑` | Next and previous card, while a card in the list has focus |
+| `Enter` | Put the keyboard in the terminal of the focused card |
 | `F2` | Rename the active terminal |
 | `Ctrl+PageDown` / `Ctrl+PageUp` | Next or previous terminal, in the order the list shows them |
 | `Ctrl+Shift+W` | Close the active terminal, stopping its command |
+| `←`, `→`, `↑`, `↓`, `Home`, `End` | Resize the panel or the list while its edge has focus; double-click the edge to reset |
+
+`Ctrl+B` is also the readline key for "back one character" and the default tmux prefix; inside
+Studio's terminal area the page keeps it, so use the left arrow key, or another tmux prefix, there.
 
 Browsers may keep `Ctrl+PageUp`, `Ctrl+PageDown` and `Ctrl+Shift+W` for their own tabs and
 windows, so in a normal browser tab the page may never see them; they reach Studio when it runs

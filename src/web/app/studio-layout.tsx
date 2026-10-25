@@ -34,6 +34,14 @@ export function StudioLayout({ theme, onToggleTheme, loadTerminalEngine }: Studi
       const terminal = panel.terminalForPort(port);
       if (terminal) panel.show(terminal.id);
     },
+    toggleList: () => {
+      panel.setSidebarCollapsed(!panel.sidebarCollapsed);
+      panel.setOpen(true);
+    },
+    fullScreen: {
+      label: panel.fullScreen ? "Exit full screen terminal" : "Full screen terminal",
+      toggle: () => panel.setFullScreen(!panel.fullScreen),
+    },
     ...(panel.wide
       ? {
           dock: {
@@ -47,7 +55,8 @@ export function StudioLayout({ theme, onToggleTheme, loadTerminalEngine }: Studi
       : {}),
   };
   // Room for the panel, so it never covers the last rows; on the right it sits next to the list.
-  const room = panel.open ? `${panel.size}px` : "0px";
+  // Full screen covers the page, which keeps its own layout underneath.
+  const room = panel.open && !panel.fullScreen ? `${panel.size}px` : "0px";
   const style = {
     "--terminal-room-bottom": panel.dock === "bottom" ? room : "0px",
     "--terminal-room-right": panel.dock === "right" ? room : "0px",
@@ -60,13 +69,14 @@ export function StudioLayout({ theme, onToggleTheme, loadTerminalEngine }: Studi
         onToggleTheme={onToggleTheme}
         terminals={launcher}
         onConfigSaved={onConfigSaved}
-        terminalPanel={(folders) => (
+        terminalPanel={(folders, editor) => (
           <>
             <TerminalPanelContainer
               panel={panel}
               folders={folders}
               themeKey={theme}
               appearance={appearance}
+              editor={editor}
               {...(loadTerminalEngine ? { loadEngine: loadTerminalEngine } : {})}
             />
             <TerminalPickerContainer panel={panel} folders={folders} />

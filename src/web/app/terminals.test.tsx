@@ -13,7 +13,10 @@ function fakeEngine() {
     written: string[];
     type(text: string): void;
     disposed: boolean;
+    focused: number;
     options: Record<string, unknown>;
+    /** What xterm.js would do with a key: false means the page keeps it. */
+    keyHandler: (event: KeyboardEvent) => boolean;
   }[] = [];
   const engine: TerminalEngine = {
     createTerminal: () => {
@@ -22,8 +25,10 @@ function fakeEngine() {
       const screen = {
         written: [] as string[],
         disposed: false,
+        focused: 0,
         options,
         type: (text: string) => onData(text),
+        keyHandler: (_event: KeyboardEvent) => true,
       };
       screens.push(screen);
       const terminal = {
@@ -37,6 +42,12 @@ function fakeEngine() {
         },
         scrollToBottom: () => {},
         scrollToLine: () => {},
+        focus: () => {
+          screen.focused += 1;
+        },
+        attachCustomKeyEventHandler: (handler: (event: KeyboardEvent) => boolean) => {
+          screen.keyHandler = handler;
+        },
         onScroll: () => ({ dispose: () => {} }),
         onData: (listener: (text: string) => void) => {
           onData = listener;
@@ -73,8 +84,9 @@ async function routeRow(name: string): Promise<HTMLElement> {
   return row;
 }
 
-/** Makes the window wide enough for the right pane. */
+/** Makes the window wide enough for the right pane and the list inside it. */
 function wideWindow() {
+  vi.spyOn(window, "innerWidth", "get").mockReturnValue(1440);
   const original = window.matchMedia;
   vi.spyOn(window, "matchMedia").mockImplementation((query: string) => ({
     ...original(query),
@@ -86,6 +98,7 @@ const panel = () => screen.findByRole("region", { name: "Terminals" });
 
 beforeEach(() => {
   localStorage.clear();
+  sessionStorage.clear();
   window.history.replaceState(null, "", "/");
 });
 
@@ -159,8 +172,8 @@ describe("terminal panel", () => {
     });
     await user.click(screen.getByRole("button", { name: /Show terminals/ }));
     const terminalsPanel = await panel();
-    expect(within(terminalsPanel).getByText("acme")).toBeTruthy();
-    expect(within(terminalsPanel).getByText("shop")).toBeTruthy();
+    expect(within(terminalsPanel).getByRole("group", { name: "acme" })).toBeTruthy();
+    expect(within(terminalsPanel).getByRole("group", { name: "shop" })).toBeTruthy();
     await user.click(
       within(terminalsPanel).getAllByRole("button", { name: "Close pnpm dev" })[0] as HTMLElement,
     );
@@ -437,7 +450,9 @@ describe("terminal list", () => {
     const falcon = within(list).getByRole("group", { name: "acme-monorepo / falcon" });
     expect(falcon.textContent).toContain("fix/dark-mode");
     expect(falcon.textContent).toContain("pnpm dev");
-    expect(within(falcon).getByTitle("1 open ports")).toBeTruthy();
+    expect(within(falcon).getByRole("link", { name: "storybook" }).getAttribute("href")).toBe(
+      "http://localhost:6006",
+    );
     await user.click(within(list).getByRole("tab", { name: "web" }));
     expect(within(list).getByRole("tab", { name: "web" }).getAttribute("aria-selected")).toBe(
       "true",
@@ -462,7 +477,6 @@ describe("terminal list", () => {
     await user.keyboard("{Control>}{PageUp}{PageUp}{/Control}");
     expect(selected()).toBe("pnpm api");
     await user.keyboard("{Control>}{Shift>}W{/Shift}{/Control}");
-    // Two terminals left: they go back to header tabs.
     await waitFor(async () =>
       expect(within(await panel()).queryByRole("tab", { name: "pnpm api" })).toBeNull(),
     );
@@ -482,8 +496,8 @@ describe("terminal list", () => {
     expect(
       within(terminalsPanel)
         .getAllByRole("tab")
-        .map((tab) => tab.textContent),
-    ).toEqual(["job 7job 7"]);
+        .map((tab) => tab.getAttribute("aria-label")),
+    ).toEqual(["job 7"]);
   });
 
   it("collapses the list into a dropdown, and remembers it", async () => {
@@ -504,7 +518,7 @@ describe("terminal list", () => {
     const original = window.matchMedia;
     vi.spyOn(window, "matchMedia").mockImplementation((query: string) => ({
       ...original(query),
-      matches: query === "(max-width: 480px)",
+      matches: query === "(max-width: 640px)",
     }));
     const { terminals, user } = setup();
     await threeTerminals(terminals);
@@ -646,5 +660,195 @@ describe("terminal look", () => {
     await user.click(within(dialog).getByRole("button", { name: "Save" }));
     await waitFor(() => expect(screens[0]?.options.fontSize).toBe(16));
     expect(screens[0]?.disposed).toBe(false);
+  });
+});
+
+describe("terminal workspace", () => {
+  const MINUTE = 60_000;
+
+  async function twoTerminals(terminals: InMemoryTerminalsGateway) {
+    await act(async () => {
+      await terminals.create({ cwd: FALCON, command: "pnpm dev", title: "web" });
+      await terminals.create({ cwd: "/home/dev/code/acme", command: "pnpm api" });
+      terminals.update("t1", {
+        project: "acme-monorepo",
+        worktree: "falcon",
+        branch: "fix/dark-mode",
+        startedAt: Date.now() - 5.5 * MINUTE,
+        pid: 4321,
+        ports: [{ port: 6006, route: "storybook", url: "http://storybook.localhost:1355" }],
+      });
+    });
+  }
+
+  it("lists even a single terminal, with no header tabs", async () => {
+    const { terminals, user } = setup();
+    await act(() => terminals.create({ cwd: FALCON, command: "pnpm dev" }));
+    await user.click(screen.getByRole("button", { name: /Show terminals/ }));
+    const list = within(await panel()).getByRole("tablist", { name: "Open terminals" });
+    expect(
+      within(list)
+        .getAllByRole("tab")
+        .map((tab) => tab.getAttribute("aria-label")),
+    ).toEqual(["pnpm dev"]);
+  });
+
+  it("shows status, command, folder, branch, ports and uptime on each card", async () => {
+    const { terminals, user } = setup();
+    await twoTerminals(terminals);
+    await user.click(screen.getByRole("button", { name: /Show terminals/ }));
+    const list = within(await panel()).getByRole("tablist", { name: "Open terminals" });
+    const card = list.querySelector('[data-terminal="t1"]') as HTMLElement;
+    expect(card.textContent).toContain("running");
+    expect(card.textContent).toContain("pnpm dev");
+    expect(card.textContent).toContain("acme-monorepo / falcon");
+    expect(card.textContent).toContain("fix/dark-mode");
+    expect(card.textContent).toContain("5m");
+    expect(within(card).getByRole("link", { name: "storybook" }).getAttribute("href")).toBe(
+      "http://storybook.localhost:1355",
+    );
+    // The details shown on hover: the folder with ~, the PID.
+    const details = within(card).getByTestId("terminal-details");
+    expect(details.textContent).toContain("/home/dev/code/acme-falcon".replace("/home/dev", "~"));
+    expect(details.textContent).toContain("4321");
+  });
+
+  it("stops, runs again and closes a terminal from its card", async () => {
+    const { terminals, user } = setup();
+    await twoTerminals(terminals);
+    await user.click(screen.getByRole("button", { name: /Show terminals/ }));
+    const terminalsPanel = await panel();
+    await user.click(within(terminalsPanel).getByRole("button", { name: "Stop web" }));
+    await waitFor(() =>
+      expect(terminalsPanel.querySelector('[data-terminal="t1"]')?.textContent).toContain(
+        "exited 130",
+      ),
+    );
+    await user.click(within(terminalsPanel).getByRole("button", { name: "Run web again" }));
+    await waitFor(() =>
+      expect(terminalsPanel.querySelector('[data-terminal="t1"]')?.textContent).toContain(
+        "running",
+      ),
+    );
+    await user.click(within(terminalsPanel).getByRole("button", { name: "Close web" }));
+    await waitFor(() => expect(within(terminalsPanel).getAllByRole("tab")).toHaveLength(1));
+  });
+
+  it("opens a terminal's folder in the default editor from its card", async () => {
+    const gateway = new InMemoryRoutesGateway(createSampleSnapshot(NOW), () => NOW);
+    const terminals = new InMemoryTerminalsGateway(() => NOW);
+    const { engine } = fakeEngine();
+    const user = userEvent.setup();
+    render(<App gateway={gateway} terminals={terminals} loadTerminalEngine={async () => engine} />);
+    await twoTerminals(terminals);
+    await user.click(screen.getByRole("button", { name: /Show terminals/ }));
+    await user.click(
+      await within(await panel()).findByRole("button", { name: "Open web in VS Code" }),
+    );
+    await waitFor(() => expect(gateway.openedWith).toEqual([{ appId: "vscode", path: FALCON }]));
+  });
+
+  it("moves between cards with the arrow keys and focuses the terminal with Enter", async () => {
+    const { terminals, screens, user } = setup();
+    await twoTerminals(terminals);
+    await user.click(screen.getByRole("button", { name: /Show terminals/ }));
+    const list = within(await panel()).getByRole("tablist", { name: "Open terminals" });
+    within(list).getByRole("tab", { name: "web" }).focus();
+    await user.keyboard("{ArrowDown}");
+    const api = within(list).getByRole("tab", { name: "pnpm api" });
+    expect(api.getAttribute("aria-selected")).toBe("true");
+    expect(document.activeElement).toBe(api);
+    await user.keyboard("{ArrowUp}");
+    expect(within(list).getByRole("tab", { name: "web" }).getAttribute("aria-selected")).toBe(
+      "true",
+    );
+    await waitFor(() => expect(screens.at(-1)?.written.length).toBeGreaterThan(0));
+    await user.keyboard("{Enter}");
+    await waitFor(() => expect(screens.at(-1)?.focused).toBe(1));
+  });
+
+  it("hides and shows the list with Ctrl+B from inside the terminal area only", async () => {
+    const { terminals, screens, user } = setup();
+    await twoTerminals(terminals);
+    await user.click(screen.getByRole("button", { name: /Show terminals/ }));
+    const terminalsPanel = await panel();
+    const xterm = await within(terminalsPanel).findByTestId("terminal-screen");
+    // xterm.js leaves the key to the page.
+    await waitFor(() => expect(screens).toHaveLength(1));
+    const ctrlB = new KeyboardEvent("keydown", { key: "b", ctrlKey: true });
+    expect(screens[0]?.keyHandler(ctrlB)).toBe(false);
+    expect(screens[0]?.keyHandler(new KeyboardEvent("keydown", { key: "b" }))).toBe(true);
+
+    fireEvent.keyDown(xterm, { key: "b", ctrlKey: true });
+    expect(within(terminalsPanel).queryByRole("tablist")).toBeNull();
+    expect(within(terminalsPanel).getByRole("combobox", { name: "Terminal" })).toBeTruthy();
+    fireEvent.keyDown(xterm, { key: "b", ctrlKey: true });
+    expect(within(terminalsPanel).getByRole("tablist", { name: "Open terminals" })).toBeTruthy();
+
+    fireEvent.keyDown(document.body, { key: "b", ctrlKey: true });
+    expect(within(terminalsPanel).getByRole("tablist", { name: "Open terminals" })).toBeTruthy();
+  });
+
+  it("goes full screen with its button or Ctrl+Shift+F, keeps it on reload and leaves with Esc", async () => {
+    const { terminals, user, view } = setup();
+    await twoTerminals(terminals);
+    await user.click(screen.getByRole("button", { name: /Show terminals/ }));
+    let terminalsPanel = await panel();
+    await user.click(within(terminalsPanel).getByRole("tab", { name: "web" }));
+    await user.click(within(terminalsPanel).getByRole("button", { name: "Full screen" }));
+    expect(terminalsPanel.hasAttribute("data-full-screen")).toBe(true);
+    const details = within(terminalsPanel).getByRole("list", { name: "Terminal details" });
+    expect(details.textContent).toContain("4321");
+    expect(details.textContent).toContain("a person on the page");
+    expect(details.textContent).toContain("~/code/acme-falcon");
+
+    view.unmount();
+    const again = setup();
+    await twoTerminals(again.terminals);
+    terminalsPanel = await panel();
+    expect(terminalsPanel.hasAttribute("data-full-screen")).toBe(true);
+    within(terminalsPanel).getAllByRole("tab")[0]?.focus();
+    await again.user.keyboard("{Escape}");
+    expect(terminalsPanel.hasAttribute("data-full-screen")).toBe(false);
+    fireEvent.keyDown(within(terminalsPanel).getByTestId("terminal-screen"), {
+      key: "F",
+      ctrlKey: true,
+      shiftKey: true,
+    });
+    expect(terminalsPanel.hasAttribute("data-full-screen")).toBe(true);
+  });
+
+  it("keeps the right pane between its limits and resets it with a double-click", async () => {
+    wideWindow();
+    const { terminals, user } = setup();
+    await act(() => terminals.create({ cwd: FALCON, command: "pnpm dev" }));
+    await user.click(screen.getByRole("button", { name: /Show terminals/ }));
+    const handle = await screen.findByRole("separator", { name: "Resize the terminal panel" });
+    expect(handle.getAttribute("aria-valuemin")).toBe("360");
+    expect(handle.getAttribute("aria-valuemax")).toBe("720");
+    handle.focus();
+    await user.keyboard("{End}");
+    expect(handle.getAttribute("aria-valuenow")).toBe("720");
+    await user.keyboard("{ArrowLeft}");
+    expect(handle.getAttribute("aria-valuenow")).toBe("720");
+    await user.keyboard("{Home}");
+    expect(handle.getAttribute("aria-valuenow")).toBe("360");
+    await user.dblClick(handle);
+    expect(handle.getAttribute("aria-valuenow")).toBe("560");
+  });
+
+  it("lists the terminal keys in the shortcuts sheet and the command menu", async () => {
+    const { terminals, user } = setup();
+    await act(() => terminals.create({ cwd: FALCON, command: "pnpm dev" }));
+    await screen.findByRole("list", { name: "Routes" });
+    await user.keyboard("?");
+    const sheet = await screen.findByRole("dialog", { name: "Keyboard shortcuts" });
+    expect(sheet.textContent).toContain("Toggle terminal list");
+    expect(sheet.textContent).toContain("Full screen terminal");
+    await user.keyboard("{Escape}");
+    await user.keyboard("{Control>}k{/Control}");
+    await user.click(await screen.findByRole("option", { name: /Toggle terminal list/ }));
+    const list = within(await panel());
+    expect(list.queryByRole("tablist")).toBeNull();
   });
 });

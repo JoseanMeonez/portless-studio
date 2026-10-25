@@ -3,9 +3,20 @@ import type { ApiError, CreateTerminalRequest } from "../../../../core/api/contr
 import type { Result } from "../../../../core/result.ts";
 import type { TerminalInfo } from "../../../../core/terminals/terminal.ts";
 import { useToast } from "../../../shared/ui/toast/use-toast.ts";
+import {
+  bottomPanelLimits,
+  clamp,
+  type Limits,
+  listFits,
+  listWidthLimits,
+  MIN_LIST_WIDTH,
+  MIN_PANEL_HEIGHT,
+  rightPaneLimits,
+} from "./panel-limits.ts";
 import { useTerminalsGateway } from "./terminals-gateway-context.tsx";
 import { useMediaQuery } from "./use-media-query.ts";
 import { useTerminals } from "./use-terminals.ts";
+import { useWindowSize } from "./use-window-size.ts";
 
 export type TerminalDock = "bottom" | "right";
 
@@ -25,20 +36,19 @@ type Layout = {
 };
 
 const LAYOUT_KEY = "portless-studio:terminal-panel";
-export const MIN_PANEL_SIZE = 160;
-export const MIN_SIDEBAR_WIDTH = 160;
-export const MAX_SIDEBAR_WIDTH = 420;
+/** Full screen lasts for the browser tab, so a reload keeps it but a new tab starts normal. */
+const FULL_SCREEN_KEY = "portless-studio:terminal-full-screen";
 /** The right pane sits next to the list only from this width; below it the panel docks at the bottom. */
 export const WIDE_QUERY = "(min-width: 1100px)";
-/** Below this width the terminal list becomes a dropdown. */
-export const NARROW_QUERY = "(max-width: 480px)";
+/** Up to this width terminals always show full screen, with the list as a dropdown. */
+export const NARROW_QUERY = "(max-width: 640px)";
 
 const DEFAULT_LAYOUT: Layout = {
   dock: "bottom",
   size: 320,
   rightSize: 560,
   open: false,
-  sidebarWidth: 220,
+  sidebarWidth: 240,
   sidebarCollapsed: false,
 };
 
@@ -61,8 +71,18 @@ export type TerminalPanelController = {
   wide: boolean;
   /** Height when docked at the bottom, width when docked on the right, in pixels. */
   size: number;
+  /** How small and big `size` may get in this window. */
+  sizeLimits: Limits;
   sidebarWidth: number;
+  sidebarLimits: Limits;
+  /** The person hid the list (the list button or Ctrl+B); a dropdown takes its place. */
   sidebarCollapsed: boolean;
+  /** Whether the list fits beside the terminal; when not, a dropdown takes its place. */
+  sidebarFits: boolean;
+  /** The terminals cover the whole window: asked for, or always on a narrow screen. */
+  fullScreen: boolean;
+  /** A narrow screen: full screen is the only way to show terminals. */
+  narrow: boolean;
   /**
    * Shows a terminal for an item: the running one whose processes listen on `port`, else one in
    * this folder (a running one first), else a new shell there.
@@ -84,8 +104,12 @@ export type TerminalPanelController = {
   setOpen(open: boolean): void;
   setDock(dock: TerminalDock): void;
   setSize(size: number): void;
+  /** Back to the default size for the current dock. */
+  resetSize(): void;
   setSidebarWidth(width: number): void;
+  resetSidebarWidth(): void;
   setSidebarCollapsed(collapsed: boolean): void;
+  setFullScreen(fullScreen: boolean): void;
   /** Starts a terminal and shows it; null when Studio refused (a toast says why). */
   create(request: CreateTerminalRequest): Promise<TerminalInfo | null>;
 };
@@ -96,13 +120,17 @@ export function useTerminalPanel(): TerminalPanelController {
   const toast = useToast();
   // Without matchMedia (tests) the window counts as wide.
   const wide = useMediaQuery(WIDE_QUERY, true);
+  const narrow = useMediaQuery(NARROW_QUERY, false);
+  const windowSize = useWindowSize();
   const [layout, setLayout] = useState<Layout>(() => readLayout(wide));
+  const [fullScreen, setFullScreenState] = useState(readFullScreen);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [picker, setPicker] = useState<TerminalPickerState>("closed");
   const latest = useRef(terminals);
   latest.current = terminals;
 
   useEffect(() => storeLayout(layout), [layout]);
+  useEffect(() => storeFullScreen(fullScreen), [fullScreen]);
 
   // Ports a terminal served stay linked to it after its command ends, so its row still shows it.
   const servedPorts = useRef(new Map<string, Set<number>>());
@@ -218,6 +246,13 @@ export function useTerminalPanel(): TerminalPanelController {
   );
 
   const dock: TerminalDock = layout.dock === "right" && wide ? "right" : "bottom";
+  const sizeLimits =
+    dock === "right" ? rightPaneLimits(windowSize.width) : bottomPanelLimits(windowSize.height);
+  const size = clamp(dock === "right" ? layout.rightSize : layout.size, sizeLimits);
+  const showsFullScreen = fullScreen || narrow;
+  // The list sits inside the panel: the window wide at the bottom or in full screen.
+  const panelWidth = dock === "right" && !showsFullScreen ? size : windowSize.width;
+  const sidebarLimits = listWidthLimits(panelWidth);
   return useMemo(
     () => ({
       terminals,
@@ -225,9 +260,14 @@ export function useTerminalPanel(): TerminalPanelController {
       activeId,
       dock,
       wide,
-      size: dock === "right" ? layout.rightSize : layout.size,
-      sidebarWidth: layout.sidebarWidth,
+      size,
+      sizeLimits,
+      sidebarWidth: clamp(layout.sidebarWidth, sidebarLimits),
+      sidebarLimits,
       sidebarCollapsed: layout.sidebarCollapsed,
+      sidebarFits: !narrow && listFits(panelWidth),
+      fullScreen: showsFullScreen,
+      narrow,
       openIn,
       terminalForPort,
       picker,
@@ -241,18 +281,27 @@ export function useTerminalPanel(): TerminalPanelController {
       create,
       setOpen: (open: boolean) => setLayout((current) => ({ ...current, open })),
       setDock: (next: TerminalDock) => setLayout((current) => ({ ...current, dock: next })),
-      setSize: (size: number) =>
+      setSize: (next: number) =>
         setLayout((current) => {
-          const value = Math.max(MIN_PANEL_SIZE, Math.round(size));
+          const value = clamp(next, sizeLimits);
           return dock === "right" ? { ...current, rightSize: value } : { ...current, size: value };
         }),
+      resetSize: () =>
+        setLayout((current) =>
+          dock === "right"
+            ? { ...current, rightSize: DEFAULT_LAYOUT.rightSize }
+            : { ...current, size: DEFAULT_LAYOUT.size },
+        ),
       setSidebarWidth: (width: number) =>
-        setLayout((current) => ({
-          ...current,
-          sidebarWidth: Math.min(MAX_SIDEBAR_WIDTH, Math.max(MIN_SIDEBAR_WIDTH, Math.round(width))),
-        })),
+        setLayout((current) => ({ ...current, sidebarWidth: clamp(width, sidebarLimits) })),
+      resetSidebarWidth: () =>
+        setLayout((current) => ({ ...current, sidebarWidth: DEFAULT_LAYOUT.sidebarWidth })),
       setSidebarCollapsed: (collapsed: boolean) =>
         setLayout((current) => ({ ...current, sidebarCollapsed: collapsed })),
+      setFullScreen: (next: boolean) => {
+        setFullScreenState(next);
+        if (next) setLayout((current) => ({ ...current, open: true }));
+      },
     }),
     [
       terminals,
@@ -260,6 +309,12 @@ export function useTerminalPanel(): TerminalPanelController {
       activeId,
       dock,
       wide,
+      size,
+      sizeLimits,
+      sidebarLimits,
+      panelWidth,
+      narrow,
+      showsFullScreen,
       openIn,
       terminalForPort,
       picker,
@@ -279,8 +334,9 @@ function readLayout(wide: boolean): Layout {
   try {
     const stored = JSON.parse(localStorage.getItem(LAYOUT_KEY) ?? "null") as Partial<Layout> | null;
     if (stored === null) return { ...DEFAULT_LAYOUT, dock: wide ? "right" : "bottom" };
+    // The window decides the upper limits when the panel draws; here only nonsense is dropped.
     const size = (value: unknown, fallback: number) =>
-      typeof value === "number" && value >= MIN_PANEL_SIZE ? value : fallback;
+      typeof value === "number" && value >= MIN_PANEL_HEIGHT ? value : fallback;
     const sidebarWidth = stored.sidebarWidth;
     return {
       dock: stored.dock === "right" ? "right" : "bottom",
@@ -288,9 +344,7 @@ function readLayout(wide: boolean): Layout {
       rightSize: size(stored.rightSize, DEFAULT_LAYOUT.rightSize),
       open: stored.open === true,
       sidebarWidth:
-        typeof sidebarWidth === "number" &&
-        sidebarWidth >= MIN_SIDEBAR_WIDTH &&
-        sidebarWidth <= MAX_SIDEBAR_WIDTH
+        typeof sidebarWidth === "number" && sidebarWidth >= MIN_LIST_WIDTH
           ? sidebarWidth
           : DEFAULT_LAYOUT.sidebarWidth,
       sidebarCollapsed: stored.sidebarCollapsed === true,
@@ -305,5 +359,22 @@ function storeLayout(layout: Layout): void {
     localStorage.setItem(LAYOUT_KEY, JSON.stringify(layout));
   } catch {
     // Private mode or a full storage: the panel just forgets its size.
+  }
+}
+
+function readFullScreen(): boolean {
+  try {
+    return sessionStorage.getItem(FULL_SCREEN_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function storeFullScreen(fullScreen: boolean): void {
+  try {
+    if (fullScreen) sessionStorage.setItem(FULL_SCREEN_KEY, "1");
+    else sessionStorage.removeItem(FULL_SCREEN_KEY);
+  } catch {
+    // Without session storage a reload leaves full screen.
   }
 }

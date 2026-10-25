@@ -21,9 +21,14 @@ type TerminalViewProps = {
   /** Starts sending output to `write`; returns how to stop. */
   connect: (write: (text: string) => void) => () => void;
   onInput: (text: string) => void;
+  /** Keys the page keeps: xterm.js leaves them alone so the panel can act on them. */
+  reservedKey?: (event: KeyboardEvent) => boolean;
+  /** Put the keyboard in the terminal as soon as it is ready, then call `onFocused`. */
+  focusOnReady?: boolean;
+  onFocused?: () => void;
 };
 
-type Screen = { apply(appearance: TerminalAppearance): void; jump(): void };
+type Screen = { apply(appearance: TerminalAppearance): void; jump(): void; focus(): void };
 
 /**
  * One terminal drawn by xterm.js, loaded on first use. Mount it with a `key` per terminal so
@@ -38,12 +43,15 @@ export function TerminalView({
   loadEngine,
   connect,
   onInput,
+  reservedKey,
+  focusOnReady = false,
+  onFocused,
 }: TerminalViewProps) {
   const host = useRef<HTMLDivElement>(null);
   const [state, setState] = useState<"loading" | "ready" | "failed">("loading");
   const [behind, setBehind] = useState(false);
-  const latest = useRef({ autoScroll, onInput, connect, appearance });
-  latest.current = { autoScroll, onInput, connect, appearance };
+  const latest = useRef({ autoScroll, onInput, connect, appearance, reservedKey });
+  latest.current = { autoScroll, onInput, connect, appearance, reservedKey };
   const screen = useRef<Screen | null>(null);
   /** The person scrolled up: auto-scroll waits until the view is at the bottom again. */
   const paused = useRef(false);
@@ -91,6 +99,7 @@ export function TerminalView({
         element.addEventListener("wheel", settleSoon, { passive: true });
         element.addEventListener("touchend", settleSoon, { passive: true });
         const typed = term.onData((text) => latest.current.onInput(text));
+        term.attachCustomKeyEventHandler((event) => !latest.current.reservedKey?.(event));
         const stop = latest.current.connect((text) => {
           const follow = latest.current.autoScroll && !paused.current;
           const held = term.buffer.active.viewportY;
@@ -117,6 +126,7 @@ export function TerminalView({
             paused.current = false;
             setBehind(false);
           },
+          focus: () => term.focus(),
         };
         setState("ready");
         cleanup = () => {
@@ -146,6 +156,12 @@ export function TerminalView({
     screen.current?.apply(latest.current.appearance);
   }, [appearanceKey, themeKey]);
 
+  useEffect(() => {
+    if (!focusOnReady || state !== "ready") return;
+    screen.current?.focus();
+    onFocused?.();
+  }, [focusOnReady, state, onFocused]);
+
   // Turning auto-scroll on shows the newest output right away.
   useEffect(() => {
     if (autoScroll) screen.current?.jump();
@@ -157,7 +173,12 @@ export function TerminalView({
       {state === "failed" ? (
         <p className={styles.message}>The terminal could not load. Reload the page to try again.</p>
       ) : null}
-      <div ref={host} className={styles.screen} data-testid="terminal-screen" />
+      <div
+        ref={host}
+        className={styles.screen}
+        data-testid="terminal-screen"
+        data-terminal-screen=""
+      />
       {behind && state === "ready" ? (
         <button type="button" className={styles.jump} onClick={() => screen.current?.jump()}>
           <Icon name="arrowDown" size={12} />

@@ -1,0 +1,214 @@
+/* The header measures itself: labels give way to icons when the terminal column is narrow,
+   whatever the window size, so nothing overlaps next to a narrow pane. */
+.header {
+  container: terminal-header / inline-size;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+  padding: var(--space-1-5) var(--space-3);
+  border-bottom: 1px solid var(--color-border);
+  font-size: var(--text-xs);
+}
+
+/* When title, status and actions do not fit on one line, the actions wrap below. */
+.top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-2);
+  min-width: 0;
+}
+
+.identity {
+  display: flex;
+  flex: 1 1 12rem;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.title {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+}
+
+.titleButton {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--color-text);
+  font: inherit;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: text;
+}
+
+.status {
+  flex-shrink: 0;
+  color: var(--color-text-secondary);
+  font-weight: var(--weight-medium);
+  white-space: nowrap;
+}
+
+.status[data-status="running"] {
+  color: var(--color-success-text);
+}
+
+.status[data-status="failed"] {
+  color: var(--color-danger-text);
+}
+
+.status[data-status="restart"] {
+  color: var(--color-warning-text);
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-0-5);
+  min-width: 0;
+  margin-left: auto;
+}
+
+.meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-3);
+  min-width: 0;
+  color: var(--color-text-secondary);
+}
+
+.command {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  font-family: var(--font-mono);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.folder,
+.branch {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--color-text-tertiary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.branch {
+  font-family: var(--font-mono);
+}
+
+.named {
+  color: var(--color-text-tertiary);
+  white-space: nowrap;
+}
+
+.ports {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.port {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1-5);
+  max-width: 100%;
+  padding: 0 var(--space-0-5) 0 var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-full);
+  white-space: nowrap;
+}
+
+.portLink {
+  overflow: hidden;
+  color: var(--color-text-secondary);
+  font-family: var(--font-mono);
+  text-overflow: ellipsis;
+}
+
+.portLink:hover {
+  color: var(--color-text);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.portCopy {
+  display: grid;
+  flex-shrink: 0;
+  place-items: center;
+  width: var(--control-height-xs);
+  height: var(--control-height-xs);
+  border: 0;
+  border-radius: var(--radius-full);
+  background: none;
+  color: var(--color-text-tertiary);
+  cursor: pointer;
+}
+
+.portCopy:hover {
+  background: var(--color-bg-muted);
+  color: var(--color-text);
+}
+
+.details {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-4);
+  margin: 0;
+  padding: var(--space-1) 0 0;
+  border-top: 1px dashed var(--color-border);
+  list-style: none;
+  color: var(--color-text-tertiary);
+}
+
+.detail {
+  display: flex;
+  gap: var(--space-1);
+  min-width: 0;
+  max-width: 100%;
+}
+
+.detailLabel {
+  flex-shrink: 0;
+}
+
+.detailValue {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-text-secondary);
+  font-family: var(--font-mono);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* A narrow terminal column: actions keep only their icons, on a line of their own. */
+@container terminal-header (max-width: 900px) {
+  .actionLabel {
+    display: none;
+  }
+}
+
+@container terminal-header (max-width: 420px) {
+  .actions {
+    justify-content: flex-start;
+    width: 100%;
+  }
+}

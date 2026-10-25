@@ -181,14 +181,15 @@
   white-space: nowrap;
 }
 
-/* Medium screens keep room for the name: six icon buttons, and wider sets overlay. */
-@media (max-width: 1024px) {
+/* A medium list keeps room for the name: six icon buttons, and wider sets overlay. The list
+   measures itself (the routes container), so the terminal pane next to it counts. */
+@container routes (max-width: 976px) {
   .row {
     --row-actions-width: 142px;
   }
 }
 
-@media (max-width: 720px) {
+@container routes (max-width: 671px) {
   .row {
     grid-template-columns: var(--dot-size) minmax(0, 1fr) auto;
   }
@@ -215,18 +216,33 @@
   }
 }
 
-/* Phones: the actions get their own line under the name, like detected rows. */
+/* Phones: the actions get their own line under the name, like detected rows. The list is no
+   container here, so the narrow-list rules above are repeated. */
 @media (max-width: 480px) {
   .row {
     grid-template-columns: var(--dot-size) minmax(0, 1fr);
   }
 
+  .meta {
+    display: none;
+  }
+
   .actionsCell {
     grid-column: 2 / -1;
+    align-self: center;
   }
 
   .actions,
   .confirm {
+    position: static;
     justify-content: flex-start;
+    padding-left: 0;
+    box-shadow: none;
+    transform: none;
+  }
+
+  .actions {
+    opacity: 1;
+    pointer-events: auto;
   }
 }

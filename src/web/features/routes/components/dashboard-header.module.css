@@ -1,4 +1,6 @@
+/* The header measures itself, so it adapts when the terminal pane takes part of the window. */
 .header {
+  container: dashboard-header / inline-size;
   position: sticky;
   top: 0;
   z-index: var(--z-sticky);
@@ -60,12 +62,22 @@
 
 .actions {
   display: flex;
+  flex-shrink: 0;
   align-items: center;
   gap: var(--space-1);
   margin-left: auto;
 }
 
-@media (max-width: 720px) {
+/* Labels give way to icons before anything can overlap. */
+@container dashboard-header (max-width: 960px) {
+  .healthLabel,
+  .namePortLabel,
+  .autoModeLabel {
+    display: none;
+  }
+}
+
+@container dashboard-header (max-width: 720px) {
   .inner {
     padding: 0 var(--space-4);
   }
@@ -75,16 +87,14 @@
   }
 }
 
-@media (max-width: 480px) {
-  .commandButton,
-  .healthLabel,
-  .namePortLabel {
+@container dashboard-header (max-width: 480px) {
+  .commandButton {
     display: none;
   }
 }
 
 /* Room for the notifications bell on the narrowest phones; the theme stays in the command menu. */
-@media (max-width: 400px) {
+@container dashboard-header (max-width: 400px) {
   .actions .themeToggle {
     display: none;
   }

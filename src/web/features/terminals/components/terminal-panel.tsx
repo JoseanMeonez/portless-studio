@@ -6,20 +6,18 @@ import {
   useRef,
   useState,
 } from "react";
-import { directUrl } from "../../../../core/ports/direct-url.ts";
 import type { TerminalInfo } from "../../../../core/terminals/terminal.ts";
 import { Button } from "../../../shared/ui/button.tsx";
 import { Icon } from "../../../shared/ui/icons/icon.tsx";
+import { panelKey } from "../hooks/panel-keys.ts";
+import type { Limits } from "../hooks/panel-limits.ts";
 import type { TerminalDock } from "../hooks/use-terminal-panel.ts";
-import { groupByWorktree, stateOf, statusText } from "./terminal-groups.ts";
+import type { TerminalItemActions } from "./terminal-card.tsx";
+import { groupByWorktree } from "./terminal-groups.ts";
+import { TerminalHeader } from "./terminal-header.tsx";
 import styles from "./terminal-panel.module.css";
 import { TerminalSidebar } from "./terminal-sidebar.tsx";
 import { TerminalSwitcher } from "./terminal-switcher.tsx";
-import { TerminalTabs } from "./terminal-tabs.tsx";
-import { TerminalTitleField } from "./terminal-title-field.tsx";
-
-/** With more terminals than this the panel shows the list instead of header tabs. */
-export const COMPACT_MAX = 2;
 
 type TerminalPanelProps = {
   terminals: readonly TerminalInfo[];
@@ -27,28 +25,38 @@ type TerminalPanelProps = {
   dock: TerminalDock;
   /** Whether the right pane is offered: it needs a wide window. */
   canDockRight: boolean;
-  /** A narrow screen: the list becomes a dropdown. */
+  /** The panel covers the whole window. */
+  fullScreen: boolean;
+  /** A narrow screen: always full screen, and the list is a dropdown. */
   narrow: boolean;
   size: number;
+  sizeLimits: Limits;
   sidebarWidth: number;
+  sidebarLimits: Limits;
   sidebarCollapsed: boolean;
+  /** Whether the list fits beside the terminal; when not, a dropdown takes its place. */
+  sidebarFits: boolean;
   autoScroll: boolean;
+  now: number;
   /** The terminal view, or the new-terminal form. */
   children: ReactNode;
-  onSelect: (id: string) => void;
-  /** An empty title gives back the default one. */
-  onRename: (id: string, title: string) => void;
-  onCloseTerminal: (id: string) => void;
+  actions: Omit<TerminalItemActions, "onStartEditing" | "onFinishEditing"> & {
+    /** An empty title gives back the default one. */
+    onRename: (id: string, title: string) => void;
+  };
+  /** Enter on a card: show it and put the keyboard in its terminal. */
+  onEnterTerminal: (id: string) => void;
   onNew: () => void;
-  onStop: () => void;
-  onRestart: () => void;
   /** Runs every terminal stopped by a Studio restart again. */
   onRunAllAgain: () => void;
   onToggleAutoScroll: () => void;
-  onCopy: () => void;
+  onCopyOutput: () => void;
   onToggleDock: () => void;
+  onToggleFullScreen: () => void;
   onResize: (size: number) => void;
+  onResetSize: () => void;
   onResizeSidebar: (width: number) => void;
+  onResetSidebarWidth: () => void;
   onToggleSidebar: () => void;
   onClose: () => void;
 };
@@ -56,35 +64,41 @@ type TerminalPanelProps = {
 const RESIZE_STEP = 24;
 
 /**
- * The terminal panel, docked at the bottom or as a pane on the right of the list. One or two
- * terminals show as header tabs; more show as a list grouped by project and worktree, or a
- * dropdown on narrow screens. Then the active terminal's status, controls, ports and screen.
+ * The terminal panel, docked at the bottom, as a pane on the right of the list, or full screen.
+ * A list of terminal cards grouped by project and worktree sits on the left (a dropdown when it
+ * is hidden or does not fit), the active terminal's header and screen on the right.
  * Keys while the panel has focus: F2 renames, Ctrl+PageUp and Ctrl+PageDown switch terminals,
- * Ctrl+Shift+W closes the active one.
+ * Ctrl+Shift+W closes the active one, Ctrl+B (Cmd+B) hides or shows the list, Ctrl+Shift+F
+ * toggles full screen and Esc outside the terminal screen leaves it.
  */
 export function TerminalPanel({
   terminals,
   active,
   dock,
   canDockRight,
+  fullScreen,
   narrow,
   size,
+  sizeLimits,
   sidebarWidth,
+  sidebarLimits,
   sidebarCollapsed,
+  sidebarFits,
   autoScroll,
+  now,
   children,
-  onSelect,
-  onRename,
-  onCloseTerminal,
+  actions,
+  onEnterTerminal,
   onNew,
-  onStop,
-  onRestart,
   onRunAllAgain,
   onToggleAutoScroll,
-  onCopy,
+  onCopyOutput,
   onToggleDock,
+  onToggleFullScreen,
   onResize,
+  onResetSize,
   onResizeSidebar,
+  onResetSidebarWidth,
   onToggleSidebar,
   onClose,
 }: TerminalPanelProps) {
@@ -99,26 +113,47 @@ export function TerminalPanel({
   const finishEditing = (id: string, title: string | null) => {
     if (settled.current) return;
     settled.current = true;
-    if (title !== null) onRename(id, title);
+    if (title !== null) actions.onRename(id, title);
     setEditingId(null);
   };
+  const itemActions: TerminalItemActions = {
+    ...actions,
+    onStartEditing: startEditing,
+    onFinishEditing: finishEditing,
+  };
 
-  const listMode = terminals.length > COMPACT_MAX;
   const order = groupByWorktree(terminals).flatMap((group) => group.terminals);
   // These keys work even from inside the terminal screen, which would otherwise get them.
   const panelKeys = (event: KeyboardEvent<HTMLElement>) => {
-    if (event.key === "F2" && active && editingId === null) {
+    const key = panelKey(event.nativeEvent);
+    if (key === null) {
+      if (event.key !== "Escape" || !fullScreen || narrow || editingId !== null) return;
+      // Escape belongs to the program in the terminal and to open fields; elsewhere it leaves.
+      const target = event.target;
+      if (
+        target instanceof HTMLElement &&
+        target.closest("[data-terminal-screen], input, select")
+      ) {
+        return;
+      }
+      onToggleFullScreen();
+    } else if (key === "rename") {
+      if (!active || editingId !== null) return;
       startEditing(active.id);
-    } else if (event.ctrlKey && (event.key === "PageUp" || event.key === "PageDown")) {
+    } else if (key === "next" || key === "previous") {
       if (order.length < 2) return;
       const index = order.findIndex((terminal) => terminal.id === active?.id);
-      const step = event.key === "PageUp" ? -1 : 1;
+      const step = key === "previous" ? -1 : 1;
       const next = order[(index + step + order.length) % order.length];
-      if (next) onSelect(next.id);
-    } else if (event.ctrlKey && event.shiftKey && event.key.toLowerCase() === "w" && active) {
-      onCloseTerminal(active.id);
-    } else {
-      return;
+      if (next) actions.onSelect(next.id);
+    } else if (key === "close") {
+      if (!active) return;
+      actions.onClose(active.id);
+    } else if (key === "toggle-list") {
+      onToggleSidebar();
+    } else if (key === "full-screen") {
+      if (narrow) return;
+      onToggleFullScreen();
     }
     event.preventDefault();
     event.stopPropagation();
@@ -141,46 +176,56 @@ export function TerminalPanel({
     const shrink = dock === "bottom" ? "ArrowDown" : "ArrowRight";
     if (event.key === grow) onResize(size + RESIZE_STEP);
     else if (event.key === shrink) onResize(size - RESIZE_STEP);
+    else if (event.key === "Home") onResize(sizeLimits.min);
+    else if (event.key === "End") onResize(sizeLimits.max);
     else return;
     event.preventDefault();
   };
 
-  const showSidebar = listMode && !narrow && !sidebarCollapsed;
-  const showSwitcher = terminals.length > 0 && (narrow || (listMode && sidebarCollapsed));
+  const hasTerminals = terminals.length > 0;
+  const showSidebar = hasTerminals && sidebarFits && !sidebarCollapsed;
+  const showSwitcher = hasTerminals && !showSidebar;
   const restorable = terminals.filter((terminal) => terminal.stoppedByRestart).length;
-  const running = active?.status === "running";
   const dockLabel = dock === "bottom" ? "Terminal on the right" : "Terminal at the bottom";
+  const listLabel = sidebarCollapsed ? "Show the terminal list" : "Hide the terminal list";
   return (
     <section
       className={styles.panel}
       data-dock={dock}
+      data-full-screen={fullScreen ? "" : undefined}
       style={{ "--panel-size": `${size}px` } as CSSProperties}
       aria-label="Terminals"
       onKeyDownCapture={panelKeys}
     >
-      {/* biome-ignore lint/a11y/useSemanticElements: a draggable splitter has no native element. */}
-      <div
-        className={styles.handle}
-        role="separator"
-        tabIndex={0}
-        aria-orientation={dock === "bottom" ? "horizontal" : "vertical"}
-        aria-label="Resize the terminal panel"
-        aria-valuenow={size}
-        onPointerDown={startDrag}
-        onPointerMove={drag}
-        onPointerUp={endDrag}
-        onPointerCancel={endDrag}
-        onKeyDown={resizeWithKeys}
-      />
+      {fullScreen ? null : (
+        // biome-ignore lint/a11y/useSemanticElements: a draggable splitter has no native element.
+        <div
+          className={styles.handle}
+          role="separator"
+          tabIndex={0}
+          aria-orientation={dock === "bottom" ? "horizontal" : "vertical"}
+          aria-label="Resize the terminal panel"
+          aria-valuenow={size}
+          aria-valuemin={sizeLimits.min}
+          aria-valuemax={sizeLimits.max}
+          title="Drag to resize; double-click to reset"
+          onPointerDown={startDrag}
+          onPointerMove={drag}
+          onPointerUp={endDrag}
+          onPointerCancel={endDrag}
+          onKeyDown={resizeWithKeys}
+          onDoubleClick={onResetSize}
+        />
+      )}
       <header className={styles.header}>
-        {listMode && !narrow ? (
+        {hasTerminals && sidebarFits ? (
           <Button
             size="xs"
             variant="ghost"
             iconOnly
-            aria-label={sidebarCollapsed ? "Show the terminal list" : "Hide the terminal list"}
+            aria-label={listLabel}
             aria-expanded={!sidebarCollapsed}
-            title={sidebarCollapsed ? "Show the terminal list" : "Hide the terminal list"}
+            title={`${listLabel} (Ctrl+B)`}
             onClick={onToggleSidebar}
           >
             <Icon name="sidebar" size={14} />
@@ -190,22 +235,12 @@ export function TerminalPanel({
           <TerminalSwitcher
             terminals={terminals}
             activeId={active?.id ?? null}
-            onSelect={onSelect}
+            onSelect={actions.onSelect}
           />
-        ) : listMode ? (
+        ) : (
           <span className={styles.heading}>
             Terminals <span className={styles.headingCount}>{terminals.length}</span>
           </span>
-        ) : (
-          <TerminalTabs
-            terminals={terminals}
-            activeId={active?.id ?? null}
-            editingId={editingId}
-            onSelect={onSelect}
-            onStartEditing={startEditing}
-            onFinishEditing={finishEditing}
-            onClose={onCloseTerminal}
-          />
         )}
         <div className={styles.actions}>
           <Button
@@ -218,7 +253,7 @@ export function TerminalPanel({
             <Icon name="plus" size={14} />
             <span className={styles.newLabel}>New terminal</span>
           </Button>
-          {canDockRight ? (
+          {canDockRight && !fullScreen ? (
             <Button
               size="xs"
               variant="ghost"
@@ -239,7 +274,10 @@ export function TerminalPanel({
             title="Hide terminals"
             onClick={onClose}
           >
-            <Icon name="x" size={14} />
+            <Icon
+              name={fullScreen ? "x" : dock === "right" ? "chevronRight" : "chevronDown"}
+              size={14}
+            />
           </Button>
         </div>
       </header>
@@ -263,98 +301,27 @@ export function TerminalPanel({
             activeId={active?.id ?? null}
             editingId={editingId}
             width={sidebarWidth}
-            onSelect={onSelect}
-            onStartEditing={startEditing}
-            onFinishEditing={finishEditing}
-            onClose={onCloseTerminal}
+            limits={sidebarLimits}
+            now={now}
+            actions={itemActions}
+            onEnter={onEnterTerminal}
             onResize={onResizeSidebar}
+            onResetWidth={onResetSidebarWidth}
           />
         ) : null}
         <div className={styles.detail}>
           {active ? (
-            <div className={styles.toolbar}>
-              <span className={styles.status} data-status={stateOf(active)}>
-                {statusText(active)}
-              </span>
-              <code className={styles.command} title={active.cwd}>
-                {active.command || "shell"}
-              </code>
-              {active.naming?.state === "named" ? (
-                <span className={styles.named}>
-                  port {active.naming.port} is {active.naming.name}
-                </span>
-              ) : null}
-              {(active.ports ?? []).length > 0 ? (
-                // biome-ignore lint/a11y/useSemanticElements: a fieldset is for form controls, not links.
-                <span className={styles.ports} role="group" aria-label="Ports it opened">
-                  {(active.ports ?? []).map((item) => (
-                    <span key={item.port} className={styles.portLinks}>
-                      {item.route && item.url ? (
-                        <a
-                          href={item.url}
-                          target="_blank"
-                          rel="noreferrer"
-                          className={styles.portLink}
-                        >
-                          {item.route}
-                        </a>
-                      ) : null}
-                      <a
-                        href={directUrl(item.port)}
-                        target="_blank"
-                        rel="noreferrer"
-                        className={styles.portLink}
-                      >
-                        {directUrl(item.port)}
-                      </a>
-                    </span>
-                  ))}
-                </span>
-              ) : null}
-              <div className={styles.toolbarActions}>
-                <Button
-                  size="xs"
-                  variant="ghost"
-                  title="Rename (F2)"
-                  onClick={() => startEditing(active.id)}
-                >
-                  <Icon name="pencil" size={14} />
-                  Rename
-                </Button>
-                {running ? (
-                  <Button size="xs" variant="ghost" onClick={onStop}>
-                    <Icon name="power" size={14} />
-                    Stop
-                  </Button>
-                ) : null}
-                <Button size="xs" variant="ghost" onClick={onRestart}>
-                  <Icon name="refresh" size={14} />
-                  {running ? "Restart" : "Run again"}
-                </Button>
-                <Button
-                  size="xs"
-                  variant="ghost"
-                  aria-pressed={autoScroll}
-                  title="Keep the view at the newest output; scrolling up pauses it"
-                  onClick={onToggleAutoScroll}
-                >
-                  <Icon name="arrowDown" size={14} />
-                  Auto-scroll
-                </Button>
-                <Button size="xs" variant="ghost" onClick={onCopy}>
-                  <Icon name="copy" size={14} />
-                  Copy output
-                </Button>
-              </div>
-            </div>
-          ) : null}
-          {active && showSwitcher && editingId === active.id ? (
-            <div className={styles.renameRow}>
-              <TerminalTitleField
-                title={active.title}
-                onDone={(title) => finishEditing(active.id, title)}
-              />
-            </div>
+            <TerminalHeader
+              terminal={active}
+              editing={!showSidebar && editingId === active.id}
+              fullScreen={fullScreen}
+              canLeaveFullScreen={!narrow}
+              autoScroll={autoScroll}
+              actions={itemActions}
+              onCopyOutput={onCopyOutput}
+              onToggleAutoScroll={onToggleAutoScroll}
+              onToggleFullScreen={onToggleFullScreen}
+            />
           ) : null}
           <div className={styles.body}>{children}</div>
         </div>

@@ -9,10 +9,11 @@ import { useToast } from "../../../shared/ui/toast/use-toast.ts";
 import { NewTerminalForm, type TerminalFolder } from "../components/new-terminal-form.tsx";
 import { TerminalPanel } from "../components/terminal-panel.tsx";
 import { TerminalView } from "../components/terminal-view.tsx";
+import { panelKey } from "../hooks/panel-keys.ts";
 import { useTerminalsGateway } from "../hooks/terminals-gateway-context.tsx";
-import { useMediaQuery } from "../hooks/use-media-query.ts";
+import { useNow } from "../hooks/use-now.ts";
 import { useRecentCommands } from "../hooks/use-recent-commands.ts";
-import { NARROW_QUERY, type TerminalPanelController } from "../hooks/use-terminal-panel.ts";
+import type { TerminalPanelController } from "../hooks/use-terminal-panel.ts";
 import { loadTerminalEngine, type TerminalEngine } from "../hooks/xterm-loader.ts";
 
 type TerminalPanelContainerProps = {
@@ -25,7 +26,12 @@ type TerminalPanelContainerProps = {
   appearance?: TerminalAppearance;
   /** Replaced in tests, which cannot run xterm.js. */
   loadEngine?: () => Promise<TerminalEngine>;
+  /** Opens a folder in the default editor; null when no editor was found. */
+  editor?: { name: string; open: (folder: string) => void } | null;
 };
+
+/** xterm.js leaves these keys to the panel. */
+const reservedKey = (event: KeyboardEvent) => event.type === "keydown" && panelKey(event) !== null;
 
 /** The terminal panel wired to the gateway: list, controls, the live screen and new terminals. */
 export function TerminalPanelContainer({
@@ -34,12 +40,15 @@ export function TerminalPanelContainer({
   themeKey,
   appearance = DEFAULT_TERMINAL_APPEARANCE,
   loadEngine = loadTerminalEngine,
+  editor = null,
 }: TerminalPanelContainerProps) {
   const gateway = useTerminalsGateway();
   const toast = useToast();
-  const narrow = useMediaQuery(NARROW_QUERY, false);
+  const now = useNow();
   const [autoScroll, setAutoScroll] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [focusTerminal, setFocusTerminal] = useState(false);
+  const focused = useCallback(() => setFocusTerminal(false), []);
   // Until the terminal asked for shows up in the list, the newest one stands in.
   const active =
     panel.terminals.find((terminal) => terminal.id === panel.activeId) ??
@@ -69,34 +78,53 @@ export function TerminalPanelContainer({
   // With no terminal yet, the panel itself offers to start one.
   const showForm = panel.terminals.length === 0;
 
+  const copyUrl = (url: string) => {
+    void copyText(url).then((copied) =>
+      toast(
+        copied
+          ? { title: "Copied the URL", description: url, tone: "success" }
+          : { title: "The browser blocked copying", tone: "error" },
+      ),
+    );
+  };
+
   return (
     <TerminalPanel
       terminals={panel.terminals}
       active={showForm ? null : active}
       dock={panel.dock}
       canDockRight={panel.wide}
-      narrow={narrow}
+      fullScreen={panel.fullScreen}
+      narrow={panel.narrow}
       size={panel.size}
+      sizeLimits={panel.sizeLimits}
       sidebarWidth={panel.sidebarWidth}
+      sidebarLimits={panel.sidebarLimits}
       sidebarCollapsed={panel.sidebarCollapsed}
+      sidebarFits={panel.sidebarFits}
       autoScroll={autoScroll}
-      onSelect={panel.show}
-      onRename={(id, title) => void panel.rename(id, title)}
-      onCloseTerminal={(id) => void panel.remove(id)}
+      now={now}
+      actions={{
+        onSelect: panel.show,
+        onRename: (id, title) => void panel.rename(id, title),
+        onStop: (id) => void panel.stop(id),
+        onRestart: (id) => void panel.restart(id),
+        onClose: (id) => void panel.remove(id),
+        onCopyUrl: copyUrl,
+        editor,
+      }}
+      onEnterTerminal={(id) => {
+        panel.show(id);
+        setFocusTerminal(true);
+      }}
       onNew={() => panel.setPicker("folders")}
-      onStop={() => {
-        if (activeId) void panel.stop(activeId);
-      }}
-      onRestart={() => {
-        if (activeId) void panel.restart(activeId);
-      }}
       onRunAllAgain={() => {
         for (const terminal of panel.terminals) {
           if (terminal.stoppedByRestart) void panel.restart(terminal.id);
         }
       }}
       onToggleAutoScroll={() => setAutoScroll((value) => !value)}
-      onCopy={() => {
+      onCopyOutput={() => {
         if (!activeId) return;
         void gateway.output(activeId).then(async (result) => {
           if (!result.ok) {
@@ -116,8 +144,11 @@ export function TerminalPanelContainer({
         });
       }}
       onToggleDock={() => panel.setDock(panel.dock === "bottom" ? "right" : "bottom")}
+      onToggleFullScreen={() => panel.setFullScreen(!panel.fullScreen)}
       onResize={panel.setSize}
+      onResetSize={panel.resetSize}
       onResizeSidebar={panel.setSidebarWidth}
+      onResetSidebarWidth={panel.resetSidebarWidth}
       onToggleSidebar={() => panel.setSidebarCollapsed(!panel.sidebarCollapsed)}
       onClose={() => panel.setOpen(false)}
     >
@@ -145,6 +176,9 @@ export function TerminalPanelContainer({
           loadEngine={loadEngine}
           connect={connect}
           onInput={send}
+          reservedKey={reservedKey}
+          focusOnReady={focusTerminal}
+          onFocused={focused}
         />
       ) : null}
     </TerminalPanel>

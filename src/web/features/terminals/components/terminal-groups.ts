@@ -1,4 +1,5 @@
-import type { TerminalInfo } from "../../../../core/terminals/terminal.ts";
+import { directUrl } from "../../../../core/ports/direct-url.ts";
+import type { TerminalInfo, TerminalPort } from "../../../../core/terminals/terminal.ts";
 
 export type TerminalGroup = {
   name: string;
@@ -26,8 +27,42 @@ export function statusText(terminal: TerminalInfo): string {
 /** A short status for list items: `running`, `exited 1`, `stopped`. */
 export function shortStatus(terminal: TerminalInfo): string {
   if (terminal.status === "running") return "running";
-  if (terminal.stoppedByRestart) return "stopped by a restart";
+  if (terminal.stoppedByRestart) return "stopped by restart";
   return terminal.exitCode === null ? "stopped" : `exited ${terminal.exitCode}`;
+}
+
+/** The project and worktree a terminal runs in (`acme-monorepo / falcon`), else its folder name. */
+export function folderLabel(terminal: TerminalInfo): string {
+  return terminal.project
+    ? `${terminal.project}${terminal.worktree ? ` / ${terminal.worktree}` : ""}`
+    : lastSegment(terminal.cwd);
+}
+
+/** Where a port opens: its route through the proxy, else its direct URL. */
+export function portUrl(item: TerminalPort): string {
+  return item.url ?? directUrl(item.port);
+}
+
+/** A port as a short chip label: the route name, else `:3000`. */
+export function portLabel(item: TerminalPort): string {
+  return item.route ?? `:${item.port}`;
+}
+
+/** Who started a terminal, for its details. */
+export function starterText(terminal: TerminalInfo): string | null {
+  if (terminal.startedBy === "program") return "the CLI or an agent (run or MCP)";
+  if (terminal.startedBy === "person") return "a person on the page";
+  return null;
+}
+
+/** A local date and time, short: `Oct 24, 14:05`. */
+export function clockTime(epochMs: number): string {
+  return new Date(epochMs).toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
 /**
@@ -37,9 +72,7 @@ export function shortStatus(terminal: TerminalInfo): string {
 export function groupByWorktree(terminals: readonly TerminalInfo[]): TerminalGroup[] {
   const groups = new Map<string, TerminalGroup>();
   for (const terminal of terminals) {
-    const name = terminal.project
-      ? `${terminal.project}${terminal.worktree ? ` / ${terminal.worktree}` : ""}`
-      : lastSegment(terminal.cwd);
+    const name = folderLabel(terminal);
     const group = groups.get(name) ?? {
       name,
       branch: terminal.branch ?? null,

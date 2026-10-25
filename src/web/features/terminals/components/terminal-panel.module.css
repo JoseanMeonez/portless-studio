@@ -29,8 +29,21 @@
   right: 0;
   bottom: 0;
   width: var(--panel-size);
-  max-width: calc(100vw - var(--space-16) * 5);
+  max-width: 100vw;
   border-left-width: 1px;
+  box-shadow: none;
+}
+
+/* Full screen: a workspace over the whole dashboard, list on the left, terminal on the right. */
+.panel[data-full-screen] {
+  inset: 0;
+  /* Above the sticky header, below dialogs and menus, which share --z-overlay. */
+  z-index: calc(var(--z-overlay) - 1);
+  width: auto;
+  height: auto;
+  max-width: none;
+  max-height: none;
+  border-width: 0;
   box-shadow: none;
 }
 
@@ -125,86 +138,6 @@
   min-height: 0;
 }
 
-.toolbar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-2) var(--space-3);
-  min-width: 0;
-  padding: var(--space-1) var(--space-3);
-  border-bottom: 1px solid var(--color-border);
-  font-size: var(--text-xs);
-}
-
-.renameRow {
-  padding: var(--space-1) var(--space-3);
-  border-bottom: 1px solid var(--color-border);
-}
-
-.status {
-  flex-shrink: 0;
-  color: var(--color-text-secondary);
-  font-weight: var(--weight-medium);
-}
-
-.status[data-status="running"] {
-  color: var(--color-success-text);
-}
-
-.status[data-status="failed"] {
-  color: var(--color-danger-text);
-}
-
-.status[data-status="restart"] {
-  color: var(--color-warning-text);
-}
-
-.command {
-  overflow: hidden;
-  min-width: 0;
-  max-width: 100%;
-  color: var(--color-text-secondary);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.ports {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2);
-  min-width: 0;
-}
-
-.portLinks {
-  display: flex;
-  gap: var(--space-1);
-  white-space: nowrap;
-}
-
-.portLink {
-  color: var(--color-text-secondary);
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
-}
-
-.portLink:hover {
-  color: var(--color-text);
-  text-decoration: underline;
-  text-underline-offset: 3px;
-}
-
-.named {
-  color: var(--color-text-tertiary);
-  white-space: nowrap;
-}
-
-.toolbarActions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-1);
-  margin-left: auto;
-}
-
 .body {
   display: flex;
   flex: 1;
@@ -213,15 +146,6 @@
 }
 
 @media (max-width: 640px) {
-  .panel[data-dock] {
-    inset: 0;
-    width: auto;
-    height: auto;
-    max-width: none;
-    max-height: none;
-    border-width: 0;
-  }
-
   .handle,
   .dockToggle {
     display: none;

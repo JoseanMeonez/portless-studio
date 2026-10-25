@@ -91,7 +91,7 @@ export function DashboardHeader({
               title="New dev servers get their suggested name automatically"
             >
               <Icon name="zap" size={12} />
-              Auto mode on
+              <span className={styles.autoModeLabel}>Auto mode on</span>
             </span>
           ) : null}
         </div>

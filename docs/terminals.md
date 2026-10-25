@@ -1,7 +1,7 @@
 # Terminals
 
 Studio can run commands for you, one terminal per command, each in a project folder. Their
-output shows live in a panel at the bottom (or side) of the dashboard, and you, the CLI and your
+output shows live in a panel at the bottom or side of the dashboard, or full screen, and you, the CLI and your
 AI agents all see and drive the same terminals. The usual case: an agent starts your dev server
 with `portless-studio run -- pnpm dev` instead of in its own hidden shell, so you can watch its
 logs in Studio, and the port it opens gets a name right away.
@@ -41,22 +41,69 @@ In a window 1100 px or wider the terminals open in a pane on the right of the ro
 makes room for it: select a row and its terminal shows there, the way an editor shows the file
 you pick. Narrower windows dock the panel at the bottom. The layout button in the panel header,
 or "Terminal at the bottom" and "Terminal on the right" in the command menu (`Ctrl+K`), move it.
-Drag the pane's inner edge, or focus it and use the arrow keys, to resize it. The layout, the
-size at the bottom and on the right, and whether it is open are remembered in this browser. Below
-640 px wide the panel covers the whole page.
+The layout, the size at the bottom and on the right, and whether it is open are remembered in
+this browser.
 
-One or two terminals show as tabs in the panel header. With three or more, a list on the left of
-the panel takes their place, grouped by project and worktree with the branch. Each item shows a
-status dot (green while running, red after a failure, amber when a Studio restart stopped it),
-its title, its command in small type and how many ports it opened; its close button shows on
-hover. Drag the list's edge to resize it, and use the list button in the header to fold it into a
-dropdown; both are remembered. Past eight terminals the list has a filter box. Below 480 px wide
-the list is always a dropdown, so the panel fits a 360 px phone screen. While the panel has
-focus, `Ctrl+PageDown` and `Ctrl+PageUp` switch terminals and `Ctrl+Shift+W` closes the active
-one (browsers may keep these keys for their own tabs; see docs/keyboard-shortcuts.md).
+Drag the pane's inner edge (or the bottom panel's top edge) to resize it, or focus the edge and
+use the arrow keys; `Home` and `End` jump to the smallest and largest size, and a double-click
+goes back to the default. The size stays between limits taken from the window, so the page next
+to the panel never breaks:
 
-The toolbar shows whether the command runs or its exit code, and has Rename, Stop, Restart (Run
-again once it ended), Auto-scroll and Copy output (the kept output as plain text).
+| Edge | Smallest | Largest |
+| --- | --- | --- |
+| Right pane | 360 px | the window minus 720 px, so the routes list keeps its kind, port and uptime columns |
+| Bottom panel | 160 px | the window height minus 160 px |
+| Terminal list | 200 px | 420 px, leaving the terminal at least 260 px |
+
+The routes list and the page header size themselves by the room they have, not by the window:
+next to a wide pane, the header shows icons instead of the Health and Name a port labels, and
+the rows use their narrower layout only when the columns would not fit.
+
+### The terminal list
+
+The terminals show as a list of cards on the left of the panel, grouped by project and worktree,
+even when there is only one. Each card shows:
+
+- a status dot and the status in words: `running`, `exited 1` or `stopped by restart`;
+- its title, the command in small mono type, and the project, worktree and branch;
+- the ports it opened as chips (the route name, else `:3000`) that open the page;
+- how long it has run.
+
+Hovering or focusing a card shows its actions (Restart or Run again, Stop, Open in the default
+editor, Copy the URL of its first port, Rename, Close) and one more line with its folder (`~`
+for your home folder), when it started, its PID and its exit code. The selected card is
+highlighted with an accent bar. Arrow keys move between cards and show each one; `Enter` puts
+the keyboard in its terminal. Past eight terminals the list has a filter box.
+
+The list button in the panel header, or `Ctrl+B` (`Cmd+B` on macOS) while the panel or the
+terminal screen has focus, hides the list; a dropdown at the top then picks the terminal. Hidden
+or shown is remembered. When the panel is too narrow for the list and a terminal side by side
+(a right pane under 460 px), the dropdown takes its place on its own.
+
+### Full screen
+
+The Full screen button in the terminal header, `Ctrl+Shift+F` while the panel has focus, or "Full
+screen terminal" in the command menu turn the panel into a workspace over the whole window: the
+list on the left, the terminal on the right, with a line of details under the header (folder,
+start time, PID and who started it: a person on the page, or the CLI or an agent through `run`
+or MCP). Exit full screen, `Ctrl+Shift+F` again or `Esc` leave it. `Esc` inside the terminal
+screen goes to the program running there, so press it from the list or the header. Full screen
+works from the right pane and from the bottom panel, and a reload of the tab keeps it.
+
+Up to 640 px wide (phones), terminals always show full screen, with the list as a dropdown at
+the top, so the panel fits a 360 px screen.
+
+### The terminal header
+
+Above the screen, the active terminal shows its title (double-click or `F2` to rename), its
+status, its command, its folder and branch, and the ports it opened, each with links to its route
+and its direct URL and a copy button. Its actions are Rename, Stop, Restart (Run again once it
+ended), Open in editor, Copy output (the kept output as plain text), Auto-scroll, Full screen and
+Close the terminal. In a narrow panel the actions show only their icons.
+
+While the panel has focus, `Ctrl+PageDown` and `Ctrl+PageUp` switch terminals and `Ctrl+Shift+W`
+closes the active one (browsers may keep these keys for their own tabs; see
+docs/keyboard-shortcuts.md).
 
 Auto-scroll (on by default) keeps the view at the newest output. Scrolling up pauses it, so you
 can read back through a busy log, and scrolling back to the bottom resumes it. While the view is
@@ -167,7 +214,7 @@ route, else its first detected port), a terminal id or `port:<number>` in Studio
 page to the front:
 
 1. Studio sends a `focus` event to every open Studio page. The page shows the target (selects the
-   row or opens the terminal tab) and calls `window.focus()`.
+   row or shows the terminal) and calls `window.focus()`.
 2. After 300 ms each page says whether it has the focus.
 3. When no page is open, or none came forward within 1.5 seconds, Studio opens the page link
    (`/?focus=<route>`, `/?focus=port:<n>` or `/?terminal=<id>`) with the system browser opener
@@ -191,12 +238,12 @@ On Linux, some window managers show a "ready" notice instead of raising the brow
 
 ## Names and groups
 
-- Tabs and list items are grouped by project and worktree (`acme-monorepo / falcon`) with the branch. A folder
-  Studio does not know is grouped under its own name.
-- Double-click a tab, press `F2`, or use Rename to name it. An empty name brings back the command
-  or the shell's name.
-- The toolbar lists the URLs of ports opened by processes started in that terminal. This works on
-  Linux and macOS through parent processes; on Windows nothing is listed.
+- List cards are grouped by project and worktree (`acme-monorepo / falcon`), and each card shows
+  its branch. A folder Studio does not know is grouped under its own name.
+- Double-click a card or the header title, press `F2`, or use Rename to name it. An empty name
+  brings back the command or the shell's name.
+- Cards and the header list the URLs of ports opened by processes started in that terminal. This
+  works on Linux and macOS through parent processes; on Windows nothing is listed.
 
 ## Direct URLs
 

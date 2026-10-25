@@ -2,10 +2,20 @@
   min-height: 100vh;
 }
 
+/* Rows size their columns by the list's own width (a container query), which shrinks when the
+   terminal pane sits next to it. Phones skip it: the filter sheet there is fixed to the window,
+   and a container would anchor it to the list instead. */
 .main {
+  container: routes / inline-size;
   max-width: var(--content-width);
   margin: 0 auto;
   padding: var(--space-8) var(--space-6) var(--space-16);
+}
+
+@media (max-width: 480px) {
+  .main {
+    container-type: normal;
+  }
 }
 
 .sectionTitle {

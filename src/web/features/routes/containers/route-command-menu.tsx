@@ -27,6 +27,10 @@ type RouteCommandMenuProps = {
   onNewTerminal?: (() => void) | undefined;
   /** Moves the terminals between the right pane and the bottom; absent hides the action. */
   terminalDock?: { label: string; toggle: () => void } | undefined;
+  /** Hides or shows the terminal list; absent hides the action. */
+  onToggleTerminalList?: (() => void) | undefined;
+  /** Turns the terminals' full screen on or off; absent hides the action. */
+  terminalFullScreen?: { label: string; toggle: () => void } | undefined;
   onStopServer: (route: Route) => void;
   /** Copies every route as `.env` lines. */
   onCopyEnv: () => void;
@@ -152,6 +156,30 @@ export function RouteCommandMenu(props: RouteCommandMenuProps) {
             label: props.terminalDock.label,
             icon: "layers",
             onSelect: props.terminalDock.toggle,
+          } satisfies CommandItem,
+        ]
+      : []),
+    ...(props.onToggleTerminalList
+      ? [
+          {
+            id: "terminal-list",
+            group: "Actions",
+            label: "Toggle terminal list",
+            icon: "sidebar",
+            shortcut: keys("toggle-terminal-list"),
+            onSelect: props.onToggleTerminalList,
+          } satisfies CommandItem,
+        ]
+      : []),
+    ...(props.terminalFullScreen
+      ? [
+          {
+            id: "terminal-full-screen",
+            group: "Actions",
+            label: props.terminalFullScreen.label,
+            icon: "terminal",
+            shortcut: keys("terminal-full-screen"),
+            onSelect: props.terminalFullScreen.toggle,
           } satisfies CommandItem,
         ]
       : []),

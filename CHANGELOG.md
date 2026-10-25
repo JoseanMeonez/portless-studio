@@ -2,6 +2,42 @@
 
 All notable changes are listed here. Versions follow [Semantic Versioning](https://semver.org).
 
+## Unreleased
+
+- The terminal panel always shows its terminals as a list of cards, even with one or two; the
+  header tabs, which scrolled sideways once there were several, are gone. Each card shows the
+  status in words (`running`, `exited 1`, `stopped by restart`), the title, the command, the
+  project, worktree and branch, the ports it opened as chips that open them, and its uptime.
+  Hover or focus shows Restart, Stop, Open in the default editor, Copy URL, Rename and Close, and
+  one more line with the folder, start time, PID and exit code. Arrow keys move between cards and
+  `Enter` goes into the terminal.
+
+- `Ctrl+B` (`Cmd+B` on macOS) hides or shows the terminal list while the panel or the terminal
+  screen has focus; xterm.js no longer receives that key there. A dropdown at the top picks the
+  terminal while the list is hidden.
+
+- Terminals can go full screen: the Full screen button in the terminal header, `Ctrl+Shift+F` in
+  the panel or the command menu. Full screen covers the dashboard with the list on the left and
+  the terminal on the right, adds a line with the folder, start time, PID and who started it, and
+  survives a reload of the tab. `Esc` from the list or header leaves it. Up to 640 px wide,
+  terminals always show full screen with the list as a dropdown.
+
+- The terminal header shows the title, status, command, folder and branch, and each port with
+  Open and Copy, plus Rename, Stop, Restart, Open in editor, Copy output, Auto-scroll, Full screen
+  and Close. In a narrow panel the actions show only icons.
+
+- Resizing has limits taken from the window: the right pane goes from 360 px to the window minus
+  720 px, so the routes list keeps its columns; the bottom panel from 160 px to the window height
+  minus 160 px; the list from 200 px to 420 px, leaving the terminal 260 px. `Home` and `End` on a
+  focused edge jump to the limits and a double-click resets the size.
+
+- The page header and the route rows size themselves by the room they have instead of the window
+  width. Next to the terminal pane, the header shows icons instead of the Health and Name a port
+  labels, which fixes "Live" and "Health" overlapping in a 1280 px window with the pane open.
+
+- `?` and the command menu list the terminal keys under Terminal, including "Toggle terminal
+  list" and "Full screen terminal".
+
 ## 0.1.4 (2026-10-25)
 
 - Kind, port and uptime now line up in the same columns on every route row. Before, rows with

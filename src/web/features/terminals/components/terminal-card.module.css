@@ -1,0 +1,249 @@
+.card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  color: var(--color-text-secondary);
+}
+
+.card:hover {
+  background: var(--color-bg-hover);
+}
+
+/* The selected card: a filled background and an accent bar on its left edge. */
+.card[data-active] {
+  border-color: var(--color-border);
+  background: var(--color-bg-selected);
+  box-shadow: inset 2px 0 0 var(--color-accent);
+  color: var(--color-text);
+}
+
+.main {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-0-5);
+  min-width: 0;
+  padding: var(--space-1-5) var(--space-2);
+  border: 0;
+  border-radius: var(--radius-md);
+  background: none;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.main:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.rename {
+  padding: var(--space-1-5) var(--space-2) var(--space-0-5);
+}
+
+.titleLine,
+.statusLine,
+.folderLine {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1-5);
+  min-width: 0;
+}
+
+.title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.uptime {
+  flex-shrink: 0;
+  color: var(--color-text-tertiary);
+  font-size: var(--text-2xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.statusLine,
+.folderLine {
+  padding-left: calc(var(--dot-size) + var(--space-1-5));
+  font-size: var(--text-2xs);
+}
+
+.status {
+  flex-shrink: 0;
+  color: var(--color-text-tertiary);
+  font-weight: var(--weight-medium);
+}
+
+.status[data-status="running"] {
+  color: var(--color-success-text);
+}
+
+.status[data-status="failed"] {
+  color: var(--color-danger-text);
+}
+
+.status[data-status="restart"] {
+  color: var(--color-warning-text);
+}
+
+.command,
+.folder,
+.branch {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.command {
+  flex: 1;
+  color: var(--color-text-tertiary);
+  font-family: var(--font-mono);
+}
+
+.folder {
+  flex-shrink: 1;
+  color: var(--color-text-tertiary);
+}
+
+.branch {
+  display: inline-flex;
+  flex-shrink: 2;
+  align-items: center;
+  gap: var(--space-0-5);
+  color: var(--color-text-tertiary);
+  font-family: var(--font-mono);
+}
+
+.ports {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  min-width: 0;
+  padding: 0 var(--space-2) var(--space-1-5)
+    calc(var(--space-2) + var(--dot-size) + var(--space-1-5));
+}
+
+.port {
+  max-width: 100%;
+  overflow: hidden;
+  padding: 0 var(--space-1-5);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-full);
+  background: var(--color-bg);
+  color: var(--color-text-secondary);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  line-height: 1.6;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.port:hover {
+  border-color: var(--color-border-strong);
+  color: var(--color-text);
+}
+
+/* One more line on hover or focus: where it runs, when it started, its PID and exit code. */
+.details {
+  display: none;
+  flex-wrap: wrap;
+  gap: var(--space-0-5) var(--space-3);
+  min-width: 0;
+  margin: 0;
+  padding: 0 var(--space-2) var(--space-1-5)
+    calc(var(--space-2) + var(--dot-size) + var(--space-1-5));
+  color: var(--color-text-tertiary);
+  font-size: var(--text-2xs);
+}
+
+.card:hover .details,
+.card:focus-within .details {
+  display: flex;
+}
+
+.detail {
+  display: flex;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.detail dt {
+  flex-shrink: 0;
+}
+
+.detail dd {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  color: var(--color-text-secondary);
+  font-family: var(--font-mono);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.actions {
+  position: absolute;
+  top: var(--space-1);
+  right: var(--space-1);
+  display: flex;
+  gap: var(--space-0-5);
+  padding-left: var(--space-2);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-hover);
+  box-shadow: -8px 0 8px var(--color-bg-hover);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.card[data-active] .actions {
+  background: var(--color-bg-selected);
+  box-shadow: -8px 0 8px var(--color-bg-selected);
+}
+
+.card:hover .actions,
+.card:focus-within .actions {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.action {
+  display: grid;
+  place-items: center;
+  width: var(--control-height-xs);
+  height: var(--control-height-xs);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--color-text-tertiary);
+  cursor: pointer;
+}
+
+.action:hover {
+  background: var(--color-bg-muted);
+  color: var(--color-text);
+}
+
+.action:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+/* Touch screens have no hover: the selected card keeps its actions and details in view. */
+@media (hover: none) {
+  .card[data-active] .actions {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .card[data-active] .details {
+    display: flex;
+  }
+}

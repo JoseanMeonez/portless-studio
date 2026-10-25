@@ -3,7 +3,7 @@
  * the command menu shows its keys and the `?` cheat sheet lists it, so the three never disagree.
  */
 
-export type ShortcutGroup = "Navigation" | "Actions" | "Views" | "App";
+export type ShortcutGroup = "Navigation" | "Actions" | "Views" | "Terminal" | "App";
 
 export type ShortcutId =
   | "move-down"
@@ -28,7 +28,17 @@ export type ShortcutId =
   | "command-menu"
   | "settings"
   | "help"
-  | "close";
+  | "close"
+  | TerminalShortcutId;
+
+/** Keys the terminal panel handles itself; the page's keyboard handler never sees them. */
+export type TerminalShortcutId =
+  | "rename-terminal"
+  | "next-terminal"
+  | "close-terminal"
+  | "toggle-terminal-list"
+  | "terminal-full-screen"
+  | "leave-full-screen";
 
 export type Shortcut = {
   id: ShortcutId;
@@ -44,9 +54,20 @@ export type Shortcut = {
   inFilter?: boolean;
   /** Acts on the selected row, so it does nothing when no row is selected. */
   needsSelection?: boolean;
+  /**
+   * Works only while the terminal area has focus; the terminal panel handles it, so the page's
+   * keyboard handler skips it.
+   */
+  inTerminal?: boolean;
 };
 
-export const SHORTCUT_GROUPS: readonly ShortcutGroup[] = ["Navigation", "Actions", "Views", "App"];
+export const SHORTCUT_GROUPS: readonly ShortcutGroup[] = [
+  "Navigation",
+  "Actions",
+  "Views",
+  "Terminal",
+  "App",
+];
 
 export const SHORTCUTS: readonly Shortcut[] = [
   {
@@ -166,6 +187,61 @@ export const SHORTCUTS: readonly Shortcut[] = [
     combos: [["Shift", "F"]],
   },
   {
+    id: "toggle-terminal-list",
+    group: "Terminal",
+    label: "Toggle terminal list",
+    keys: ["b"],
+    combos: [["mod", "B"]],
+    modifier: true,
+    inTerminal: true,
+  },
+  {
+    id: "terminal-full-screen",
+    group: "Terminal",
+    label: "Full screen terminal",
+    keys: ["F"],
+    combos: [["Ctrl", "Shift", "F"]],
+    modifier: true,
+    inTerminal: true,
+  },
+  {
+    id: "leave-full-screen",
+    group: "Terminal",
+    label: "Leave full screen (from the list or header)",
+    keys: ["Escape"],
+    combos: [["Esc"]],
+    inTerminal: true,
+  },
+  {
+    id: "rename-terminal",
+    group: "Terminal",
+    label: "Rename the active terminal",
+    keys: ["F2"],
+    combos: [["F2"]],
+    inTerminal: true,
+  },
+  {
+    id: "next-terminal",
+    group: "Terminal",
+    label: "Next or previous terminal",
+    keys: ["PageDown", "PageUp"],
+    combos: [
+      ["Ctrl", "PgDn"],
+      ["Ctrl", "PgUp"],
+    ],
+    modifier: true,
+    inTerminal: true,
+  },
+  {
+    id: "close-terminal",
+    group: "Terminal",
+    label: "Close the active terminal",
+    keys: ["W"],
+    combos: [["Ctrl", "Shift", "W"]],
+    modifier: true,
+    inTerminal: true,
+  },
+  {
     id: "command-menu",
     group: "App",
     label: "Command menu",
@@ -186,10 +262,11 @@ export const SHORTCUTS: readonly Shortcut[] = [
 
 /** The shortcut a key press triggers, if any. */
 export function findShortcut(key: string, withModifier: boolean): Shortcut | undefined {
+  const page = SHORTCUTS.filter((item) => !item.inTerminal);
   if (withModifier) {
-    return SHORTCUTS.find((item) => item.modifier && item.keys.includes(key.toLowerCase()));
+    return page.find((item) => item.modifier && item.keys.includes(key.toLowerCase()));
   }
-  return SHORTCUTS.find((item) => !item.modifier && item.keys.includes(key));
+  return page.find((item) => !item.modifier && item.keys.includes(key));
 }
 
 export function shortcutById(id: ShortcutId): Shortcut {

@@ -76,7 +76,14 @@ export type TerminalLauncher = {
   followSelection?: ((port: number) => void) | undefined;
   /** Moves the terminals between the right pane and the bottom; the label says where to. */
   dock?: { label: string; toggle: () => void } | undefined;
+  /** Hides or shows the terminal list. */
+  toggleList?: (() => void) | undefined;
+  /** Turns full screen on or off; the label says which. */
+  fullScreen?: { label: string; toggle: () => void } | undefined;
 };
+
+/** The default editor, for opening a terminal's folder; null when none was found. */
+export type TerminalEditor = { name: string; open: (folder: string) => void } | null;
 
 /** What a row needs to know about the terminal serving its port. */
 export type PortTerminalState = {
@@ -91,8 +98,13 @@ type RoutesDashboardProps = {
   onToggleTheme: () => void;
   /** Without it the row menu and the `t` shortcut offer no terminal. */
   terminals?: TerminalLauncher | undefined;
-  /** Draws the terminal panel, given the project folders a new terminal can run in. */
-  terminalPanel?: ((folders: readonly ProjectFolder[]) => ReactNode) | undefined;
+  /**
+   * Draws the terminal panel, given the project folders a new terminal can run in and the
+   * default editor.
+   */
+  terminalPanel?:
+    | ((folders: readonly ProjectFolder[], editor: TerminalEditor) => ReactNode)
+    | undefined;
   /** Called with the config Settings saved, so other parts of the page can follow it. */
   onConfigSaved?: ((config: StudioConfig) => void) | undefined;
 };
@@ -736,6 +748,8 @@ export function RoutesDashboard({
           onMoveToGroup={setMoving}
           onNewTerminal={terminals ? terminals.pick : undefined}
           terminalDock={terminals?.dock}
+          onToggleTerminalList={terminals?.toggleList}
+          terminalFullScreen={terminals?.fullScreen}
           onStopServer={(route) => {
             selectRoute(route);
             setConfirming({ name: route.name, action: "stop" });
@@ -759,7 +773,18 @@ export function RoutesDashboard({
         />
       ) : null}
 
-      {terminalPanel?.(projectFolders(routes, detected))}
+      {terminalPanel?.(
+        projectFolders(routes, detected),
+        defaultEditor.editor
+          ? {
+              name: defaultEditor.editor.name,
+              open: (folder) => {
+                const editor = defaultEditor.editor;
+                if (editor) void openWith.open(editor, folder);
+              },
+            }
+          : null,
+      )}
     </div>
   );
 }

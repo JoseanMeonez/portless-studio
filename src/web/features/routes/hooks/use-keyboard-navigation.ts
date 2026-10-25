@@ -5,7 +5,7 @@ import {
   isActivatableTarget,
   isEditableTarget,
 } from "../../../shared/lib/keyboard.ts";
-import { findShortcut, type ShortcutId } from "./shortcut-registry.ts";
+import { findShortcut, type ShortcutId, type TerminalShortcutId } from "./shortcut-registry.ts";
 
 /** Fields marked with this attribute still pass arrows and Enter to the list, like the filter. */
 export const LIST_KEYS_ATTRIBUTE = "data-list-keys";
@@ -89,7 +89,7 @@ export function useKeyboardNavigation(options: KeyboardNavigationOptions) {
         setSelected(Math.max(0, Math.min(to, current.itemCount - 1)));
       };
       const actions: Record<
-        Exclude<ShortcutId, "close" | "command-menu" | "new-terminal">,
+        Exclude<ShortcutId, "close" | "command-menu" | "new-terminal" | TerminalShortcutId>,
         () => void
       > = {
         "move-down": () => move(index + 1),
@@ -113,9 +113,8 @@ export function useKeyboardNavigation(options: KeyboardNavigationOptions) {
         settings: current.onOpenSettings,
         help: current.onShowShortcuts,
       };
-      if (shortcut.id !== "command-menu" && shortcut.id !== "new-terminal") {
-        actions[shortcut.id]();
-      }
+      const id = shortcut.id;
+      if (id in actions) actions[id as keyof typeof actions]();
     };
 
     window.addEventListener("keydown", handleKeyDown);

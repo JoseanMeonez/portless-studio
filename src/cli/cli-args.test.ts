@@ -130,6 +130,28 @@ describe("parseCliArgs", () => {
     expect(parseCliArgs(["init", "--json"])).toMatchObject({ ok: false });
   });
 
+  it("reads env with its flags and route names", () => {
+    expect(parseCliArgs(["env"])).toEqual({
+      ok: true,
+      value: { command: "env", json: false, direct: false, prefix: null, strip: null, names: [] },
+    });
+    expect(
+      parseCliArgs(["env", "--prefix", "VITE_", "--strip", "acme", "--direct", "--json", "acme"]),
+    ).toEqual({
+      ok: true,
+      value: {
+        command: "env",
+        json: true,
+        direct: true,
+        prefix: "VITE_",
+        strip: "acme",
+        names: ["acme"],
+      },
+    });
+    expect(parseCliArgs(["env", "--yes"])).toMatchObject({ ok: false });
+    expect(HELP).toContain("portless-studio env [--prefix P] [--strip S] [--direct] [--json]");
+  });
+
   it("reads mcp and refuses flags it does not take", () => {
     expect(parseCliArgs(["mcp"])).toEqual({ ok: true, value: { command: "mcp" } });
     expect(parseCliArgs(["mcp", "--json"])).toMatchObject({ ok: false });

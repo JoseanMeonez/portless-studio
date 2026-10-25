@@ -26,6 +26,10 @@ type RouteCommandMenuProps = {
   /** Opens the New terminal picker; absent hides the action. */
   onNewTerminal?: (() => void) | undefined;
   onStopServer: (route: Route) => void;
+  /** Copies every route as `.env` lines. */
+  onCopyEnv: () => void;
+  /** Opens the dialog that picks routes, prefix and suffix for `.env` lines. */
+  onChooseEnv: () => void;
   onSwitchView: (id: string) => void;
   onSaveView: () => void;
   onToggleKind: (kind: ItemKind) => void;
@@ -138,6 +142,22 @@ export function RouteCommandMenu(props: RouteCommandMenuProps) {
           } satisfies CommandItem,
         ]
       : []),
+    ...when(props.routes.length > 0, [
+      {
+        id: "copy-env",
+        group: "Actions",
+        label: "Copy routes as .env",
+        icon: "copy",
+        onSelect: props.onCopyEnv,
+      },
+      {
+        id: "choose-env",
+        group: "Actions",
+        label: "Choose routes for .env…",
+        icon: "copy",
+        onSelect: props.onChooseEnv,
+      },
+    ]),
     {
       id: "filter",
       group: "Actions",

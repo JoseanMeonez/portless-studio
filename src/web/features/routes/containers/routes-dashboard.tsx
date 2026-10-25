@@ -2,6 +2,7 @@ import { type ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useSta
 import type { StudioActionResponse } from "../../../../core/api/contract.ts";
 import type { DetectedPort } from "../../../../core/ports/detected-port.ts";
 import { directUrl } from "../../../../core/ports/direct-url.ts";
+import { envEntries, formatEnvLine } from "../../../../core/routes/env-lines.ts";
 import type { Route } from "../../../../core/routes/route.ts";
 import { hasFilters, type ItemKind, routeKey } from "../../../../core/views/view.ts";
 import { modifierLabel } from "../../../shared/lib/keyboard.ts";
@@ -39,6 +40,7 @@ import { useServiceControl } from "../hooks/use-service-control.ts";
 import { useStopProcess } from "../hooks/use-stop-process.ts";
 import { AliasDialogContainer, type AliasDialogRequest } from "./alias-dialog-container.tsx";
 import { DetectedContainer } from "./detected-container.tsx";
+import { EnvDialogContainer } from "./env-dialog-container.tsx";
 import { HealthPanelContainer } from "./health-panel-container.tsx";
 import { InstallPortlessContainer } from "./install-portless-container.tsx";
 import { RouteCommandMenu } from "./route-command-menu.tsx";
@@ -133,6 +135,7 @@ export function RoutesDashboard({
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [naming, setNaming] = useState<NameRequest | null>(null);
   const [moving, setMoving] = useState<Route | null>(null);
+  const [envOpen, setEnvOpen] = useState(false);
   const [rowMenu, setRowMenu] = useState<RowMenuRequest | null>(null);
   const openWith = useOpenWith(rowMenu !== null);
   const [confirming, setConfirming] = useState<{ name: string; action: RowConfirmation } | null>(
@@ -194,6 +197,12 @@ export function RoutesDashboard({
         description:
           "Studio has not seen the process behind this route, so it does not know where it runs.",
       });
+  };
+  /** Two names that give the same key open the dialog, which says which ones. */
+  const copyAllEnvLines = () => {
+    const entries = envEntries(routes);
+    if (entries.ok) void actions.copyEnvLines(entries.value.map(formatEnvLine));
+    else setEnvOpen(true);
   };
   const collapseAll = () =>
     views.collapsed.collapseAll(views.sections.map((section) => section.key));
@@ -282,6 +291,7 @@ export function RoutesDashboard({
     shortcutsOpen ||
     naming !== null ||
     moving !== null ||
+    envOpen ||
     rowMenu !== null;
   const navigation = useKeyboardNavigation({
     itemCount: views.ordered.length,
@@ -634,6 +644,8 @@ export function RoutesDashboard({
         />
       ) : null}
 
+      {envOpen ? <EnvDialogContainer routes={routes} onClose={() => setEnvOpen(false)} /> : null}
+
       {rowMenu && openWith.apps ? (
         <RowMenuContainer
           request={rowMenu}
@@ -663,6 +675,8 @@ export function RoutesDashboard({
             selectRoute(route);
             setConfirming({ name: route.name, action: "stop" });
           }}
+          onCopyEnv={copyAllEnvLines}
+          onChooseEnv={() => setEnvOpen(true)}
           onSwitchView={viewState.switchView}
           onSaveView={() => setNaming({ kind: "save-view" })}
           onToggleKind={toggleKind}
@@ -711,8 +725,15 @@ function routeMenuTarget(route: Route): RowMenuTarget {
     url: route.url,
     directUrl: directUrl(route.port),
     port: route.port,
+    envLine: envLine(route),
     path: route.project?.path ?? null,
   };
+}
+
+function envLine(route: Route): string {
+  const entries = envEntries([route]);
+  // One route never repeats a key and no prefix is set, so this always builds.
+  return entries.ok && entries.value[0] ? formatEnvLine(entries.value[0]) : "";
 }
 
 function detectedMenuTarget(item: DetectedPort): RowMenuTarget {

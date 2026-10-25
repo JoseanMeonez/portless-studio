@@ -13,6 +13,7 @@ import {
   type TerminalsResponse,
 } from "../../core/api/contract.ts";
 import { err, ok, type Result } from "../../core/result.ts";
+import { envEntries, formatEnvLine, selectEnvRoutes } from "../../core/routes/env-lines.ts";
 import { plainText, type TerminalInfo } from "../../core/terminals/terminal.ts";
 import { describeProxy, detectedItem, proxyItem, routeItem } from "../studio-items.ts";
 import type { McpTool, ToolResult } from "./mcp-server.ts";
@@ -33,6 +34,7 @@ export const AGENT_INSTRUCTIONS = [
   "Start dev servers with run_in_terminal (or `portless-studio run -- <command>` in a shell) instead",
   "of in your own shell, so the user can watch their output in Studio; read it with read_terminal.",
   "When the user asks to see something, call focus_studio.",
+  "To point an app at another one by name in a .env file, call env_lines and write its lines.",
   NAMING_HINT,
 ].join(" ");
 
@@ -79,6 +81,52 @@ export function createStudioTools(client: StudioClient): McpTool[] {
         return {
           summary: `${plural(routes.length, "route")} (${up} up); ${describeProxy(proxy)}.`,
           data: { proxy: proxyItem(proxy), routes: routes.map(routeItem) },
+        };
+      },
+    },
+    {
+      name: "env_lines",
+      title: "Build .env lines from route names",
+      description:
+        "Returns KEY=url lines for a .env file, one per route: api.acme becomes " +
+        "API_ACME_URL=http://api.acme.localhost:1355, a URL that keeps working when the port " +
+        "changes. names keeps only those routes (acme also keeps every *.acme route); prefix puts " +
+        "VITE_ or NEXT_PUBLIC_ in front; strip drops a suffix like the project (acme turns api.acme " +
+        "into API_URL); direct uses http://localhost:<port> instead. It only returns text: write " +
+        "the lines into the user's .env.local yourself when they ask.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          names: {
+            type: "array",
+            items: { type: "string" },
+            description: 'Route names to keep, e.g. ["acme"]; all routes when absent',
+          },
+          prefix: { type: "string", description: "Put in front of every key, e.g. VITE_" },
+          strip: { type: "string", description: "Suffix dropped from names, e.g. acme" },
+          direct: { type: "boolean", description: "Use http://localhost:<port> (default false)" },
+        },
+        additionalProperties: false,
+      },
+      call: async (args) => {
+        const names = Array.isArray(args.names)
+          ? args.names.filter((name): name is string => typeof name === "string" && name !== "")
+          : [];
+        const snapshot = await readSnapshot(client);
+        if (!snapshot.ok) return snapshot.error;
+        const selected = selectEnvRoutes(snapshot.value.routes, names);
+        if (!selected.ok) return { summary: selected.error, isError: true };
+        const entries = envEntries(selected.value, {
+          direct: args.direct === true,
+          ...(typeof args.prefix === "string" ? { prefix: args.prefix.trim() } : {}),
+          ...(typeof args.strip === "string" ? { strip: args.strip } : {}),
+        });
+        if (!entries.ok) return { summary: entries.error, isError: true };
+        if (entries.value.length === 0)
+          return { summary: "No named routes yet.", data: { variables: [] } };
+        return {
+          summary: entries.value.map(formatEnvLine).join("\n"),
+          data: { variables: entries.value },
         };
       },
     },

@@ -65,6 +65,22 @@ the error names the problem. A template also needs at least one of `{package}`, 
 | `{worktree}.{package}` | `falcon.web` | Worktrees are named after the task already. |
 | `{branch}.{package}` | `feat-ed-1234-add-login.web` | Branches without ticket keys. |
 
+## Use names in .env files
+
+An app that calls another one, such as a frontend calling an API, usually keeps
+`API_URL=http://localhost:4000` in its `.env`, and it breaks when the API moves to another port.
+With a name, the line stays the same:
+
+```text
+API_URL=http://api.acme.localhost:1355
+```
+
+Studio writes these lines for you. In the page, the row menu has Copy as .env line, and the command
+menu (Ctrl+K) has Copy routes as .env and Choose routes for .env…, a dialog with a checkbox per
+route, a key prefix such as `VITE_`, a suffix to drop such as `acme`, and a preview. From a shell,
+`portless-studio env --prefix VITE_ --strip acme acme` prints the same lines (see
+[cli.md](cli.md#lines-for-env-files)), and agents call the MCP tool `env_lines`.
+
 ## Naming from agents
 
 Agents name ports through the MCP tools in [mcp.md](mcp.md). The suggested name from

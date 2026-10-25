@@ -74,6 +74,7 @@ prints as the command.
 | Tool                  | What it does                                                           |
 | --------------------- | ---------------------------------------------------------------------- |
 | `list_routes`         | Named routes: name, URL, port, kind, health, project, worktree, pid. Studio's own `studio` route only with `include_studio: true` |
+| `env_lines`           | `KEY=url` lines for a `.env` file, one per route (optional `names`, `prefix`, `strip`, `direct`); see [cli.md](cli.md#lines-for-env-files) |
 | `list_detected_ports` | Ports that answer HTTP and have no name: process, folder, suggestion   |
 | `name_port`           | Names a port (`port`, `name`, optional `replace`)                       |
 | `rename_route`        | Renames a route named by hand (`name`, `new_name`)                     |
@@ -92,6 +93,9 @@ prints as the command.
 | `focus_studio`        | Brings Studio to the front showing a route, project, terminal or `port:<n>` (`target`) |
 
 Every tool answers with one summary line followed by the data as compact JSON.
+
+`env_lines` only returns text. The agent writes it into a file such as `.env.local` itself, when
+you ask, so Studio never writes into your projects.
 
 `stop_server` ends a process, so it refuses to run unless the agent passes `confirm: true`; the
 description tells the agent to ask you first. Studio still only stops your own user's processes
@@ -124,7 +128,8 @@ http://web.myapp.localhost:1355. Use the `portless-studio` MCP tools for them:
   `read_terminal`.
 - When I ask to see a server, its logs or Studio, call `focus_studio` with the route, project or
   terminal id.
-- Give me the route URL, not `localhost:<port>`.
+- Give me the route URL, not `localhost:<port>`. When an app needs another app's URL in its
+  `.env`, get the line from `env_lines`.
 - Ask me before calling `stop_server` or `stop_terminal`.
 ```
 
@@ -134,6 +139,7 @@ The CLI prints JSON too, without an MCP client:
 
 ```bash
 portless-studio list --json     # routes and ports without a name
+portless-studio env acme        # KEY=url lines for a .env file
 portless-studio doctor --json   # health checks; exit code 1 when one fails
 portless-studio config --json   # settings and the config file path
 portless-studio run -- pnpm dev # run in a Studio terminal, print its output, name its port

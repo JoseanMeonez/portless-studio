@@ -17,6 +17,8 @@ export type RouteActions = {
   copyLink: (url: string) => Promise<void>;
   /** Copies `http://localhost:<port>`, the address that skips the proxy. */
   copyDirectUrl: (port: number) => Promise<void>;
+  /** Copies `KEY=url` lines for a `.env` file, one per line. */
+  copyEnvLines: (lines: readonly string[]) => Promise<void>;
   openLink: (url: string) => void;
   /** Errors come back to the caller, which shows them next to the form fields. */
   createAlias: (request: CreateAliasRequest) => Promise<Result<null, ApiError>>;
@@ -48,6 +50,8 @@ export function useRouteActions(): RouteActions {
       copyPath: (path) => copy(path, "Copied path"),
       copyLink: (url) => copy(url, "Copied URL"),
       copyDirectUrl: (port) => copy(directUrl(port), "Copied direct URL"),
+      copyEnvLines: (lines) =>
+        copy(lines.join("\n"), lines.length === 1 ? "Copied .env line" : "Copied .env lines"),
       openLink: (url) => {
         window.open(url, "_blank", "noopener,noreferrer");
       },

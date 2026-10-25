@@ -124,6 +124,7 @@ describe("studio tools", () => {
   it("offers every tool with an object input schema", () => {
     expect([...tools().keys()]).toEqual([
       "list_routes",
+      "env_lines",
       "list_detected_ports",
       "name_port",
       "rename_route",
@@ -187,6 +188,25 @@ describe("studio tools", () => {
     ]);
     expect(requests[0]?.headers.host).toBe(`127.0.0.1:${(server.address() as AddressInfo).port}`);
     expect(requests[0]?.headers.origin).toBeUndefined();
+  });
+
+  it("env_lines returns KEY=url lines for the routes the names match", async () => {
+    const result = await call("env_lines", { names: ["acme"], strip: "acme", prefix: "VITE_" });
+    expect(result.isError).toBeFalsy();
+    expect(result.summary).toBe("VITE_APP_URL=http://app.acme.localhost:1355");
+    expect(result.data).toEqual({
+      variables: [
+        { name: "app.acme", key: "VITE_APP_URL", value: "http://app.acme.localhost:1355" },
+      ],
+    });
+    expect(writes()).toEqual([]);
+  });
+
+  it("env_lines uses the local port with direct and reports a name that matches nothing", async () => {
+    const direct = await call("env_lines", { direct: true });
+    expect(direct.summary).toBe("APP_ACME_URL=http://localhost:5173");
+    const missing = await call("env_lines", { names: ["shop"] });
+    expect(missing).toEqual({ summary: 'No route matches "shop".', isError: true });
   });
 
   it("list_detected_ports returns process, folder and suggested name", async () => {

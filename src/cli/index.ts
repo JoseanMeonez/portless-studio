@@ -25,6 +25,7 @@ import {
 import { runCommand } from "./command-runner.ts";
 import { editConfig, printConfig, printConfigJson } from "./config-command.ts";
 import { runDoctorCommand } from "./doctor-command.ts";
+import { runEnvCommand } from "./env-command.ts";
 import { runOpenCommand } from "./focus-command.ts";
 import { runInit } from "./init.ts";
 import { runListCommand } from "./list-command.ts";
@@ -90,6 +91,9 @@ async function main(): Promise<void> {
     case "list":
       await list(options.json);
       return;
+    case "env":
+      await env(options);
+      return;
     case "mcp":
       await mcp();
       return;
@@ -153,6 +157,22 @@ async function list(json: boolean): Promise<void> {
     },
   });
   // The local fallback may leave scan timers behind; the list is all this command does.
+  process.exit(code);
+}
+
+async function env(options: Extract<CliOptions, { command: "env" }>): Promise<void> {
+  const client = await studioClient();
+  const code = await runEnvCommand({
+    ...options,
+    print,
+    printError: (line) => console.error(line),
+    readFromStudio: async () => {
+      const snapshot = await client.read(API_PATHS.snapshot);
+      return snapshot.ok ? { ok: true, value: (snapshot.value as Snapshot).routes } : snapshot;
+    },
+    readLocally: async () => (await createStudioServices().registry.readSnapshot()).routes,
+  });
+  // The local fallback may leave watchers behind; the lines are all this command prints.
   process.exit(code);
 }
 

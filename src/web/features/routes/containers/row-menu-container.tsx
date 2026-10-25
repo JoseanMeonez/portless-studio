@@ -10,6 +10,8 @@ export type RowMenuTarget = {
   /** `http://localhost:<port>`; the direct entries are left out when it equals `url`. */
   directUrl: string;
   port: number;
+  /** `KEY=url` for a `.env` file; absent for ports without a name. */
+  envLine?: string;
   /** Project folder; null hides the folder actions. */
   path: string | null;
 };
@@ -47,6 +49,7 @@ export function RowMenuContainer({
         copyUrl: () => void actions.copyLink(target.url),
         openDirectUrl: () => actions.openLink(target.directUrl),
         copyDirectUrl: () => void actions.copyLink(target.directUrl),
+        copyEnvLine: (line) => void actions.copyEnvLines([line]),
         copyPath: (path) => void actions.copyPath(path),
         openWith: onOpenWith,
         customize: onCustomize,
@@ -62,6 +65,7 @@ type RowMenuActions = {
   copyUrl: () => void;
   openDirectUrl: () => void;
   copyDirectUrl: () => void;
+  copyEnvLine: (line: string) => void;
   copyPath: (path: string) => void;
   openWith: (app: OpenWithApp, path: string) => void;
   customize: () => void;
@@ -101,7 +105,16 @@ function rowMenuEntries(
       },
     );
   }
-  const { path } = target;
+  const { envLine, path } = target;
+  if (envLine !== undefined) {
+    entries.push({
+      kind: "item",
+      id: "copy-env",
+      label: "Copy as .env line",
+      icon: "copy",
+      onSelect: () => run.copyEnvLine(envLine),
+    });
+  }
   if (path === null) return entries;
 
   entries.push({

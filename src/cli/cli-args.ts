@@ -20,6 +20,14 @@ export type CliOptions =
   | { command: "config"; edit: boolean; json: boolean }
   | { command: "doctor"; json: boolean }
   | { command: "list"; json: boolean }
+  | {
+      command: "env";
+      json: boolean;
+      direct: boolean;
+      prefix: string | null;
+      strip: string | null;
+      names: string[];
+    }
   | { command: "mcp" }
   | { command: "run"; cwd: string | null; name: string | null; argv: string[] }
   | { command: "open"; target: string | null };
@@ -41,6 +49,10 @@ Usage:
                                       what is wrong (exit code 1 when something fails)
   portless-studio list [--json]       List named routes and ports without a name, from the running
                                       Studio (or read directly when it is not running)
+  portless-studio env [--prefix P] [--strip S] [--direct] [--json] [name...]
+                                      Print KEY=url lines for a .env file, one per route
+                                      (api.acme -> API_ACME_URL); a name also picks its *.name
+                                      routes (docs/cli.md)
   portless-studio mcp                 Run an MCP server on stdio so AI agents can list, name and
                                       stop dev servers through the running Studio (docs/mcp.md)
   portless-studio run [--name <name>] [--cwd <dir>] -- <command...>
@@ -56,7 +68,10 @@ Options:
   --no-open        Do not open the browser
   --no-register    Do not register the "studio" portless alias for the dashboard
   -y, --yes        With init and uninstall: accept every default without asking
-  --json           With doctor, config and list: print JSON for scripts and agents
+  --json           With doctor, config, list and env: print JSON for scripts and agents
+  --prefix <p>     With env: put p in front of every key, e.g. VITE_ or NEXT_PUBLIC_
+  --strip <s>      With env: drop the .s suffix from names before they become keys
+  --direct         With env: use http://localhost:<port> instead of the named URL
   --name <name>    With run: name for the port the command opens (default: the suggested one)
   --cwd <dir>      With run: folder to run in (default: the current folder)
   -h, --help       Show this help
@@ -77,6 +92,7 @@ const SUBCOMMANDS = new Set([
   "config",
   "doctor",
   "list",
+  "env",
   "mcp",
   "run",
   "open",
@@ -112,6 +128,16 @@ export function parseCliArgs(argv: string[]): Result<CliOptions, string> {
   }
   if (subcommand === "doctor") return ok({ command: "doctor", json });
   if (subcommand === "list") return ok({ command: "list", json });
+  if (subcommand === "env") {
+    return ok({
+      command: "env",
+      json,
+      direct: values.direct === true,
+      prefix: values.prefix?.trim() || null,
+      strip: values.strip?.trim() || null,
+      names: positionals.map((name) => name.trim()).filter((name) => name !== ""),
+    });
+  }
   if (subcommand === "mcp") return ok({ command: "mcp" });
   if (subcommand === "run") {
     if (positionals.length === 0) {
@@ -174,23 +200,35 @@ function parseFlags(args: string[], subcommand: string | null) {
         ? { ...common, edit: { type: "boolean" }, json }
         : subcommand === "doctor" || subcommand === "list"
           ? { ...common, json }
-          : subcommand === "service" || subcommand === "mcp" || subcommand === "open"
-            ? common
-            : subcommand === "run"
-              ? { ...common, name: { type: "string" }, cwd: { type: "string" } }
-              : {
-                  ...common,
-                  port: { type: "string" },
-                  open: { type: "boolean" },
-                  register: { type: "boolean" },
-                };
+          : subcommand === "env"
+            ? {
+                ...common,
+                json,
+                direct: { type: "boolean" },
+                prefix: { type: "string" },
+                strip: { type: "string" },
+              }
+            : subcommand === "service" || subcommand === "mcp" || subcommand === "open"
+              ? common
+              : subcommand === "run"
+                ? { ...common, name: { type: "string" }, cwd: { type: "string" } }
+                : {
+                    ...common,
+                    port: { type: "string" },
+                    open: { type: "boolean" },
+                    register: { type: "boolean" },
+                  };
   // parseArgs learned `allowNegative` in Node 22.4; reading `--no-<flag>` here keeps every Node 22.
   const { args: positive, negated } = splitNegations(args, options);
   const { values, positionals, tokens } = parseArgs({
     args: positive,
     options,
     tokens: true,
-    allowPositionals: subcommand === "service" || subcommand === "run" || subcommand === "open",
+    allowPositionals:
+      subcommand === "service" ||
+      subcommand === "run" ||
+      subcommand === "open" ||
+      subcommand === "env",
   });
   for (const token of tokens) {
     if (token.kind === "option" && options[token.name]?.type === "boolean") {
@@ -210,6 +248,9 @@ function parseFlags(args: string[], subcommand: string | null) {
       register?: boolean;
       name?: string;
       cwd?: string;
+      direct?: boolean;
+      prefix?: string;
+      strip?: string;
     },
   };
 }

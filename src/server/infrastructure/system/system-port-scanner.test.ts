@@ -103,6 +103,14 @@ describe("probeHttpResponse", () => {
     expect(await probeHttpResponse(port, 800)).toMatchObject({ status: 500 });
   });
 
+  it("answers for a dev server that compiles the route before replying", async () => {
+    // Next dev with Turbopack builds `/` on the request, so a healthy route answers in about a second.
+    const port = await listen(
+      createServer((_req, res) => setTimeout(() => res.writeHead(200).end(), 1200)),
+    );
+    expect(await probeHttpResponse(port)).toMatchObject({ status: 200 });
+  });
+
   it("marks an answer from a Portless Studio", async () => {
     const port = await listen(
       createServer((_req, res) => res.writeHead(200, { [STUDIO_HEADER]: "1" }).end()),

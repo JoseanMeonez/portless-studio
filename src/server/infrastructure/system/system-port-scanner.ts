@@ -7,8 +7,11 @@ import { listMacosPorts, type StartTimeCache } from "./macos-ports.ts";
 import { nodeSystemIo, type SystemIo } from "./system-io.ts";
 import { listWindowsPorts } from "./windows-ports.ts";
 
-/** Dev servers answer in milliseconds; a database or chat app never answers and costs this long. */
-const PROBE_TIMEOUT_MS = 800;
+/**
+ * Next dev with Turbopack builds `/` on the request, so a healthy dev server can take seconds to
+ * answer; a database or chat app never answers and costs this long.
+ */
+const PROBE_TIMEOUT_MS = 3000;
 const LOOPBACK_HOSTS = ["127.0.0.1", "::1"];
 
 export type ListPorts = () => Promise<ListeningPort[]>;

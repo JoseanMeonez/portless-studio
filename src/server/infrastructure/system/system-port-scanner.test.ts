@@ -2,7 +2,12 @@ import { createServer, type Server } from "node:http";
 import { type AddressInfo, createServer as createTcpServer } from "node:net";
 import { STUDIO_HEADER } from "../../../core/api/contract.ts";
 import type { ListeningPort } from "../../application/port-scanner.ts";
-import { probeHttp, probeHttpResponse, SystemPortScanner } from "./system-port-scanner.ts";
+import {
+  probeDebuggerPort,
+  probeHttp,
+  probeHttpResponse,
+  SystemPortScanner,
+} from "./system-port-scanner.ts";
 
 const servers: { close(callback: () => void): void }[] = [];
 
@@ -107,5 +112,24 @@ describe("probeHttpResponse", () => {
 
   it("is null for a closed port", async () => {
     expect(await probeHttpResponse(await closedPort(), 800)).toBeNull();
+  });
+});
+
+describe("probeDebuggerPort", () => {
+  it("recognizes the /json/version answer of a Node inspector", async () => {
+    const port = await listen(
+      createServer((req, res) => {
+        if (req.url !== "/json/version") return res.writeHead(404).end();
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ Browser: "node.js/v22.0.0", "Protocol-Version": "1.1" }));
+      }),
+    );
+    expect(await probeDebuggerPort(port, 800)).toBe("debugger");
+  });
+
+  it("is other for an ordinary server and unknown for a closed port", async () => {
+    const port = await listen(createServer((_req, res) => res.writeHead(404).end("not found")));
+    expect(await probeDebuggerPort(port, 800)).toBe("other");
+    expect(await probeDebuggerPort(await closedPort(), 800)).toBe("unknown");
   });
 });

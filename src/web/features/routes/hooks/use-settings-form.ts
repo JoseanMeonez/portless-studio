@@ -53,6 +53,7 @@ const FIELDS = new Set<string>([
   "checkForUpdates",
   "shortUrls",
   "showStudioRoute",
+  "showEphemeralPorts",
 ]);
 
 /** A made-up project the name template preview renders. */

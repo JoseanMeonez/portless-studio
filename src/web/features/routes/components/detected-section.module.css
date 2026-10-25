@@ -31,6 +31,48 @@
   letter-spacing: var(--tracking-tight);
 }
 
+.collapse {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  margin-left: calc(-1 * var(--space-2));
+  padding: var(--space-1) var(--space-2);
+  border: 0;
+  border-radius: var(--radius-md);
+  background: none;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.collapse:hover {
+  background: var(--color-bg-hover);
+}
+
+.collapse:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.chevron {
+  flex-shrink: 0;
+  color: var(--color-text-tertiary);
+  transition: transform var(--duration-fast) var(--ease-out);
+}
+
+.closed {
+  transform: rotate(-90deg);
+}
+
+.body {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
 .titleIcon {
   flex-shrink: 0;
   color: var(--color-accent-text);

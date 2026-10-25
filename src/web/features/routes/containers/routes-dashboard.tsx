@@ -2,6 +2,7 @@ import { type ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useSta
 import type { StudioActionResponse } from "../../../../core/api/contract.ts";
 import type { DetectedPort } from "../../../../core/ports/detected-port.ts";
 import { directUrl } from "../../../../core/ports/direct-url.ts";
+import type { OtherPort } from "../../../../core/ports/helper-ports.ts";
 import { envEntries, formatEnvLine } from "../../../../core/routes/env-lines.ts";
 import type { Route } from "../../../../core/routes/route.ts";
 import { hasFilters, type ItemKind, routeKey } from "../../../../core/views/view.ts";
@@ -88,6 +89,7 @@ const FOCUS_CHECK_MS = 300;
 
 const NO_ROUTES: Route[] = [];
 const NO_DETECTED: DetectedPort[] = [];
+const NO_OTHER_PORTS: OtherPort[] = [];
 
 /** Dialogs that ask for one name. */
 type NameRequest =
@@ -112,6 +114,7 @@ export function RoutesDashboard({
   const portlessMissing = snapshot?.portless?.installed === false;
   // Naming needs portless, so detected ports wait until it is installed.
   const detected = portlessMissing ? NO_DETECTED : (snapshot?.detected ?? NO_DETECTED);
+  const otherPorts = portlessMissing ? NO_OTHER_PORTS : (snapshot?.otherPorts ?? NO_OTHER_PORTS);
   const views = useRouteViews(routes, detected);
   const { state: viewState, config: viewsConfig } = views;
   const actions = useRouteActions();
@@ -534,10 +537,11 @@ export function RoutesDashboard({
               onCollapseAll={collapseAll}
               onExpandAll={views.collapsed.expandAll}
             />
-            {views.visibleDetected.length > 0 ? (
+            {views.visibleDetected.length > 0 || otherPorts.length > 0 ? (
               <DetectedContainer
                 visible={views.visibleDetected}
                 totalCount={detected.length}
+                otherPorts={otherPorts}
                 autoName={snapshot.autoName}
                 onName={nameDetected}
                 onMenu={detectedMenu}

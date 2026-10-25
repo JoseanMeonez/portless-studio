@@ -24,6 +24,8 @@ export type DetectedPort = {
   icon?: string;
   /** The Docker container publishing the port; absent for ordinary processes. */
   container?: ContainerSummary;
+  /** Other ports the same process answers HTTP on, shown in this row; absent when none. */
+  extraPorts?: number[];
 };
 
 /** What we know about the project a process runs in, read from its folder. */

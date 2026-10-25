@@ -1,8 +1,10 @@
 import type { DetectedPort } from "../../../../core/ports/detected-port.ts";
+import type { OtherPort } from "../../../../core/ports/helper-ports.ts";
 import { Badge } from "../../../shared/ui/badge.tsx";
 import { Button } from "../../../shared/ui/button.tsx";
 import { Icon } from "../../../shared/ui/icons/icon.tsx";
 import { Switch } from "../../../shared/ui/switch.tsx";
+import { DetectedOtherPorts } from "./detected-other-ports.tsx";
 import { DetectedRow } from "./detected-row.tsx";
 import styles from "./detected-section.module.css";
 import type { MenuPoint } from "./row-menu-trigger.ts";
@@ -24,7 +26,15 @@ type DetectedSectionProps = {
   onConfirmStop: (detected: DetectedPort) => void;
   onCancelStop: () => void;
   onMenu: (detected: DetectedPort, point: MenuPoint) => void;
-  onCopyDirectUrl: (detected: DetectedPort) => void;
+  /** Copies `http://localhost:<port>` for a row's port, one of its extra ports or an other port. */
+  onCopyDirectUrl: (port: number) => void;
+  /** Helper ports, debuggers and temporary ports, listed under a closed "Other ports". */
+  otherPorts: readonly OtherPort[];
+  /** The whole section is folded down to its title. */
+  collapsed: boolean;
+  onToggleCollapsed: () => void;
+  otherPortsOpen: boolean;
+  onToggleOtherPorts: () => void;
   /** Absent hides the terminal button; so does `null` for one port. */
   terminalFor?: ((detected: DetectedPort) => (() => void) | null) | undefined;
 };
@@ -46,6 +56,11 @@ export function DetectedSection({
   onCancelStop,
   onMenu,
   onCopyDirectUrl,
+  otherPorts,
+  collapsed,
+  onToggleCollapsed,
+  otherPortsOpen,
+  onToggleOtherPorts,
   terminalFor,
 }: DetectedSectionProps) {
   const suggested = detected.filter((item) => item.suggestedName !== null).length;
@@ -57,47 +72,76 @@ export function DetectedSection({
       <header className={styles.header}>
         <div className={styles.intro}>
           <h2 id="detected-title" className={styles.title}>
-            <Icon name="radar" size={14} className={styles.titleIcon} />
-            Detected on this machine
-            <Badge className={styles.count}>{count}</Badge>
+            <button
+              type="button"
+              className={styles.collapse}
+              aria-expanded={!collapsed}
+              aria-controls={collapsed ? undefined : "detected-body"}
+              onClick={onToggleCollapsed}
+            >
+              <Icon
+                name="chevronDown"
+                size={14}
+                className={collapsed ? `${styles.chevron} ${styles.closed}` : styles.chevron}
+              />
+              <Icon name="radar" size={14} className={styles.titleIcon} />
+              Detected on this machine
+              <Badge className={styles.count}>{count}</Badge>
+            </button>
           </h2>
-          <p className={styles.text}>
-            These ports answer HTTP but have no name yet. Name one to open it at its own URL.
-          </p>
+          {collapsed ? null : (
+            <p className={styles.text}>
+              These ports answer HTTP but have no name yet. Name one to open it at its own URL.
+            </p>
+          )}
         </div>
-        <div className={styles.controls}>
-          <Switch
-            label="Auto-name new servers"
-            checked={autoName}
-            disabled={autoNameSaving}
-            onChange={onAutoNameChange}
-            className={styles.autoSwitch}
-          />
-          {suggested >= 2 ? (
-            <Button size="sm" variant="secondary" disabled={namingAll} onClick={onNameAll}>
-              {namingAll ? "Naming…" : "Name all"}
-            </Button>
-          ) : null}
-        </div>
+        {collapsed ? null : (
+          <div className={styles.controls}>
+            <Switch
+              label="Auto-name new servers"
+              checked={autoName}
+              disabled={autoNameSaving}
+              onChange={onAutoNameChange}
+              className={styles.autoSwitch}
+            />
+            {suggested >= 2 ? (
+              <Button size="sm" variant="secondary" disabled={namingAll} onClick={onNameAll}>
+                {namingAll ? "Naming…" : "Name all"}
+              </Button>
+            ) : null}
+          </div>
+        )}
       </header>
 
-      <ul className={styles.list} aria-label="Detected ports">
-        {detected.map((item) => (
-          <DetectedRow
-            key={item.port}
-            detected={item}
-            confirmingStop={confirmingStop === item.port}
-            onName={() => onName(item)}
-            onIgnore={() => onIgnore(item)}
-            onRequestStop={() => onRequestStop(item)}
-            onConfirmStop={() => onConfirmStop(item)}
-            onMenu={(point) => onMenu(item, point)}
-            onCopyDirectUrl={() => onCopyDirectUrl(item)}
-            onOpenTerminal={terminalFor?.(item) ?? undefined}
-            onCancelStop={onCancelStop}
+      {collapsed ? null : (
+        <div id="detected-body" className={styles.body}>
+          {detected.length > 0 ? (
+            <ul className={styles.list} aria-label="Detected ports">
+              {detected.map((item) => (
+                <DetectedRow
+                  key={item.port}
+                  detected={item}
+                  confirmingStop={confirmingStop === item.port}
+                  onName={() => onName(item)}
+                  onIgnore={() => onIgnore(item)}
+                  onRequestStop={() => onRequestStop(item)}
+                  onConfirmStop={() => onConfirmStop(item)}
+                  onMenu={(point) => onMenu(item, point)}
+                  onCopyDirectUrl={onCopyDirectUrl}
+                  onOpenTerminal={terminalFor?.(item) ?? undefined}
+                  onCancelStop={onCancelStop}
+                />
+              ))}
+            </ul>
+          ) : null}
+          <DetectedOtherPorts
+            ports={otherPorts}
+            open={otherPortsOpen}
+            onToggle={onToggleOtherPorts}
+            onCopyDirectUrl={onCopyDirectUrl}
           />
-        ))}
-      </ul>
+        </div>
+      )}
     </section>
   );
 }

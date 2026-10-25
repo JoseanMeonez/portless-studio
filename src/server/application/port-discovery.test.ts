@@ -1,7 +1,7 @@
 import { DEFAULT_CONFIG } from "../../core/config/studio-config.ts";
 import type { ProjectInfo } from "../../core/ports/detected-port.ts";
 import type { Route } from "../../core/routes/route.ts";
-import { discoverPorts, type ProjectInfoSource } from "./port-discovery.ts";
+import { discoverPortGroups, discoverPorts, type ProjectInfoSource } from "./port-discovery.ts";
 import type { ListeningPort, PortScanner } from "./port-scanner.ts";
 
 function fakeScanner(ports: ListeningPort[], http: number[] = ports.map((p) => p.port)) {
@@ -241,5 +241,49 @@ describe("discoverPorts", () => {
       containers: [container("b", [7000])],
     });
     expect(ignored).toEqual([]);
+  });
+
+  it("keeps a wrangler-style API's helper ports under Other ports, never in the main list", async () => {
+    // The named API on 8787, its inspector on 9229 and ports the system handed out for port 0.
+    const api = "/code/acme/api";
+    const { scanner } = fakeScanner([
+      { port: 8787, pid: 200, processName: "workerd", cwd: api },
+      { port: 9229, pid: 200, processName: "workerd", cwd: api },
+      { port: 33111, pid: 200, processName: "workerd", cwd: api },
+      { port: 40335, pid: 100, processName: "node", cwd: api },
+      { port: 5173, pid: 300, processName: "node", cwd: "/code/acme/web" },
+      { port: 5174, pid: 300, processName: "node", cwd: "/code/acme/web" },
+      { port: 44491, pid: 400, processName: "node", cwd: "/code/other" },
+    ]);
+    const probes = scanner as typeof scanner & { probeDebugger: (port: number) => Promise<string> };
+    probes.probeDebugger = async (port) => (port === 9229 ? "debugger" : "other");
+    const routes = [{ ...route(8787), name: "api.acme" }];
+    const groups = await discoverPortGroups(scanner, projects, {
+      config: DEFAULT_CONFIG,
+      routes,
+      excludedPorts: [],
+      ephemeralRange: { first: 32768, last: 60999 },
+    });
+
+    expect(groups.detected).toEqual([expect.objectContaining({ port: 5173, extraPorts: [5174] })]);
+    expect(groups.otherPorts.map((item) => [item.port, item.reason, item.routeName])).toEqual([
+      [9229, "debugger", "api.acme"],
+      [33111, "sibling", "api.acme"],
+      // wrangler's own node process: another pid, so only the ephemeral rule applies.
+      [40335, "ephemeral", undefined],
+      [44491, "ephemeral", undefined],
+    ]);
+  });
+
+  it("lets a new server of a project whose named port closed show up again", async () => {
+    const { scanner } = fakeScanner([listening(5180, "node", "/code/acme/web")]);
+    const routes = [{ ...route(5173), name: "web.acme" }];
+    const groups = await discoverPortGroups(scanner, projects, {
+      config: DEFAULT_CONFIG,
+      routes,
+      excludedPorts: [],
+    });
+    expect(groups.detected.map((item) => item.port)).toEqual([5180]);
+    expect(groups.otherPorts).toEqual([]);
   });
 });

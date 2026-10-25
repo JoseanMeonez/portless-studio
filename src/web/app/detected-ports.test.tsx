@@ -27,7 +27,26 @@ async function routeNames(): Promise<string[]> {
     .map((row) => row.querySelector("a")?.textContent ?? "");
 }
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  vi.restoreAllMocks();
+  localStorage.clear();
+});
+
+function withHelperPorts(): Snapshot {
+  const sample = createSampleSnapshot(NOW);
+  const [first, ...rest] = sample.detected;
+  if (!first) throw new Error("the sample has detected ports");
+  const helper = { pid: 900, processName: "workerd", cwd: null, suggestedName: null };
+  return {
+    ...sample,
+    detected: [{ ...first, extraPorts: [4210] }, ...rest],
+    otherPorts: [
+      { ...helper, port: 9229, reason: "debugger", routeName: "api.acme" },
+      { ...helper, port: 33111, reason: "sibling", routeName: "api.acme" },
+      { ...helper, port: 44491, processName: "node", reason: "ephemeral" },
+    ],
+  };
+}
 
 describe("detected ports", () => {
   it("lists ports that answer HTTP with their process, folder and suggested name", async () => {
@@ -148,5 +167,70 @@ describe("detected ports", () => {
 
     expect(await detectedPorts()).toHaveLength(5);
     expect(screen.queryByText("No routes yet")).toBeNull();
+  });
+
+  it("lists a process's extra ports in its row", async () => {
+    setup(withHelperPorts());
+    const row = within(await detectedList()).getAllByRole("listitem")[0];
+    expect(row?.textContent).toContain("Also answers on");
+    expect(
+      within(row as HTMLElement).getByRole("button", {
+        name: "Copy direct URL http://localhost:4210",
+      }),
+    ).toBeTruthy();
+  });
+
+  it("keeps helper ports under a closed Other ports with their reason, and remembers it open", async () => {
+    const { user } = setup(withHelperPorts());
+    const toggle = await screen.findByRole("button", { name: "Other ports (3)" });
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(screen.queryByRole("list", { name: "Other ports" })).toBeNull();
+    expect(await detectedPorts()).not.toContain("9229");
+
+    await user.click(toggle);
+    const list = screen.getByRole("list", { name: "Other ports" });
+    expect(
+      within(list)
+        .getAllByRole("listitem")
+        .map((row) => row.textContent),
+    ).toEqual([
+      expect.stringMatching(/:9229.*workerd.*debugger of api\.acme.*localhost:9229/),
+      expect.stringMatching(/:33111.*internal port of api\.acme/),
+      expect.stringMatching(/:44491.*node.*temporary port/),
+    ]);
+    expect(localStorage.getItem("portless-studio:detected-other-open")).toBe("1");
+  });
+
+  it("folds the whole section down to its title and remembers it", async () => {
+    const { user } = setup(withHelperPorts());
+    await detectedList();
+    const title = screen.getByRole("button", { name: /Detected on this machine/ });
+    expect(title.getAttribute("aria-expanded")).toBe("true");
+
+    await user.click(title);
+    expect(title.getAttribute("aria-expanded")).toBe("false");
+    expect(screen.queryByRole("list", { name: "Detected ports" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Other ports/ })).toBeNull();
+    expect(localStorage.getItem("portless-studio:detected-collapsed")).toBe("1");
+  });
+
+  it("starts folded when it was folded before, and shows the section for other ports alone", async () => {
+    localStorage.setItem("portless-studio:detected-collapsed", "1");
+    setup({ ...withHelperPorts(), detected: [] });
+    const title = await screen.findByRole("button", { name: /Detected on this machine/ });
+    expect(title.getAttribute("aria-expanded")).toBe("false");
+  });
+
+  it("still works when the browser blocks storage", async () => {
+    vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
+      throw new Error("blocked");
+    });
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new Error("blocked");
+    });
+    const { user } = setup(withHelperPorts());
+    const toggle = await screen.findByRole("button", { name: "Other ports (3)" });
+    await user.click(toggle);
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
   });
 });

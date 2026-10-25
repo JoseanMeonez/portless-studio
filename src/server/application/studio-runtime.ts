@@ -2,6 +2,7 @@ import type { ConfigResponse, Snapshot, StudioEvent } from "../../core/api/contr
 import { DEFAULT_CONFIG, parseConfig, type StudioConfig } from "../../core/config/studio-config.ts";
 import { type DetectedPort, projectOf } from "../../core/ports/detected-port.ts";
 import type { DockerContainer } from "../../core/ports/docker-container.ts";
+import type { PortRange } from "../../core/ports/helper-ports.ts";
 import { itemProjectAt } from "../../core/projects/item-project.ts";
 import { err, ok, type Result } from "../../core/result.ts";
 import {
@@ -21,7 +22,7 @@ import { AutoNamer } from "./auto-namer.ts";
 import type { ConfigStore } from "./config-store.ts";
 import type { ContainerSource } from "./container-source.ts";
 import { type IconFetcher, IconResolver, type IconSubject } from "./icon-resolver.ts";
-import { discoverPorts, type ProjectInfoSource } from "./port-discovery.ts";
+import { type Discovery, discoverPortGroups, type ProjectInfoSource } from "./port-discovery.ts";
 import type { ListeningPort, PortScanner, ProbePort } from "./port-scanner.ts";
 import type { PortlessState, RouteRegistry } from "./route-registry.ts";
 import type { ShortUrls } from "./short-urls.ts";
@@ -72,6 +73,8 @@ export type StudioRuntimeOptions = {
   routeProjectStore?: RouteProjectStore;
   /** Running Docker containers, whose published ports show as detected; none when omitted. */
   containers?: ContainerSource;
+  /** The system's ephemeral port range; without it that rule is off. */
+  ephemeralRange?: () => Promise<PortRange | null>;
   /** Studio's port-80 forwarder for URLs without a port; follows `shortUrls` in the config. */
   shortUrls?: ShortUrls;
 };
@@ -113,6 +116,7 @@ export class StudioRuntime {
   readonly #icons: IconResolver;
   readonly #routeProjectStore: RouteProjectStore;
   readonly #containers: ContainerSource | null;
+  readonly #ephemeralRange: (() => Promise<PortRange | null>) | null;
   readonly #shortUrls: ShortUrls | null;
   #ready: Promise<void> = Promise.resolve();
   /** Last project seen per route name; null until read from the store. */
@@ -156,6 +160,7 @@ export class StudioRuntime {
     this.#notifier = options.notifier ?? null;
     this.#routeProjectStore = options.routeProjectStore ?? memoryRouteProjectStore();
     this.#containers = options.containers ?? null;
+    this.#ephemeralRange = options.ephemeralRange ?? null;
     this.#shortUrls = options.shortUrls ?? null;
     this.#shortUrls?.onChange(() => this.#notify());
     const noIcons: IconFetcher = {
@@ -223,14 +228,15 @@ export class StudioRuntime {
   async readSnapshot(options: SnapshotOptions = {}): Promise<Snapshot> {
     const state = await this.#registry.readSnapshot();
     const config = await this.#currentConfig();
-    const detected = await this.#detect(state, config, false);
-    this.#lastDetected = JSON.stringify(detected);
+    const found = await this.#detect(state, config, false);
+    this.#lastDetected = JSON.stringify(found);
     const routes = await this.#detailedRoutes(state.routes);
     const snapshot: Snapshot = {
       proxy: state.proxy,
       portless: state.portless,
       routes,
-      detected,
+      detected: found.detected,
+      otherPorts: found.otherPorts,
       autoName: config.autoName,
       readAt: state.readAt,
     };
@@ -262,7 +268,7 @@ export class StudioRuntime {
   /** One fresh scan with the current config, filtered the same way as the snapshot. */
   async detectPorts(): Promise<DetectedPort[]> {
     const state = await this.#registry.readSnapshot();
-    return this.#detect(state, await this.#currentConfig(), true);
+    return (await this.#detect(state, await this.#currentConfig(), true)).detected;
   }
 
   /** The config in effect: the file as last read, or the defaults while it is broken. */
@@ -276,9 +282,11 @@ export class StudioRuntime {
    */
   async stoppablePids(): Promise<Map<number, number>> {
     const state = await this.#registry.readSnapshot();
-    const detected = await this.#detect(state, await this.#currentConfig(), true);
+    const found = await this.#detect(state, await this.#currentConfig(), true);
     const pids = new Map<number, number>();
-    for (const item of detected) if (item.pid !== null) pids.set(item.pid, item.port);
+    for (const item of [...found.detected, ...found.otherPorts]) {
+      if (item.pid !== null) pids.set(item.pid, item.port);
+    }
     const pidByPort = this.#pidByPort();
     for (const route of state.routes) {
       const pid = pidByPort.get(route.port);
@@ -294,7 +302,8 @@ export class StudioRuntime {
    */
   async openableFolders(): Promise<Set<string>> {
     const state = await this.#registry.readSnapshot();
-    const detected = await this.#detect(state, await this.#currentConfig(), false);
+    const found = await this.#detect(state, await this.#currentConfig(), false);
+    const detected = [...found.detected, ...found.otherPorts];
     const routes = await this.#detailedRoutes(state.routes);
     const folders = new Set<string>();
     for (const item of [...routes, ...detected]) {
@@ -351,11 +360,13 @@ export class StudioRuntime {
     return updated.ok ? ok(undefined) : updated;
   }
 
-  async #detect(state: PortlessState, config: StudioConfig, fresh: boolean) {
+  async #detect(state: PortlessState, config: StudioConfig, fresh: boolean): Promise<Discovery> {
     const scan = await this.#scanPorts(fresh ? 0 : config.scanIntervalMs);
+    const probeDebugger = this.#scanner.probeDebugger?.bind(this.#scanner);
     const cached: PortScanner = {
       scan: async () => scan.ports,
       answersHttp: (port) => this.#scanner.answersHttp(port),
+      ...(probeDebugger ? { probeDebugger } : {}),
     };
     const forwarderPort = this.#shortUrls?.publicPort() ?? null;
     const excludedPorts = [
@@ -364,17 +375,22 @@ export class StudioRuntime {
       state.proxy.port,
       ...scan.proxyPorts,
     ].filter((port) => port !== null);
-    const found = await discoverPorts(cached, this.#projects, {
+    const found = await discoverPortGroups(cached, this.#projects, {
       config,
       routes: state.routes,
       excludedPorts,
       containers: scan.containers,
+      ephemeralRange: await this.#readEphemeralRange(),
     });
-    return found.map((item) => {
+    const withProject = <T extends DetectedPort>(item: T): T => {
       if (item.cwd === null || !item.project) return item;
       const project = itemProjectAt(this.#projects.read(item.cwd), item.cwd);
       return project === null ? item : { ...item, project };
-    });
+    };
+    return {
+      detected: found.detected.map(withProject),
+      otherPorts: found.otherPorts.map(withProject),
+    };
   }
 
   /** Reuses a scan younger than `maxAgeMs`, and shares one scan between concurrent callers. */
@@ -389,6 +405,12 @@ export class StudioRuntime {
       },
     );
     return this.#scanning;
+  }
+
+  /** A range that cannot be read turns the ephemeral rule off rather than failing the scan. */
+  async #readEphemeralRange(): Promise<PortRange | null> {
+    if (!this.#ephemeralRange) return null;
+    return this.#ephemeralRange().catch(() => null);
   }
 
   /** Docker is optional: any failure to read it means no containers, never a failed scan. */
@@ -417,19 +439,20 @@ export class StudioRuntime {
     try {
       let state = await this.#registry.readSnapshot();
       const config = await this.#currentConfig();
-      let detected = await this.#detect(state, config, true);
-      // Each step reads the routes again after the previous one changed them.
-      if (config.autoName && (await this.#namer.name(detected)) > 0) {
+      const first = await this.#detect(state, config, true);
+      // Each step reads the routes again after the previous one changed them. Other ports are
+      // helpers of a named server, debuggers or temporary ports: auto mode never names them.
+      if (config.autoName && (await this.#namer.name(first.detected)) > 0) {
         state = await this.#registry.readSnapshot();
       }
       if (await this.#removeAbandonedAutoNames(state, config)) {
         state = await this.#registry.readSnapshot();
       }
-      detected = await this.#detect(state, config, false);
+      const found = await this.#detect(state, config, false);
       const healthChanged = await this.#probeRoutes(state.routes);
       const routes = await this.#detailedRoutes(state.routes);
-      this.#observe({ ...state, routes, detected }, config);
-      if (healthChanged || JSON.stringify(detected) !== this.#lastDetected) this.#notify();
+      this.#observe({ ...state, routes, detected: found.detected }, config);
+      if (healthChanged || JSON.stringify(found) !== this.#lastDetected) this.#notify();
     } catch (error) {
       this.#log(`port scan failed: ${(error as Error).message}`);
     } finally {

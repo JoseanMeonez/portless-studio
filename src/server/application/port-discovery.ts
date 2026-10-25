@@ -6,6 +6,13 @@ import {
   suggestName,
 } from "../../core/ports/detected-port.ts";
 import { containerProjectInfo, type DockerContainer } from "../../core/ports/docker-container.ts";
+import {
+  arrangeDetected,
+  type DebuggerProbe,
+  type ListeningRoute,
+  type OtherPort,
+  type PortRange,
+} from "../../core/ports/helper-ports.ts";
 import type { Route } from "../../core/routes/route.ts";
 import type { ListeningPort, PortScanner } from "./port-scanner.ts";
 
@@ -22,17 +29,32 @@ export type DiscoveryContext = {
   excludedPorts: readonly number[];
   /** Running Docker containers; their published ports count as dev servers. */
   containers?: readonly DockerContainer[];
+  /** The system's ephemeral port range; omitted or null turns that rule off. */
+  ephemeralRange?: PortRange | null;
 };
 
-/**
- * Listening ports a person would want to name: they answer HTTP, have no portless route, and are
- * not Studio, the proxy or something the config ignores. Sorted by port.
- */
+/** The main Detected list and the helper ports kept under "Other ports". */
+export type Discovery = { detected: DetectedPort[]; otherPorts: OtherPort[] };
+
+/** Only the main Detected list of `discoverPortGroups`. */
 export async function discoverPorts(
   scanner: PortScanner,
   projects: ProjectInfoSource,
   context: DiscoveryContext,
 ): Promise<DetectedPort[]> {
+  return (await discoverPortGroups(scanner, projects, context)).detected;
+}
+
+/**
+ * Listening ports a person would want to name: they answer HTTP, have no portless route, and are
+ * not Studio, the proxy or something the config ignores. Debuggers, ephemeral ports and ports of a
+ * server that already has a name go to `otherPorts` (see `arrangeDetected`). Sorted by port.
+ */
+export async function discoverPortGroups(
+  scanner: PortScanner,
+  projects: ProjectInfoSource,
+  context: DiscoveryContext,
+): Promise<Discovery> {
   const skippedPorts = new Set([
     ...context.routes.map((route) => route.port),
     ...context.excludedPorts,
@@ -42,7 +64,8 @@ export async function discoverPorts(
   const published = containerPorts(context.containers ?? [], skippedPorts, ignored);
   // A port whose process we cannot read belongs to another user or the system (printing, DNS),
   // never to a dev server this person started. A container's port is shown as the container.
-  const candidates = (await scanner.scan()).filter(
+  const scanned = await scanner.scan();
+  const candidates = scanned.filter(
     (port) =>
       port.pid !== null &&
       !skippedPorts.has(port.port) &&
@@ -56,7 +79,7 @@ export async function discoverPorts(
     Promise.all(fromContainers.map(([port]) => scanner.answersHttp(port))),
   ]);
   const template = context.config.nameTemplate;
-  return [
+  const found = [
     ...candidates
       .filter((port, index) => answers[index] && isDevServer(port, projects))
       .map((port) => toDetected(port, projects, template)),
@@ -64,6 +87,38 @@ export async function discoverPorts(
       .filter((_, index) => containerAnswers[index])
       .map(([port, container]) => containerDetected(port, container, template)),
   ].sort((a, b) => a.port - b.port);
+  return arrangeDetected({
+    detected: found,
+    debuggers: await debuggerProbes(scanner, found),
+    ephemeralRange: context.ephemeralRange ?? null,
+    showEphemeral: context.config.showEphemeralPorts,
+    routes: listeningRoutes(context.routes, scanned),
+  });
+}
+
+const UNKNOWN: DebuggerProbe = "unknown";
+
+async function debuggerProbes(
+  scanner: PortScanner,
+  found: readonly DetectedPort[],
+): Promise<Map<number, DebuggerProbe>> {
+  const probe = scanner.probeDebugger?.bind(scanner);
+  if (!probe) return new Map();
+  const answers = await Promise.all(found.map((item) => probe(item.port).catch(() => UNKNOWN)));
+  return new Map(found.map((item, index) => [item.port, answers[index] ?? UNKNOWN]));
+}
+
+/** Routes whose port a readable process listens on now; a closed route claims no siblings. */
+function listeningRoutes(
+  routes: readonly Route[],
+  scanned: readonly ListeningPort[],
+): ListeningRoute[] {
+  const byPort = new Map(scanned.map((port) => [port.port, port]));
+  return routes.flatMap((route) => {
+    const listener = byPort.get(route.port);
+    if (!listener || listener.pid === null) return [];
+    return [{ name: route.name, port: route.port, pid: listener.pid, cwd: listener.cwd }];
+  });
 }
 
 /** Published port -> container, without the ports the filters skip. */

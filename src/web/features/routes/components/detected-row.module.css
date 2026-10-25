@@ -88,6 +88,16 @@
   white-space: nowrap;
 }
 
+.extraPorts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-0-5) var(--space-2);
+  min-width: 0;
+  color: var(--color-text-tertiary);
+  font-size: var(--text-xs);
+}
+
 .actions {
   display: flex;
   align-items: center;

@@ -1,5 +1,6 @@
 import type { StudioEvent } from "../../core/api/contract.ts";
 import { DEFAULT_CONFIG, type StudioConfig } from "../../core/config/studio-config.ts";
+import type { PortRange } from "../../core/ports/helper-ports.ts";
 import { err, ok, type Result } from "../../core/result.ts";
 import type { Route } from "../../core/routes/route.ts";
 import { type AppError, appError } from "./app-error.ts";
@@ -162,6 +163,7 @@ function build(
     routeProjects?: ReturnType<typeof memoryRouteProjectStore>;
     containers?: ContainerSource;
     shortUrls?: ShortUrls;
+    ephemeralRange?: () => Promise<PortRange | null>;
   } = {},
 ) {
   const store = options.store ?? memoryStore();
@@ -185,6 +187,7 @@ function build(
     ...(options.icons ? { icons: options.icons } : {}),
     ...(options.routeProjects ? { routeProjectStore: options.routeProjects } : {}),
     ...(options.shortUrls ? { shortUrls: options.shortUrls } : {}),
+    ...(options.ephemeralRange ? { ephemeralRange: options.ephemeralRange } : {}),
   });
   return { runtime, store, scanner, fake, lines, autoNamed };
 }
@@ -740,6 +743,25 @@ describe("StudioRuntime auto removal", () => {
     await vi.waitFor(() =>
       expect(autoNamed.entries).toEqual([{ name: "app", port: 5174, createdAt: 0 }]),
     );
+  });
+
+  it("never names debuggers or temporary ports, and lists them as other ports", async () => {
+    const { runtime, fake } = build({
+      store: memoryStore({ ...FAST, autoName: true }),
+      ports: [node(9229, "inspector"), node(41000, "helper")],
+      ephemeralRange: async () => ({ first: 32768, last: 60999 }),
+    });
+    runtime.start();
+    await vi.waitFor(async () => {
+      const snapshot = await runtime.readSnapshot();
+      expect(snapshot.detected).toEqual([]);
+      expect(snapshot.otherPorts?.map((item) => [item.port, item.reason])).toEqual([
+        [9229, "debugger"],
+        [41000, "ephemeral"],
+      ]);
+    });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(fake.created).toEqual([]);
   });
 
   it("does not take a name from a server that still listens", async () => {

@@ -32,6 +32,7 @@ is enough:
 | `proxyHttps` | `false` | Serves the names over HTTPS. Browsers then need to trust the portless certificate (see [troubleshooting.md](troubleshooting.md#certificate-warnings)). |
 | `scanIntervalMs` | `3000` | How often Studio looks for new listening ports, in milliseconds (at least 1000). |
 | `ignoredPorts` | `[]` | Ports never shown as detected and never named automatically. |
+| `showEphemeralPorts` | `false` | Lists detected ports in the system's ephemeral range (Linux 32768-60999, macOS and Windows 49152-65535 by default) with the others. Off keeps them under Other ports: they are helper ports of tools like wrangler. Settings: Show temporary ports. |
 | `ignoredProcesses` | editors, chat apps, browsers | Process names whose ports are never shown. |
 | `views` | one view, `All`, grouped by project | Saved views: grouping, sort, filters and custom groups. |
 | `defaultViewId` | `"all"` | The view the page opens with. |

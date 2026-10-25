@@ -73,6 +73,12 @@ export type StudioConfig = {
   shortUrls: boolean;
   /** List Studio's own `studio` route among the routes; hidden by default. */
   showStudioRoute: boolean;
+  /**
+   * List detected ports in the system's ephemeral range (where a program that asks for any free
+   * port lands) with the others. Off by default: dev servers pick fixed ports, and these are
+   * helper ports of tools like wrangler; they still show under "Other ports".
+   */
+  showEphemeralPorts: boolean;
 };
 
 export const DEFAULT_CONFIG: StudioConfig = {
@@ -111,6 +117,7 @@ export const DEFAULT_CONFIG: StudioConfig = {
   checkForUpdates: true,
   shortUrls: false,
   showStudioRoute: false,
+  showEphemeralPorts: false,
 };
 
 const MIN_SCAN_INTERVAL_MS = 1000;
@@ -137,6 +144,7 @@ export function parseConfig(input: unknown): Result<StudioConfig, string> {
     "checkForUpdates",
     "shortUrls",
     "showStudioRoute",
+    "showEphemeralPorts",
   ] as const) {
     const value = raw[key];
     if (value === undefined) continue;

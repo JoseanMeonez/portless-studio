@@ -243,6 +243,12 @@ export function SettingsDialog({
               onAdd={form.addIgnoredProcess}
               onRemove={form.removeIgnoredProcess}
             />
+            <Switch
+              label="Show temporary ports"
+              description="List ports the system hands out to programs that ask for any free port with the other detected ports. Off keeps them under Other ports: they are helper ports of tools like wrangler, not dev servers."
+              checked={draft.showEphemeralPorts}
+              onChange={(value) => form.change("showEphemeralPorts", value)}
+            />
           </fieldset>
 
           <fieldset className={styles.group}>

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { DetectedPort } from "../../../../core/ports/detected-port.ts";
+import type { OtherPort } from "../../../../core/ports/helper-ports.ts";
 import { DetectedSection } from "../components/detected-section.tsx";
 import type { MenuPoint } from "../components/row-menu-trigger.ts";
 import { useAutoName } from "../hooks/use-auto-name.ts";
@@ -7,10 +8,16 @@ import { useDetectedActions } from "../hooks/use-detected-actions.ts";
 import { useRouteActions } from "../hooks/use-route-actions.ts";
 import { useStopContainer } from "../hooks/use-stop-container.ts";
 import { useStopProcess } from "../hooks/use-stop-process.ts";
+import { useStoredFlag } from "../hooks/use-stored-flag.ts";
+
+const COLLAPSED_KEY = "portless-studio:detected-collapsed";
+const OTHER_OPEN_KEY = "portless-studio:detected-other-open";
 
 type DetectedContainerProps = {
   visible: readonly DetectedPort[];
   totalCount: number;
+  /** Helper ports, debuggers and temporary ports from the snapshot. */
+  otherPorts: readonly OtherPort[];
   autoName: boolean;
   /** Opens the Name a port dialog prefilled with this port and its suggested name. */
   onName: (detected: DetectedPort) => void;
@@ -23,6 +30,7 @@ type DetectedContainerProps = {
 export function DetectedContainer({
   visible,
   totalCount,
+  otherPorts,
   autoName,
   onName,
   onMenu,
@@ -35,6 +43,8 @@ export function DetectedContainer({
   const [confirmingStop, setConfirmingStop] = useState<number | null>(null);
   const stopProcess = useStopProcess();
   const stopContainer = useStopContainer();
+  const [collapsed, toggleCollapsed] = useStoredFlag(COLLAPSED_KEY, false);
+  const [otherOpen, toggleOther] = useStoredFlag(OTHER_OPEN_KEY, false);
 
   const stop = async (item: DetectedPort) => {
     setConfirmingStop(null);
@@ -65,7 +75,12 @@ export function DetectedContainer({
       onConfirmStop={(item) => void stop(item)}
       onCancelStop={() => setConfirmingStop(null)}
       onMenu={onMenu}
-      onCopyDirectUrl={(item) => void routeActions.copyDirectUrl(item.port)}
+      onCopyDirectUrl={(port) => void routeActions.copyDirectUrl(port)}
+      otherPorts={otherPorts}
+      collapsed={collapsed}
+      onToggleCollapsed={toggleCollapsed}
+      otherPortsOpen={otherOpen}
+      onToggleOtherPorts={toggleOther}
       terminalFor={
         onOpenTerminal
           ? (item) => {

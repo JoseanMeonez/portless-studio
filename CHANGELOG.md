@@ -2,6 +2,25 @@
 
 All notable changes are listed here. Versions follow [Semantic Versioning](https://semver.org).
 
+## Unreleased
+
+- Helper ports stay out of the way. A named server's other ports (opened by the same process), Node, V8 and Chrome debuggers (found by their `/json/version` answer, and
+  9229 or 9222 when that is unclear) and ports in the system's ephemeral range no longer show as
+  separate Detected rows suggesting the same name. They are listed under a closed "Other ports
+  (N)" at the bottom of Detected, each with its process, direct URL and reason, in the snapshot as
+  `otherPorts`; auto mode never names them. `showEphemeralPorts` (Settings, "Show temporary
+  ports") lists ephemeral ports with the others again. One process on several ports is one row,
+  with the extra ports listed as "Also answers on". The Detected section folds down to its title,
+  and the page remembers that and whether Other ports is open.
+
+- `.env` lines from route names: `portless-studio env [--prefix P] [--strip S] [--direct] [--json]
+  [name...]` prints `API_ACME_URL=http://api.acme.localhost:1355` for each route, so an app can
+  call another by a URL that survives port changes. A name also picks its `*.name` routes,
+  `--strip acme` turns `api.acme` into `API_URL`, `--prefix VITE_` adds a prefix and `--direct`
+  uses `http://localhost:<port>`. In the page, the row menu has Copy as .env line and the command
+  menu has Copy routes as .env and Choose routes for .env…, a dialog with route checkboxes, prefix,
+  suffix and a live preview. The MCP tool `env_lines` returns the same lines and writes no file.
+
 ## 0.1.2 (2026-10-25)
 
 - Docker containers show under Detected: Studio reads `docker ps` once per scan (2-second limit,

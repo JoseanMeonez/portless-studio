@@ -21,7 +21,8 @@ type DetectedRowProps = {
   onCancelStop: () => void;
   /** Right-click or Ctrl+click: the menu with open with, copy path and more. */
   onMenu: (point: MenuPoint) => void;
-  onCopyDirectUrl: () => void;
+  /** Copies the direct URL of the row's port or of one of its extra ports. */
+  onCopyDirectUrl: (port: number) => void;
   /** Shows the terminal running this server, or opens a shell in its folder; hidden without it. */
   onOpenTerminal?: (() => void) | undefined;
 };
@@ -84,7 +85,15 @@ export function DetectedRow({
           ) : null}
         </span>
         <ProjectLocation project={detected.project} showPath={false} />
-        <DirectUrl port={port} onCopy={onCopyDirectUrl} />
+        <DirectUrl port={port} onCopy={() => onCopyDirectUrl(port)} />
+        {detected.extraPorts && detected.extraPorts.length > 0 ? (
+          <span className={styles.extraPorts}>
+            <span>Also answers on</span>
+            {detected.extraPorts.map((extra) => (
+              <DirectUrl key={extra} port={extra} onCopy={() => onCopyDirectUrl(extra)} />
+            ))}
+          </span>
+        ) : null}
       </div>
 
       {confirmingStop ? (

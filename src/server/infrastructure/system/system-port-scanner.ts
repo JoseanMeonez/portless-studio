@@ -1,5 +1,6 @@
 import { request } from "node:http";
 import { STUDIO_HEADER } from "../../../core/api/contract.ts";
+import { type DebuggerProbe, isDebuggerVersionInfo } from "../../../core/ports/helper-ports.ts";
 import type { HttpProbe, ListeningPort, PortScanner } from "../../application/port-scanner.ts";
 import { listLinuxPorts } from "./linux-ports.ts";
 import { listMacosPorts } from "./macos-ports.ts";
@@ -39,6 +40,7 @@ export class SystemPortScanner implements PortScanner {
   readonly #timeoutMs: number;
   #pidByPort = new Map<number, number | null>();
   readonly #answers = new Map<string, Promise<boolean>>();
+  readonly #debuggers = new Map<string, Promise<DebuggerProbe>>();
 
   constructor(list: ListPorts, timeoutMs = PROBE_TIMEOUT_MS) {
     this.#list = list;
@@ -54,11 +56,26 @@ export class SystemPortScanner implements PortScanner {
     }
     this.#pidByPort = new Map(ports.map((port) => [port.port, port.pid]));
     // Forget answers for processes that are gone, so the cache does not grow forever.
-    for (const key of this.#answers.keys()) {
-      const [port, pid] = key.split(":");
-      if (String(this.#pidByPort.get(Number(port))) !== pid) this.#answers.delete(key);
+    for (const cache of [this.#answers, this.#debuggers]) {
+      for (const key of cache.keys()) {
+        const [port, pid] = key.split(":");
+        if (String(this.#pidByPort.get(Number(port))) !== pid) cache.delete(key);
+      }
     }
     return ports;
+  }
+
+  /** Asked once per port and process, like `answersHttp`. */
+  probeDebugger(port: number): Promise<DebuggerProbe> {
+    const pid = this.#pidByPort.get(port) ?? null;
+    if (pid === null) return probeDebuggerPort(port, this.#timeoutMs);
+    const key = `${port}:${pid}`;
+    let answer = this.#debuggers.get(key);
+    if (!answer) {
+      answer = probeDebuggerPort(port, this.#timeoutMs);
+      this.#debuggers.set(key, answer);
+    }
+    return answer;
   }
 
   answersHttp(port: number): Promise<boolean> {
@@ -73,6 +90,57 @@ export class SystemPortScanner implements PortScanner {
     }
     return answer;
   }
+}
+
+/** A `/json/version` answer is a few hundred bytes; anything longer is not a debugger. */
+const MAX_VERSION_BODY = 16_384;
+
+/**
+ * Asks `GET /json/version`, which Node's inspector and Chrome DevTools answer with JSON naming
+ * the browser and protocol. `other` when the port answered something else, `unknown` when
+ * nothing answered in time.
+ */
+export async function probeDebuggerPort(
+  port: number,
+  timeoutMs = PROBE_TIMEOUT_MS,
+): Promise<DebuggerProbe> {
+  for (const host of LOOPBACK_HOSTS) {
+    const body = await getText(host, port, "/json/version", timeoutMs);
+    if (body === null) continue;
+    try {
+      return isDebuggerVersionInfo(JSON.parse(body)) ? "debugger" : "other";
+    } catch {
+      return "other";
+    }
+  }
+  return "unknown";
+}
+
+function getText(
+  host: string,
+  port: number,
+  path: string,
+  timeoutMs: number,
+): Promise<string | null> {
+  return new Promise((resolve) => {
+    const options = { host, port, method: "GET", path, timeout: timeoutMs, agent: false };
+    const req = request(options, (res) => {
+      let body = "";
+      res.setEncoding("utf8");
+      res.on("data", (chunk: string) => {
+        body += chunk;
+        if (body.length <= MAX_VERSION_BODY) return;
+        resolve("");
+        req.destroy();
+      });
+      res.on("end", () => resolve(body));
+      res.on("error", () => resolve(body));
+    });
+    req.on("timeout", () => req.destroy());
+    req.on("error", () => resolve(null));
+    req.on("close", () => resolve(null));
+    req.end();
+  });
 }
 
 /**

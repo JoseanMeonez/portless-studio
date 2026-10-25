@@ -95,6 +95,22 @@ the proxy's when portless recorded it in `proxy.port`, or when the process liste
 command line of just the listening pids: `/proc` on Linux, `ps -p` on macOS; Windows relies on
 `proxy.port` only).
 
+Some detected ports are helpers, not servers a person opens. `arrangeDetected`
+(`core/ports/helper-ports.ts`) moves them from `detected` to the snapshot's `otherPorts`, each with
+a `reason`, and auto mode never names them:
+
+| Reason | Which ports | How Studio knows |
+| --- | --- | --- |
+| `debugger` | Node, V8 and Chrome inspector endpoints. | `PortScanner.probeDebugger` sends `GET /json/version` (kept per port and pid); JSON with `V8-Version`, `Browser` or `Protocol-Version` is a debugger. Ports 9229 and 9222 count as debuggers when nothing clear answered. |
+| `sibling` | Another port of the process that listens on a named route's port, such as an HMR socket. Another process in the same folder, or with the same suggested name, is a separate server (an app and its Storybook) and stays in `detected`; auto mode gives it `<name>-<port>`. | The scan's pid of each route's port. `routeName` says which route. |
+| `ephemeral` | A port in the system's ephemeral range, where programs that bind port 0 land; dev servers pick fixed ports. Docker's published ports are exempt, since `-P` picks host ports there. `showEphemeralPorts` turns this rule off. | `ephemeralRangeReader` (`infrastructure/system/ephemeral-ports.ts`) reads `/proc/sys/net/ipv4/ip_local_port_range` on Linux, `sysctl net.inet.ip.portrange.first/last` on macOS and `netsh int ipv4 show dynamicport tcp` on Windows, once per run, with the platform default when it cannot. |
+
+A debugger or ephemeral port of a named route keeps its own reason and also carries `routeName`.
+What stays in `detected` is grouped per process: the row is the lowest port outside the ephemeral
+range and the others go to `extraPorts`. The page lists `otherPorts` under a closed "Other ports
+(N)" at the bottom of Detected, with each port's process, direct URL and reason; the section and
+that list remember whether they are open in the browser's `localStorage`.
+
 ### Suggested names
 
 `suggestName` (`core/ports/detected-port.ts`) builds `<package>.<repo>` from the folder, and puts

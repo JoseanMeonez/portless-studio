@@ -71,6 +71,21 @@ describe("settings", () => {
     );
   });
 
+  it("turns on temporary ports in the detected list", async () => {
+    const { user, gateway } = setup();
+    const updateConfig = vi.spyOn(gateway, "updateConfig");
+    const dialog = await openSettings(user);
+
+    const ephemeral = within(dialog).getByRole("switch", { name: "Show temporary ports" });
+    expect(ephemeral.getAttribute("aria-checked")).toBe("false");
+    await user.click(ephemeral);
+    await user.click(within(dialog).getByRole("button", { name: "Save" }));
+
+    expect(updateConfig).toHaveBeenCalledWith(
+      expect.objectContaining({ showEphemeralPorts: true }),
+    );
+  });
+
   it("saves edited values, confirms and closes", async () => {
     const { user, gateway } = setup();
     const updateConfig = vi.spyOn(gateway, "updateConfig");

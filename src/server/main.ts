@@ -53,6 +53,7 @@ import {
   reachesPortless,
   testBind,
 } from "./infrastructure/system/doctor-facts.ts";
+import { ephemeralRangeReader } from "./infrastructure/system/ephemeral-ports.ts";
 import { FaviconFetcher } from "./infrastructure/system/favicon-fetcher.ts";
 import { fetchLatestVersion } from "./infrastructure/system/npm-registry.ts";
 import { OsNotifier } from "./infrastructure/system/os-notifier.ts";
@@ -185,6 +186,7 @@ export function createStudioServices(options: StudioServicesOptions = {}): Studi
     routeProjectStore: new JsonRouteProjectStore(routeProjectsPathFor(configPath)),
     containers,
     shortUrls,
+    ephemeralRange: ephemeralRangeReader(process.platform, nodeSystemIo),
   });
   const openWith = new OpenWith({
     catalog: systemAppCatalog(),

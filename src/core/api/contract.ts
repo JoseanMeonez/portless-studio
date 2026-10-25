@@ -1,6 +1,7 @@
 import type { StudioConfig } from "../config/studio-config.ts";
 import type { DoctorCheck } from "../doctor/doctor-check.ts";
 import type { DetectedPort } from "../ports/detected-port.ts";
+import type { OtherPort } from "../ports/helper-ports.ts";
 import type { CustomApp } from "../projects/custom-app.ts";
 import type { ProxyStatus, Route } from "../routes/route.ts";
 import type { TerminalInfo } from "../terminals/terminal.ts";
@@ -226,6 +227,11 @@ export type Snapshot = {
   routes: Route[];
   /** Ports that answer HTTP, are not ignored and have no portless route yet. */
   detected: DetectedPort[];
+  /**
+   * Detected ports kept out of `detected`: helper ports of a named server, debuggers and ports the
+   * system handed out for port 0. Never named by auto mode. Absent from older servers.
+   */
+  otherPorts?: OtherPort[];
   /** Whether auto mode is on, so the UI can say so without fetching the config. */
   autoName: boolean;
   /**

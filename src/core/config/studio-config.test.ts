@@ -132,6 +132,20 @@ describe("parseConfig short URLs and Studio's own route", () => {
   });
 });
 
+describe("parseConfig showEphemeralPorts", () => {
+  it("is off by default and accepts only a boolean", () => {
+    expect(DEFAULT_CONFIG.showEphemeralPorts).toBe(false);
+    expect(parseConfig({ showEphemeralPorts: true })).toMatchObject({
+      ok: true,
+      value: { showEphemeralPorts: true },
+    });
+    expect(parseConfig({ showEphemeralPorts: "yes" })).toEqual({
+      ok: false,
+      error: '"showEphemeralPorts" must be true or false.',
+    });
+  });
+});
+
 describe("parseConfig views and favorites", () => {
   const view = {
     id: "backends",

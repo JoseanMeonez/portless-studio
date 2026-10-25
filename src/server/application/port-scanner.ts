@@ -1,3 +1,5 @@
+import type { DebuggerProbe } from "../../core/ports/helper-ports.ts";
+
 /** A TCP port in LISTEN state on this machine, as the operating system reports it. */
 export type ListeningPort = {
   port: number;
@@ -16,6 +18,11 @@ export interface PortScanner {
   scan(): Promise<ListeningPort[]>;
   /** True when the port answers an HTTP request on loopback within a short timeout. */
   answersHttp(port: number): Promise<boolean>;
+  /**
+   * Whether the port is a Node, V8 or Chrome debugger, from its `/json/version` answer. Optional:
+   * without it, only the default debugger ports 9229 and 9222 are treated as debuggers.
+   */
+  probeDebugger?(port: number): Promise<DebuggerProbe>;
 }
 
 /** One HTTP answer from a local port. */

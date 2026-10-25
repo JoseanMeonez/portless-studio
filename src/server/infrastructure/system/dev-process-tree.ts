@@ -11,7 +11,7 @@ function devRunner(command: string): boolean {
   const script = /^(?:node|node.exe|bun|bun.exe)$/.test(executable)
     ? basename(words[1] ?? "")
     : executable;
-  return /^(?:pnpm|npm|npx|yarn|bun|bunx|turbo|vite|next|astro|wrangler|ng|nuxt|remix|nodemon|tsx)(?:\.(?:c?js|mjs|exe|cmd))?$/i.test(
+  return /^(?:pnpm|npm(?:-cli)?|npx(?:-cli)?|yarn|bun|bunx|turbo|vite|next|astro|wrangler|ng|nuxt|remix|nodemon|tsx)(?:\.(?:c?js|mjs|exe|cmd))?$/i.test(
     script,
   );
 }

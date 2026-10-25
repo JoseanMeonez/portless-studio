@@ -4,6 +4,10 @@ All notable changes are listed here. Versions follow [Semantic Versioning](https
 
 ## Unreleased
 
+- Simultaneous terminal restarts share one replacement. Stop, Close and Studio shutdown cancel
+  pending restarts, including commands still starting. Stop all recognizes the installed npm
+  and npx entry points on Linux, macOS and Windows.
+
 - Stop checks that the server's TCP ports closed and refreshes health immediately. If a process
   is already listening again, the error identifies its PID instead of reporting success.
   Stop all in the confirmation stops the enclosing development command and its children,

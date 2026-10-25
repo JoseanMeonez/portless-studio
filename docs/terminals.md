@@ -160,6 +160,14 @@ Terminals belong to the Studio that runs them. When Studio stops, every command 
 sent SIGTERM and SIGKILL. If Studio crashes instead of stopping, commands started in their own
 process group may keep running.
 
+## Restart and cancellation
+
+Restart waits for the current command to exit before starting its replacement. Simultaneous
+requests share one restart, so repeated clicks cannot start extra copies of the command.
+Stop, Close, or Studio shutdown cancels a pending restart. If Close arrives while a replacement
+is starting, Studio kills that replacement instead of leaving an untracked process running.
+This behavior applies to both pseudo-terminal and pipe terminals.
+
 ## After a Studio restart
 
 Studio writes `terminals.json` next to the config file with the terminals that run (command,

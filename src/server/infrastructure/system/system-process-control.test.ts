@@ -185,3 +185,56 @@ describe("terminate on Windows", () => {
     expect(calls).toEqual(["taskkill /PID 4242 /T"]);
   });
 });
+
+describe("development command trees", () => {
+  it.each(["linux", "darwin", "win32"] as const)(
+    "reads the %s OS table and keeps the shell outside the stop tree",
+    async (platform) => {
+      const entries = [
+        { pid: 10, parent: 1, command: platform === "win32" ? "cmd.exe" : "bash" },
+        {
+          pid: 20,
+          parent: 10,
+          command:
+            platform === "win32"
+              ? 'node.exe "C:\\tools\\npm-cli.js" run dev'
+              : "node /tools/npm-cli.js run dev",
+        },
+        {
+          pid: 30,
+          parent: 20,
+          command: platform === "win32" ? "cmd.exe /d /s /c vite" : "sh -c vite",
+        },
+        { pid: 40, parent: 30, command: "node /tools/vite.js" },
+        { pid: 50, parent: 20, command: "node worker.js" },
+      ];
+      const files: Record<string, string> = {};
+      for (const entry of entries) {
+        files[`/proc/${entry.pid}/stat`] = `${entry.pid} (node) S ${entry.parent} 0 0`;
+        files[`/proc/${entry.pid}/cmdline`] = entry.command.replaceAll(" ", "\0");
+      }
+      const run = vi.fn(async () => ({
+        exitCode: 0,
+        stdout:
+          platform === "win32"
+            ? JSON.stringify(
+                entries.map((entry) => ({
+                  ProcessId: entry.pid,
+                  ParentProcessId: entry.parent,
+                  CommandLine: entry.command,
+                })),
+              )
+            : entries.map((entry) => `${entry.pid} ${entry.parent} ${entry.command}`).join("\n"),
+      }));
+      const io = {
+        ...fakeIo(files, run),
+        readDir: () => entries.map((entry) => String(entry.pid)),
+      };
+      const control = new SystemProcessControl({ platform, io, uid: 1000, userName: "dev" });
+      expect(await control.devTree(40)).toEqual([20, 40, 50, 30]);
+      if (platform === "darwin")
+        expect(run).toHaveBeenCalledWith("ps", ["-ww", "-axo", "pid=,ppid=,args="]);
+      if (platform === "win32") expect(run.mock.calls.length).toBe(1);
+    },
+  );
+});

@@ -603,3 +603,82 @@ describe("TerminalManager saved terminals", () => {
     expect(again.saved.running).toEqual([]);
   });
 });
+
+describe.each(["pty", "pipes"] as const)("stop/restart safety with %s transport", (mode) => {
+  it("does not spawn two replacement processes for simultaneous restarts", async () => {
+    const base = fakeSpawner();
+    const { manager } = setup({ spawner: { ...base.spawner, mode } });
+    const { spawned } = base;
+    await manager.create({ cwd: "/work/shop", command: "pnpm dev" }, { trusted: false });
+    const first = manager.restart("t1");
+    const second = manager.restart("t1");
+    spawned[0]?.process.exit(130);
+    await Promise.all([first, second]);
+    expect(spawned).toHaveLength(2);
+    manager.closeAll();
+  });
+  it("does not spawn a replacement after the terminal is removed during restart", async () => {
+    const base = fakeSpawner();
+    const { manager } = setup({ spawner: { ...base.spawner, mode } });
+    const { spawned } = base;
+    await manager.create({ cwd: "/work/shop", command: "pnpm dev" }, { trusted: false });
+    const pending = manager.restart("t1");
+    manager.remove("t1");
+    spawned[0]?.process.exit(130);
+    await pending;
+    expect(spawned).toHaveLength(1);
+    manager.closeAll();
+  });
+  it("cancels a pending restart when Stop is requested", async () => {
+    const { manager, spawned } = setup();
+    await manager.create({ cwd: "/work/shop", command: "pnpm dev" }, { trusted: false });
+    const pending = manager.restart("t1");
+    manager.stop("t1");
+    spawned[0]?.process.exit(130);
+    expect((await pending).ok).toBe(false);
+    expect(spawned).toHaveLength(1);
+    expect(manager.get("t1")?.status).toBe("exited");
+    manager.closeAll();
+  });
+
+  it("kills a replacement that finishes spawning after its terminal was closed", async () => {
+    const base = fakeSpawner();
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let calls = 0;
+    const { manager } = setup({
+      spawner: {
+        ...base.spawner,
+        mode,
+        spawn: async (request) => {
+          calls += 1;
+          if (calls > 1) await gate;
+          return base.spawner.spawn(request);
+        },
+      },
+    });
+    await manager.create({ cwd: "/work/shop", command: "pnpm dev" }, { trusted: false });
+    const pending = manager.restart("t1");
+    base.spawned[0]?.process.exit(130);
+    await vi.waitFor(() => expect(calls).toBe(2));
+    manager.remove("t1");
+    release();
+    expect((await pending).ok).toBe(false);
+    expect(base.spawned[1]?.process.calls).toContain("kill");
+    expect(manager.list()).toEqual([]);
+    manager.closeAll();
+  });
+
+  it("does not restart while Studio is shutting down", async () => {
+    const { manager, spawned } = setup();
+    await manager.create({ cwd: "/work/shop", command: "pnpm dev" }, { trusted: false });
+    const pending = manager.restart("t1");
+    manager.closeAll();
+    spawned[0]?.process.exit(130);
+    expect((await pending).ok).toBe(false);
+    expect((await manager.restart("t1")).ok).toBe(false);
+    expect(spawned).toHaveLength(1);
+  });
+});

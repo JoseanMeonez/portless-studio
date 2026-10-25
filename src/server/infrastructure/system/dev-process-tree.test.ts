@@ -58,3 +58,38 @@ describe("devProcessTree", () => {
     expect(devProcessTree(999, table)).toEqual([]);
   });
 });
+
+describe.each([
+  {
+    platform: "Linux",
+    shell: "bash",
+    commandShell: "sh -c vite",
+    node: "node",
+    prefix: "/usr/lib/npm/bin/",
+  },
+  {
+    platform: "macOS",
+    shell: "zsh",
+    commandShell: "sh -c vite",
+    node: "node",
+    prefix: "/usr/local/lib/npm/bin/",
+  },
+  {
+    platform: "Windows",
+    shell: "cmd.exe",
+    commandShell: "cmd.exe /d /s /c vite",
+    node: "node.exe",
+    prefix: "C:\\tools\\npm\\bin\\",
+  },
+])("npm command trees on $platform", ({ shell, commandShell, node, prefix }) => {
+  it.each(["npm-cli.js", "npx-cli.js"])("recognizes the installed %s entry point", (script) => {
+    const table = [
+      { pid: 10, parent: 1, command: shell },
+      { pid: 20, parent: 10, command: `${node} "${prefix}${script}" run dev` },
+      { pid: 30, parent: 20, command: commandShell },
+      { pid: 40, parent: 30, command: `${node} /tools/vite.js` },
+      { pid: 50, parent: 20, command: `${node} worker.js` },
+    ];
+    expect(devProcessTree(40, table)).toEqual([20, 40, 50, 30]);
+  });
+});

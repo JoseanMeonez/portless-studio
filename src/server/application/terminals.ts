@@ -152,6 +152,8 @@ type Entry = {
   namingTimer: NodeJS.Timeout | undefined;
   /** Someone asked it to stop, so its end is not caused by Studio stopping. */
   stoppedOnPurpose: boolean;
+  restartPromise: Promise<Result<TerminalInfo, AppError>> | null;
+  restartGeneration: number;
 };
 
 type NewEntry = {
@@ -360,6 +362,7 @@ export class TerminalManager {
   stop(id: string): Result<TerminalInfo, AppError> {
     const entry = this.#entries.get(id);
     if (!entry) return notFound(id);
+    entry.restartGeneration += 1;
     if (!entry.process || entry.info.status !== "running") return ok({ ...entry.info });
     entry.stoppedOnPurpose = true;
     this.#escalate(entry, entry.process);
@@ -367,9 +370,39 @@ export class TerminalManager {
   }
 
   /** Runs the same command again; stops the current one first and waits for it to end. */
-  async restart(id: string): Promise<Result<TerminalInfo, AppError>> {
+  restart(id: string): Promise<Result<TerminalInfo, AppError>> {
     const entry = this.#entries.get(id);
-    if (!entry) return notFound(id);
+    if (!entry) return Promise.resolve(notFound(id));
+    if (this.#closing)
+      return Promise.resolve(err(appError("command_failed", "Studio is stopping.")));
+    if (entry.restartPromise) return entry.restartPromise;
+    let resolve!: (result: Result<TerminalInfo, AppError>) => void;
+    let reject!: (reason: unknown) => void;
+    const pending = new Promise<Result<TerminalInfo, AppError>>((done, failed) => {
+      resolve = done;
+      reject = failed;
+    });
+    // Register before interrupting: an exit callback can synchronously request another restart.
+    entry.restartPromise = pending;
+    void this.#restartEntry(entry, entry.restartGeneration).then(
+      (result) => {
+        entry.restartPromise = null;
+        resolve(result);
+      },
+      (error) => {
+        entry.restartPromise = null;
+        reject(error);
+      },
+    );
+    return pending;
+  }
+
+  async #restartEntry(entry: Entry, generation: number): Promise<Result<TerminalInfo, AppError>> {
+    const stillWanted = () =>
+      !this.#closing &&
+      this.#entries.get(entry.info.id) === entry &&
+      entry.restartGeneration === generation;
+    const cancelled = () => err(appError("terminal_not_running", "The restart was cancelled."));
     const current = entry.process;
     if (current && entry.info.status === "running") {
       const ended = new Promise<void>((resolve) => current.onExit(() => resolve()));
@@ -377,6 +410,7 @@ export class TerminalManager {
       this.#escalate(entry, current);
       await ended;
     }
+    if (!stillWanted()) return cancelled();
     this.#append(entry, `\r\n[Studio] restarted: ${entry.info.command || "shell"}\r\n`);
     if (entry.info.project === null) {
       const project = await this.#projectOf(entry.info.cwd);
@@ -389,8 +423,14 @@ export class TerminalManager {
         };
       }
     }
-    const started = await this.#spawn(entry);
+    if (!stillWanted()) return cancelled();
+    const started = await this.#spawn(entry, stillWanted);
     if (!started.ok) return started;
+    if (!stillWanted()) {
+      entry.process?.kill();
+      entry.process = null;
+      return cancelled();
+    }
     entry.stoppedOnPurpose = false;
     entry.info = {
       ...entry.info,
@@ -460,12 +500,16 @@ export class TerminalManager {
     this.#stopWorkspaceWatch = undefined;
   }
 
-  async #spawn(entry: Entry): Promise<Result<void, AppError>> {
+  async #spawn(entry: Entry, stillWanted?: () => boolean): Promise<Result<void, AppError>> {
     let child: TerminalProcess;
     try {
       child = await this.#spawner.spawn(entry.request);
     } catch (error) {
       return err(appError("command_failed", `Could not start it: ${(error as Error).message}`));
+    }
+    if (stillWanted && !stillWanted()) {
+      child.kill();
+      return err(appError("terminal_not_running", "The restart was cancelled."));
     }
     entry.process = child;
     entry.info.pid = child.pid;
@@ -546,6 +590,8 @@ export class TerminalManager {
       baseline: null,
       namingTimer: undefined,
       stoppedOnPurpose: false,
+      restartPromise: null,
+      restartGeneration: 0,
     };
   }
 

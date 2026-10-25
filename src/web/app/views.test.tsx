@@ -29,6 +29,9 @@ async function savedConfig(gateway: InMemoryRoutesGateway) {
   return result.value.config;
 }
 
+const filterButton = () => screen.getByRole("button", { name: /^Filters/ });
+const filterDialog = () => screen.getByRole("dialog", { name: "Filters" });
+
 const groupHeader = (name: string) =>
   screen.findByRole("button", { name: new RegExp(`^${name}, \\d+ routes?$`) });
 
@@ -228,46 +231,40 @@ describe("views: saved views", () => {
 });
 
 describe("views: filters and remembered state", () => {
-  it("narrows the list with filter chips and writes them in the URL", async () => {
+  it("narrows the list from the Filter popover and writes it in the URL", async () => {
     const { user } = setup();
     await routeList();
 
-    await user.click(
-      within(screen.getByRole("group", { name: "Filter by kind" })).getByRole("button", {
-        name: "Aliases",
-      }),
-    );
+    await user.click(filterButton());
+    await user.click(within(filterDialog()).getByRole("checkbox", { name: "Aliases" }));
 
     expect(await namesIn(await routeList())).toEqual(["db", "redis"]);
     expect(window.location.search).toBe("?kind=alias");
     expect(screen.queryByRole("list", { name: "Detected ports" })).toBeNull();
 
-    await user.click(screen.getByRole("button", { name: "Clear filters" }));
+    await user.click(within(filterDialog()).getByRole("button", { name: "Clear all" }));
     expect(await namesIn(await routeList())).toHaveLength(6);
+    expect(window.location.search).toBe("");
   });
 
   it("restores the search and filters from the URL on load", async () => {
     window.history.replaceState(null, "", "/?q=acme&kind=app&status=up");
-    setup();
+    const { user } = setup();
 
     expect(await namesIn(await routeList())).toEqual(["api.acme", "web.acme"]);
     expect(
       (screen.getByRole("searchbox", { name: "Filter routes" }) as HTMLInputElement).value,
     ).toBe("acme");
-    const apps = within(screen.getByRole("group", { name: "Filter by kind" })).getByRole("button", {
-      name: "Apps",
-    });
-    expect(apps.getAttribute("aria-pressed")).toBe("true");
+    await user.click(filterButton());
+    const apps = within(filterDialog()).getByRole("checkbox", { name: "Apps" }) as HTMLInputElement;
+    expect(apps.checked).toBe(true);
   });
 
   it("goes back to the previous filters with the browser's Back", async () => {
     const { user } = setup();
     await routeList();
-    await user.click(
-      within(screen.getByRole("group", { name: "Filter by status" })).getByRole("button", {
-        name: "Error",
-      }),
-    );
+    await user.click(filterButton());
+    await user.click(within(filterDialog()).getByRole("checkbox", { name: "Error" }));
     expect(await namesIn(await routeList())).toEqual(["docs"]);
 
     await act(async () => {
@@ -276,6 +273,113 @@ describe("views: filters and remembered state", () => {
     });
 
     expect(await namesIn(await routeList())).toHaveLength(6);
+  });
+});
+
+describe("filter popover", () => {
+  it("opens from the Filter button and closes on a second click and on a click outside", async () => {
+    const { user } = setup();
+    await routeList();
+    const button = filterButton();
+    expect(button.getAttribute("aria-expanded")).toBe("false");
+
+    await user.click(button);
+    expect(button.getAttribute("aria-expanded")).toBe("true");
+    expect(button.getAttribute("aria-controls")).toBe(filterDialog().id);
+
+    await user.click(button);
+    expect(screen.queryByRole("dialog", { name: "Filters" })).toBeNull();
+
+    await user.click(button);
+    await user.click(await routeList());
+    expect(screen.queryByRole("dialog", { name: "Filters" })).toBeNull();
+  });
+
+  it("keeps project names out of the toolbar and lists them in the popover", async () => {
+    const { user } = setup();
+    await routeList();
+    const toolbar = filterButton().parentElement?.parentElement as HTMLElement;
+    expect(within(toolbar).queryByText("acme-monorepo")).toBeNull();
+
+    await user.click(filterButton());
+    await user.click(within(filterDialog()).getByRole("checkbox", { name: "acme-monorepo" }));
+
+    expect(await namesIn(await routeList())).toEqual(["api.acme", "docs", "storybook", "web.acme"]);
+    expect(window.location.search).toBe("?project=acme-monorepo");
+    await user.keyboard("{Escape}");
+    expect(screen.getByText("1 filter")).toBeTruthy();
+    expect(within(toolbar).queryByText("acme-monorepo")).toBeNull();
+  });
+
+  it("counts the active filters on the button and in the summary, which clears them", async () => {
+    const { user } = setup();
+    await routeList();
+    expect(screen.queryByText(/\d filters?$/)).toBeNull();
+
+    await user.click(filterButton());
+    await user.click(within(filterDialog()).getByRole("checkbox", { name: "Apps" }));
+    await user.click(within(filterDialog()).getByRole("checkbox", { name: "Up" }));
+
+    expect(filterButton().getAttribute("aria-label")).toBe("Filters, 2 active");
+    expect(filterButton().querySelector("[data-filter-count]")?.textContent).toBe("2");
+    expect(screen.getByText("2 filters")).toBeTruthy();
+
+    await user.keyboard("{Escape}");
+    await user.click(screen.getByRole("button", { name: "Clear all filters" }));
+    expect(filterButton().getAttribute("aria-label")).toBe("Filters");
+    expect(screen.queryByText("2 filters")).toBeNull();
+    expect(window.location.search).toBe("");
+  });
+
+  it("moves with the arrow keys, toggles with Space and closes with Escape", async () => {
+    const { user } = setup();
+    await routeList();
+    await user.click(filterButton());
+    const dialog = filterDialog();
+    const apps = within(dialog).getByRole("checkbox", { name: "Apps" });
+    expect(document.activeElement).toBe(apps);
+
+    await user.keyboard("{ArrowDown}");
+    const aliases = within(dialog).getByRole("checkbox", { name: "Aliases" }) as HTMLInputElement;
+    expect(document.activeElement).toBe(aliases);
+    await user.keyboard("{ArrowUp}{ArrowUp}");
+    expect(document.activeElement).toBe(within(dialog).getAllByRole("checkbox").at(-1));
+    await user.keyboard("{ArrowDown}{ArrowDown}");
+    expect(document.activeElement).toBe(aliases);
+
+    await user.keyboard(" ");
+    expect(aliases.checked).toBe(true);
+    expect(window.location.search).toBe("?kind=alias");
+
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog", { name: "Filters" })).toBeNull();
+    expect(document.activeElement).toBe(filterButton());
+  });
+
+  it("opens with Shift+F while f still pins the selected route", async () => {
+    const { user, gateway } = setup();
+    await routeList();
+
+    await user.keyboard("f");
+    expect(screen.queryByRole("dialog", { name: "Filters" })).toBeNull();
+    await waitFor(async () => expect((await savedConfig(gateway)).favorites).toContain("api.acme"));
+
+    await user.keyboard("F");
+    expect(filterDialog()).toBeTruthy();
+  });
+
+  it("opens from the command menu", async () => {
+    const { user } = setup();
+    await routeList();
+
+    await user.keyboard("{Control>}k{/Control}");
+    const option = screen
+      .getAllByRole("option")
+      .find((item) => item.textContent?.includes("Open filters"));
+    expect(option?.textContent).toContain("Shift F");
+    await user.click(option as HTMLElement);
+
+    expect(filterDialog()).toBeTruthy();
   });
 });
 

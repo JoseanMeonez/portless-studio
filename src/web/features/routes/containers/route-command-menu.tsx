@@ -4,7 +4,7 @@ import { ITEM_KINDS, type ItemKind, type View } from "../../../../core/views/vie
 import { modifierLabel } from "../../../shared/lib/keyboard.ts";
 import { type CommandItem, CommandMenu } from "../../../shared/ui/command-menu.tsx";
 import { Kbd } from "../../../shared/ui/kbd.tsx";
-import { KIND_LABELS } from "../components/view-controls.tsx";
+import { KIND_LABELS } from "../components/filter-menu.tsx";
 import { type ShortcutId, shortcutKeys } from "../hooks/shortcut-registry.ts";
 import { useRouteActions } from "../hooks/use-route-actions.ts";
 
@@ -26,6 +26,7 @@ type RouteCommandMenuProps = {
   onSwitchView: (id: string) => void;
   onSaveView: () => void;
   onToggleKind: (kind: ItemKind) => void;
+  onOpenFilters: () => void;
   onToggleTheme: () => void;
   onFocusFilter: () => void;
   onOpenSettings: () => void;
@@ -139,6 +140,14 @@ export function RouteCommandMenu(props: RouteCommandMenuProps) {
       label: "Save as new view…",
       icon: "layers",
       onSelect: props.onSaveView,
+    },
+    {
+      id: "open-filters",
+      group: "Views",
+      label: "Open filters",
+      icon: "filter",
+      shortcut: keys("filter-menu"),
+      onSelect: props.onOpenFilters,
     },
     ...ITEM_KINDS.map(
       (kind): CommandItem => ({

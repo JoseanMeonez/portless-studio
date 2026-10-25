@@ -53,8 +53,9 @@ data, or `?demo&noportless` to walk through the install flow with a fake install
   `db.localhost`). Rename or remove those names later.
 - **Where each server runs:** every row shows the git branch, the linked worktree and the project
   folder. A route whose server is down keeps the last place it ran.
-- **Views:** group by project, worktree, kind or status, or into your own groups; sort and filter;
-  save the combination as a named view and pick the one that opens by default.
+- **Views:** group by project, worktree, kind or status, or into your own groups; sort, and
+  filter by kind, status or project from the Filter button; save the combination as a named view
+  and pick the one that opens by default.
 - **Terminals:** run a command per project inside Studio and watch its output in a panel. You, the
   CLI and your AI agents drive the same terminals. See [docs/terminals.md](docs/terminals.md).
 - **Agents:** an MCP server lets Claude Code, Cursor and other agents list, name and stop dev
@@ -205,6 +206,7 @@ the Open with menu live in `open-with.json` next to the config file.
 | `t` | Open a terminal in its folder |
 | `n` | Name a port |
 | `v` / `Shift+V` | Next view / open the view menu |
+| `Shift+F` | Open the filters |
 | `[`, `]` | Collapse or expand all groups |
 | `Ctrl+K` / `Cmd+K` | Command menu |
 | `,` | Settings |

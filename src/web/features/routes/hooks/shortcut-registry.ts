@@ -23,6 +23,7 @@ export type ShortcutId =
   | "collapse-all"
   | "expand-all"
   | "view-menu"
+  | "filter-menu"
   | "command-menu"
   | "settings"
   | "help"
@@ -146,6 +147,13 @@ export const SHORTCUTS: readonly Shortcut[] = [
     label: "Open the view menu",
     keys: ["V"],
     combos: [["Shift", "V"]],
+  },
+  {
+    id: "filter-menu",
+    group: "Views",
+    label: "Open the filters",
+    keys: ["F"],
+    combos: [["Shift", "F"]],
   },
   {
     id: "command-menu",

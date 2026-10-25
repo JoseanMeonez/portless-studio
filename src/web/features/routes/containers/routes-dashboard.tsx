@@ -115,6 +115,7 @@ export function RoutesDashboard({
   const [healthOpen, setHealthOpen] = useState(false);
   const [stopped, setStopped] = useState<StudioActionResponse | null>(null);
   const [viewMenuOpen, setViewMenuOpen] = useState(false);
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [naming, setNaming] = useState<NameRequest | null>(null);
   const [moving, setMoving] = useState<Route | null>(null);
@@ -245,6 +246,7 @@ export function RoutesDashboard({
     }
   };
   const closeViewMenu = useCallback((open: boolean) => setViewMenuOpen(open), []);
+  const changeFiltersOpen = useCallback((open: boolean) => setFiltersOpen(open), []);
   const routeMenu = (route: Route, point: MenuPoint) =>
     setRowMenu({ target: routeMenuTarget(route), ...point });
   const detectedMenu = (item: DetectedPort, point: MenuPoint) =>
@@ -262,6 +264,7 @@ export function RoutesDashboard({
     settingsOpen ||
     healthOpen ||
     viewMenuOpen ||
+    filtersOpen ||
     shortcutsOpen ||
     naming !== null ||
     moving !== null ||
@@ -284,6 +287,7 @@ export function RoutesDashboard({
     onCollapseAll: collapseAll,
     onExpandAll: views.collapsed.expandAll,
     onOpenViewMenu: () => setViewMenuOpen(true),
+    onOpenFilters: () => setFiltersOpen(true),
     onShowShortcuts: () => setShortcutsOpen(true),
     onEscape: () => setConfirming(null),
   });
@@ -495,6 +499,9 @@ export function RoutesDashboard({
             <ViewControls
               view={viewState.view}
               projects={views.projects}
+              projectIcons={snapshot.projectIcons}
+              filtersOpen={filtersOpen}
+              onFiltersOpenChange={changeFiltersOpen}
               onGroupByChange={viewState.setGroupBy}
               onSortChange={viewState.setSort}
               onFiltersChange={viewState.setFilters}
@@ -636,6 +643,7 @@ export function RoutesDashboard({
           onSwitchView={viewState.switchView}
           onSaveView={() => setNaming({ kind: "save-view" })}
           onToggleKind={toggleKind}
+          onOpenFilters={() => setFiltersOpen(true)}
           onToggleTheme={onToggleTheme}
           onFocusFilter={() => filterInput.current?.focus()}
           onOpenSettings={openSettings}

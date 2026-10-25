@@ -31,6 +31,7 @@ type KeyboardNavigationOptions = {
   onCollapseAll: () => void;
   onExpandAll: () => void;
   onOpenViewMenu: () => void;
+  onOpenFilters: () => void;
   onShowShortcuts: () => void;
   onEscape: () => void;
 };
@@ -99,6 +100,7 @@ export function useKeyboardNavigation(options: KeyboardNavigationOptions) {
         "collapse-all": current.onCollapseAll,
         "expand-all": current.onExpandAll,
         "view-menu": current.onOpenViewMenu,
+        "filter-menu": current.onOpenFilters,
         settings: current.onOpenSettings,
         help: current.onShowShortcuts,
       };

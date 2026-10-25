@@ -2,7 +2,7 @@
 
 All notable changes are listed here. Versions follow [Semantic Versioning](https://semver.org).
 
-## Unreleased
+## 0.1.4 (2026-10-25)
 
 - Kind, port and uptime now line up in the same columns on every route row. Before, rows with
   more action buttons (a terminal's Logs and Stop, alias rename and remove) pushed those columns

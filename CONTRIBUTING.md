@@ -31,7 +31,11 @@ pnpm smoke        # starts the built CLI on a free port and checks the API answe
 
 Add a test with every behavior change, next to the code it covers (`*.test.ts` or
 `*.test.tsx`). When you add or change a command, flag or config field, update the help text in
-`src/cli/cli-args.ts`, the README and the page in `docs/` that covers it.
+`src/cli/cli-args.ts`, [docs/cli.md](docs/cli.md) or [docs/configuration.md](docs/configuration.md),
+and any other page in `docs/` that covers it ([docs/README.md](docs/README.md) lists them).
+
+Report bugs with the bug report form on GitHub, and follow the
+[Code of Conduct](CODE_OF_CONDUCT.md).
 
 ## Conventions
 

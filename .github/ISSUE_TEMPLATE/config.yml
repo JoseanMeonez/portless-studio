@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Documentation
+    url: https://github.com/keven-bardales/portless-studio/blob/main/docs/README.md
+    about: Getting started, every command and setting, and agent setup.
+  - name: Troubleshooting
+    url: https://github.com/keven-bardales/portless-studio/blob/main/docs/troubleshooting.md
+    about: Fixes for names that do not open, certificate warnings, taken ports and more.
+  - name: Report a security problem
+    url: https://github.com/keven-bardales/portless-studio/blob/main/SECURITY.md
+    about: Do not open a public issue for security problems; follow SECURITY.md.

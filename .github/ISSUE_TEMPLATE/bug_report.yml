@@ -1,0 +1,85 @@
+name: Bug report
+description: Something in Studio does not work as described.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. Before you post, check [Troubleshooting](https://github.com/keven-bardales/portless-studio/blob/main/docs/troubleshooting.md).
+
+        **Privacy:** this issue is public. Replace folder paths, user names, hostnames, route names and project names you do not want to share with placeholders such as `/home/dev/code/myapp` or `web.myapp`.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Run `portless-studio`
+        2. Start a dev server with `pnpm dev`
+        3. ...
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - Linux
+        - macOS
+        - Windows
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: os-version
+    attributes:
+      label: System version
+      placeholder: "Ubuntu 24.04, macOS 15, Windows 11"
+  - type: input
+    id: node-version
+    attributes:
+      label: Node version
+      description: Output of `node --version`.
+      placeholder: v22.12.0
+    validations:
+      required: true
+  - type: input
+    id: studio-version
+    attributes:
+      label: portless-studio version
+      description: Output of `portless-studio --version`.
+    validations:
+      required: true
+  - type: input
+    id: portless-version
+    attributes:
+      label: portless version
+      description: Output of `portless --version`.
+    validations:
+      required: true
+  - type: input
+    id: browser
+    attributes:
+      label: Browser
+      description: Only when the problem is in the page.
+      placeholder: Chrome 130
+  - type: textarea
+    id: doctor
+    attributes:
+      label: Output of `portless-studio doctor`
+      description: Redact paths and names first.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Other output
+      description: Errors from the terminal that runs Studio or from the browser console. Redact paths and names first.
+      render: text

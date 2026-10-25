@@ -118,24 +118,28 @@ fi
 exit 0
 ```
 
-**Rewrite the command.** A `PreToolUse` hook can also print JSON with `updatedInput`, which
-replaces the tool's input before it runs. This version wraps the command in
-`portless-studio run` and runs it in the background, and asks you to confirm the new command
-(`"ask"`; change it to `"allow"` to skip the prompt). `updatedInput` replaces the whole input, so
-the hook copies the original fields and changes only `command` and `run_in_background`:
+**Rewrite the command (recommended).** A `PreToolUse` hook can also print JSON with
+`updatedInput`, which replaces the tool's input before it runs. This version wraps any dev server
+command in `portless-studio run` and runs it in the background, so the server lives in a Studio
+terminal: you can read its logs and stop it from Studio at any time, and so can the agent through
+MCP. It also catches the command after `cd dir &&`, with `--filter`, and through `npx`/`npm exec`.
+`updatedInput` replaces the whole input, so the hook copies the original fields and changes only
+`command` and `run_in_background`. `"allow"` skips the confirmation; use `"ask"` to confirm each one.
 
 ```bash
 #!/usr/bin/env bash
-# Rewrites dev server commands into `portless-studio run -- <command>`.
+# Runs dev server commands inside a Portless Studio terminal.
 input=$(cat)
 cmd=$(jq -r '.tool_input.command // ""' <<<"$input")
-pattern='^((pnpm|npm|yarn|bun)( run)? dev|(npx )?vite|(npx )?next dev)( |$)'
-if [[ "$cmd" =~ $pattern ]]; then
+command -v portless-studio >/dev/null 2>&1 || exit 0
+[[ "$cmd" == portless-studio* ]] && exit 0
+dev='((pnpm|npm|yarn|bun)( --filter [^ ]+| -F [^ ]+| -C [^ ]+| --dir [^ ]+)*( run)? (dev|start|serve)|turbo( run)? dev|(npx |npm exec |pnpm exec |bunx )?(vite|next dev|astro dev|ng serve|wrangler dev|nuxt dev|remix dev|nodemon|tsx watch))'
+if [[ "$cmd" =~ (^|&& *|; *)$dev( |$) ]]; then
   jq '{
     hookSpecificOutput: {
       hookEventName: "PreToolUse",
-      permissionDecision: "ask",
-      permissionDecisionReason: "Run the dev server in a Studio terminal",
+      permissionDecision: "allow",
+      permissionDecisionReason: "Run the dev server in a Portless Studio terminal",
       updatedInput: (.tool_input + {
         command: ("portless-studio run -- " + (.tool_input.command | @sh)),
         run_in_background: true
@@ -148,6 +152,9 @@ exit 0
 
 The command is passed to `run` as one quoted word, which `run` hands to the shell as written, so
 `&&` and pipes inside it keep working.
+
+Hooks and `CLAUDE.md` load when a session starts: a Claude Code session opened before you add them
+keeps starting servers in its own shell until you start a new session.
 
 Register either script for the `Bash` tool:
 

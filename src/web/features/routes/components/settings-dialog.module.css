@@ -121,3 +121,9 @@
 .token dd {
   margin: 0;
 }
+
+.columns {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: var(--space-3);
+}

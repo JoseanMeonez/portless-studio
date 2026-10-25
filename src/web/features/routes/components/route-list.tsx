@@ -4,6 +4,7 @@ import { GroupHeader } from "./group-header.tsx";
 import styles from "./route-list.module.css";
 import { RouteRow, type RowConfirmation } from "./route-row.tsx";
 import type { MenuPoint } from "./row-menu-trigger.ts";
+import type { RowTerminal } from "./row-terminal.ts";
 
 /** A block of rows. An empty label renders its rows without a header. */
 export type RouteSection = {
@@ -41,6 +42,8 @@ type RouteListProps = {
   /** Hidden for routes it returns false for, and entirely without it. */
   onOpenTerminal?: ((route: Route) => void) | undefined;
   canOpenTerminal?: ((route: Route) => boolean) | undefined;
+  /** The Studio terminal serving a route's port, if any. */
+  terminalFor?: ((route: Route) => RowTerminal | null) | undefined;
   onRenameGroup: (groupId: string, name: string) => void;
   onDeleteGroup: (groupId: string, name: string) => void;
 };
@@ -76,6 +79,7 @@ export function RouteList(props: RouteListProps) {
               ? () => props.onOpenTerminal?.(route)
               : undefined
           }
+          terminal={props.terminalFor?.(route) ?? null}
         />
       );
     });

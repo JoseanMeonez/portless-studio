@@ -59,6 +59,8 @@ export const API_PATHS = {
    * Studio shows.
    */
   terminalsInFolder: "/api/terminals/in-folder",
+  /** GET returns `RecentCommandsResponse`: the last commands run in each folder. */
+  terminalsRecentCommands: "/api/terminals/recent-commands",
   /**
    * GET returns `TerminalInfo`; PATCH `RenameTerminalRequest` renames it; DELETE stops the command
    * if it runs and closes the terminal.
@@ -75,7 +77,10 @@ export const API_PATHS = {
   terminalInput: (id: string) => `/api/terminals/${encodeURIComponent(id)}/input`,
   /** POST: Ctrl+C, then SIGTERM, then SIGKILL until the command ends. */
   terminalStop: (id: string) => `/api/terminals/${encodeURIComponent(id)}/stop`,
-  /** POST: runs the same command again in the same terminal. */
+  /**
+   * POST: runs the same command again in the same terminal; also starts a terminal that was
+   * stopped by a Studio restart.
+   */
   terminalRestart: (id: string) => `/api/terminals/${encodeURIComponent(id)}/restart`,
   /** POST `FocusRequest`: brings a Studio page to the front showing a route, port or terminal. */
   focus: "/api/focus",
@@ -178,8 +183,14 @@ export type CreateTerminalRequest = {
 /** PATCH /api/terminals/:id. An empty title gives back the default one, the command or shell. */
 export type RenameTerminalRequest = { title: string };
 
-/** GET /api/terminals */
+/** GET /api/terminals: running, ended and stopped-by-a-restart terminals alike. */
 export type TerminalsResponse = { terminals: TerminalInfo[] };
+
+/** GET /api/terminals/recent-commands */
+export type RecentCommandsResponse = {
+  /** Folder to its last commands (at most 20), newest first. */
+  recentCommands: Record<string, string[]>;
+};
 
 /** Server-sent event types on the terminal streams. */
 export const TERMINALS_EVENT = "terminals";

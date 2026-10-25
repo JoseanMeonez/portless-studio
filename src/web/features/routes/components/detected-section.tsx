@@ -8,6 +8,7 @@ import { DetectedOtherPorts } from "./detected-other-ports.tsx";
 import { DetectedRow } from "./detected-row.tsx";
 import styles from "./detected-section.module.css";
 import type { MenuPoint } from "./row-menu-trigger.ts";
+import type { RowTerminal } from "./row-terminal.ts";
 
 type DetectedSectionProps = {
   /** The detected ports the filter leaves visible. */
@@ -37,6 +38,8 @@ type DetectedSectionProps = {
   onToggleOtherPorts: () => void;
   /** Absent hides the terminal button; so does `null` for one port. */
   terminalFor?: ((detected: DetectedPort) => (() => void) | null) | undefined;
+  /** The Studio terminal serving a port, if any. */
+  rowTerminalFor?: ((detected: DetectedPort) => RowTerminal | null) | undefined;
 };
 
 /** Dev servers found on this machine that portless does not know yet, ready to be named. */
@@ -62,6 +65,7 @@ export function DetectedSection({
   otherPortsOpen,
   onToggleOtherPorts,
   terminalFor,
+  rowTerminalFor,
 }: DetectedSectionProps) {
   const suggested = detected.filter((item) => item.suggestedName !== null).length;
   const count =
@@ -129,6 +133,7 @@ export function DetectedSection({
                   onMenu={(point) => onMenu(item, point)}
                   onCopyDirectUrl={onCopyDirectUrl}
                   onOpenTerminal={terminalFor?.(item) ?? undefined}
+                  terminal={rowTerminalFor?.(item) ?? null}
                   onCancelStop={onCancelStop}
                 />
               ))}

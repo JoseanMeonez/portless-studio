@@ -3,6 +3,7 @@ import { shortenPath } from "../../../shared/lib/shorten-path.ts";
 import { type CommandItem, CommandMenu } from "../../../shared/ui/command-menu.tsx";
 import type { TerminalFolder } from "../components/new-terminal-form.tsx";
 import { OtherFolderDialog } from "../components/other-folder-dialog.tsx";
+import { useRecentCommands } from "../hooks/use-recent-commands.ts";
 import type { TerminalPanelController } from "../hooks/use-terminal-panel.ts";
 
 type TerminalPickerContainerProps = {
@@ -18,6 +19,7 @@ type TerminalPickerContainerProps = {
 export function TerminalPickerContainer({ panel, folders }: TerminalPickerContainerProps) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const recent = useRecentCommands(panel.picker === "folders");
   const close = () => {
     setError(null);
     panel.setPicker("closed");
@@ -52,6 +54,19 @@ export function TerminalPickerContainer({ panel, folders }: TerminalPickerContai
         icon: "folder",
         onSelect: () => void panel.create({ cwd: folder.path }),
       }),
+    ),
+    // Commands run before in a folder: one click runs them there again.
+    ...folders.flatMap((folder) =>
+      (recent[folder.path] ?? []).slice(0, 5).map(
+        (command): CommandItem => ({
+          id: `recent-${folder.path}-${command}`,
+          group: "Recent commands",
+          label: command,
+          detail: folder.label,
+          icon: "terminal",
+          onSelect: () => void panel.create({ cwd: folder.path, command }),
+        }),
+      ),
     ),
     {
       id: "other-folder",

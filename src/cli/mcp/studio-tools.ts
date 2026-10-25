@@ -434,15 +434,22 @@ function terminalTools(client: StudioClient): McpTool[] {
       title: "List Studio terminals",
       description:
         "Lists the terminals Studio runs: id, title, folder, command, project, whether it still " +
-        "runs, exit code and the port it named.",
+        "runs, exit code, the port it named and who started it. Terminals that were running when " +
+        "Studio last stopped are listed with stopped_by_restart: true; restart_terminal runs them " +
+        "again.",
       inputSchema: NO_INPUT,
       call: async () => {
         const result = await client.readPrivate(API_PATHS.terminals);
         if (!result.ok) return failure(result.error);
         const { terminals } = result.value as TerminalsResponse;
         const running = terminals.filter((terminal) => terminal.status === "running").length;
+        const stopped = terminals.filter((terminal) => terminal.stoppedByRestart === true).length;
+        const restorable =
+          stopped > 0
+            ? `, ${stopped} stopped by a Studio restart: run ${stopped === 1 ? "it" : "them"} again with restart_terminal`
+            : "";
         return {
-          summary: `${plural(terminals.length, "terminal")} (${running} running).`,
+          summary: `${plural(terminals.length, "terminal")} (${running} running${restorable}).`,
           data: terminals.map(terminalItem),
         };
       },
@@ -568,6 +575,31 @@ function terminalTools(client: StudioClient): McpTool[] {
       },
     },
     {
+      name: "restart_terminal",
+      title: "Run a terminal's command again",
+      description:
+        "Runs a terminal's command again in the same terminal: stops it first when it still runs. " +
+        "Use it for a terminal stopped by a Studio restart (stopped_by_restart in list_terminals) " +
+        "or one whose command ended.",
+      inputSchema: {
+        type: "object",
+        properties: { id: TERMINAL_ID_SCHEMA },
+        required: ["id"],
+        additionalProperties: false,
+      },
+      call: async (args) => {
+        const id = readString(args, "id");
+        if (!id.ok) return invalid(id.error);
+        const result = await client.write("POST", API_PATHS.terminalRestart(id.value));
+        if (!result.ok) return failure(result.error);
+        const terminal = result.value as TerminalInfo;
+        return {
+          summary: `Running ${terminal.id} again in ${terminal.cwd}: ${terminal.command || "shell"}. Read its output with read_terminal {"id": "${terminal.id}"}.`,
+          data: terminalItem(terminal),
+        };
+      },
+    },
+    {
       name: "focus_studio",
       title: "Show something in Studio",
       description:
@@ -623,6 +655,8 @@ function terminalItem(terminal: TerminalInfo) {
     pid: terminal.pid,
     named: terminal.naming?.name ?? null,
     port: terminal.naming?.port ?? null,
+    started_by: terminal.startedBy ?? null,
+    stopped_by_restart: terminal.stoppedByRestart === true,
   };
 }
 

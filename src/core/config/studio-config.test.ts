@@ -272,3 +272,51 @@ describe("parseConfig name template", () => {
     expect(parseConfig({ nameTemplate: 3 }).ok).toBe(false);
   });
 });
+
+describe("parseConfig terminal settings", () => {
+  it("defaults the terminal look and asks before running terminals again", () => {
+    expect(DEFAULT_CONFIG.terminal).toEqual({
+      fontSize: 12,
+      lineHeight: 1.2,
+      cursorStyle: "block",
+      cursorBlink: true,
+      scrollback: 10_000,
+      theme: "studio",
+    });
+    expect(DEFAULT_CONFIG.restoreTerminals).toBe("ask");
+  });
+
+  it("fills missing terminal fields and keeps the valid ones", () => {
+    const result = parseConfig({
+      terminal: { fontSize: 14, theme: "dark", cursorStyle: "bar" },
+      restoreTerminals: "always",
+    });
+    expect(result.ok && result.value.terminal).toEqual({
+      ...DEFAULT_CONFIG.terminal,
+      fontSize: 14,
+      theme: "dark",
+      cursorStyle: "bar",
+    });
+    expect(result.ok && result.value.restoreTerminals).toBe("always");
+  });
+
+  it.each([
+    [{ terminal: [] }, '"terminal" must be an object.'],
+    [{ terminal: { fontSize: 9 } }, '"terminal.fontSize" must be a whole number from 10 to 24.'],
+    [{ terminal: { fontSize: 25 } }, '"terminal.fontSize" must be a whole number from 10 to 24.'],
+    [{ terminal: { lineHeight: 2.5 } }, '"terminal.lineHeight" must be a number from 1 to 2.'],
+    [
+      { terminal: { cursorStyle: "beam" } },
+      '"terminal.cursorStyle" must be "block", "bar" or "underline".',
+    ],
+    [{ terminal: { cursorBlink: "yes" } }, '"terminal.cursorBlink" must be true or false.'],
+    [
+      { terminal: { scrollback: 500 } },
+      '"terminal.scrollback" must be a whole number from 1000 to 100000.',
+    ],
+    [{ terminal: { theme: "solarized" } }, '"terminal.theme" must be "studio", "dark" or "light".'],
+    [{ restoreTerminals: "sometimes" }, '"restoreTerminals" must be "ask", "always" or "never".'],
+  ])("rejects %j", (input, message) => {
+    expect(parseConfig(input)).toEqual({ ok: false, error: message });
+  });
+});

@@ -1,0 +1,112 @@
+.preview {
+  --preview-bg: var(--term-background);
+  --preview-fg: var(--term-foreground);
+  --preview-cursor: var(--term-cursor);
+  --preview-red: var(--term-red);
+  --preview-green: var(--term-green);
+  --preview-yellow: var(--term-yellow);
+  --preview-blue: var(--term-blue);
+  --preview-magenta: var(--term-magenta);
+  --preview-cyan: var(--term-cyan);
+  --preview-dim: var(--term-bright-black);
+
+  overflow: hidden;
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--preview-bg);
+  color: var(--preview-fg);
+  font-family: var(--font-mono);
+  white-space: pre;
+}
+
+.preview[data-theme="dark"] {
+  --preview-bg: var(--term-dark-background);
+  --preview-fg: var(--term-dark-foreground);
+  --preview-cursor: var(--term-dark-cursor);
+  --preview-red: var(--term-dark-red);
+  --preview-green: var(--term-dark-green);
+  --preview-yellow: var(--term-dark-yellow);
+  --preview-blue: var(--term-dark-blue);
+  --preview-magenta: var(--term-dark-magenta);
+  --preview-cyan: var(--term-dark-cyan);
+  --preview-dim: var(--term-dark-bright-black);
+}
+
+.preview[data-theme="light"] {
+  --preview-bg: var(--term-light-background);
+  --preview-fg: var(--term-light-foreground);
+  --preview-cursor: var(--term-light-cursor);
+  --preview-red: var(--term-light-red);
+  --preview-green: var(--term-light-green);
+  --preview-yellow: var(--term-light-yellow);
+  --preview-blue: var(--term-light-blue);
+  --preview-magenta: var(--term-light-magenta);
+  --preview-cyan: var(--term-light-cyan);
+  --preview-dim: var(--term-light-bright-black);
+}
+
+.red {
+  color: var(--preview-red);
+}
+
+.green {
+  color: var(--preview-green);
+}
+
+.yellow {
+  color: var(--preview-yellow);
+}
+
+.blue {
+  color: var(--preview-blue);
+}
+
+.magenta {
+  color: var(--preview-magenta);
+}
+
+.cyan {
+  color: var(--preview-cyan);
+}
+
+.dim {
+  color: var(--preview-dim);
+}
+
+.bold {
+  font-weight: var(--weight-semibold);
+}
+
+.cursor {
+  display: inline-block;
+  width: 0.6em;
+  height: 1.1em;
+  vertical-align: text-bottom;
+  background: var(--preview-cursor);
+}
+
+.cursor[data-style="bar"] {
+  width: 2px;
+}
+
+.cursor[data-style="underline"] {
+  height: 2px;
+  vertical-align: baseline;
+}
+
+.cursor[data-blink] {
+  animation: blink 1s steps(1) infinite;
+}
+
+@keyframes blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cursor[data-blink] {
+    animation: none;
+  }
+}

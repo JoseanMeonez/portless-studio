@@ -1,12 +1,20 @@
 import { useEffect, useRef, useState } from "react";
+import type { TerminalAppearance } from "../../../../core/config/studio-config.ts";
+import { Icon } from "../../../shared/ui/icons/icon.tsx";
+import { cssVar, terminalTheme } from "../hooks/terminal-theme.ts";
 import type { TerminalEngine } from "../hooks/xterm-loader.ts";
 import styles from "./terminal-view.module.css";
 
 type TerminalViewProps = {
   /** Output written with bare `\n` (pipes mode) needs it turned into a new line. */
   convertEol: boolean;
-  /** Keep the newest output in view. */
-  follow: boolean;
+  /**
+   * Keep the view at the newest output. Scrolling up pauses it until the view is back at the
+   * bottom; off, the view stays where it is.
+   */
+  autoScroll: boolean;
+  /** Font, cursor, scrollback and colors; changes apply to the open terminal at once. */
+  appearance: TerminalAppearance;
   /** Changes when the page theme changes, so the colors are read again. */
   themeKey: string;
   loadEngine: () => Promise<TerminalEngine>;
@@ -15,13 +23,17 @@ type TerminalViewProps = {
   onInput: (text: string) => void;
 };
 
+type Screen = { apply(appearance: TerminalAppearance): void; jump(): void };
+
 /**
  * One terminal drawn by xterm.js, loaded on first use. Mount it with a `key` per terminal so
- * switching tabs starts a fresh screen that replays the kept output.
+ * switching tabs starts a fresh screen that replays the kept output. While the view is not at the
+ * newest output, a Jump to latest button brings it back.
  */
 export function TerminalView({
   convertEol,
-  follow,
+  autoScroll,
+  appearance,
   themeKey,
   loadEngine,
   connect,
@@ -29,9 +41,12 @@ export function TerminalView({
 }: TerminalViewProps) {
   const host = useRef<HTMLDivElement>(null);
   const [state, setState] = useState<"loading" | "ready" | "failed">("loading");
-  const latest = useRef({ follow, onInput, connect });
-  latest.current = { follow, onInput, connect };
-  const terminal = useRef<{ setTheme(): void } | null>(null);
+  const [behind, setBehind] = useState(false);
+  const latest = useRef({ autoScroll, onInput, connect, appearance });
+  latest.current = { autoScroll, onInput, connect, appearance };
+  const screen = useRef<Screen | null>(null);
+  /** The person scrolled up: auto-scroll waits until the view is at the bottom again. */
+  const paused = useRef(false);
 
   useEffect(() => {
     let disposed = false;
@@ -40,13 +55,16 @@ export function TerminalView({
       (engine) => {
         const element = host.current;
         if (disposed || !element) return;
+        const look = latest.current.appearance;
         const term = engine.createTerminal({
           convertEol,
-          cursorBlink: true,
+          cursorBlink: look.cursorBlink,
+          cursorStyle: look.cursorStyle,
           fontFamily: cssVar("--font-mono") || "monospace",
-          fontSize: 12,
-          scrollback: 5_000,
-          theme: readTheme(),
+          fontSize: look.fontSize,
+          lineHeight: look.lineHeight,
+          scrollback: look.scrollback,
+          theme: terminalTheme(look.theme),
         });
         const fit = engine.createFit();
         term.loadAddon(fit);
@@ -59,21 +77,57 @@ export function TerminalView({
           }
         };
         resize();
+        const atBottom = () => {
+          const buffer = term.buffer.active;
+          return buffer.viewportY >= buffer.baseY;
+        };
+        const settle = () => {
+          paused.current = !atBottom();
+          setBehind(paused.current);
+        };
+        const scrolled = term.onScroll(settle);
+        // Wheel and touch scrolling may land after xterm's own scroll event.
+        const settleSoon = () => requestAnimationFrame(settle);
+        element.addEventListener("wheel", settleSoon, { passive: true });
+        element.addEventListener("touchend", settleSoon, { passive: true });
         const typed = term.onData((text) => latest.current.onInput(text));
         const stop = latest.current.connect((text) => {
-          term.write(text);
-          if (latest.current.follow) term.scrollToBottom();
+          const follow = latest.current.autoScroll && !paused.current;
+          const held = term.buffer.active.viewportY;
+          term.write(text, () => {
+            if (follow) term.scrollToBottom();
+            else if (term.buffer.active.viewportY !== held) term.scrollToLine(held);
+            settle();
+          });
         });
         const observer = typeof ResizeObserver === "function" ? new ResizeObserver(resize) : null;
         observer?.observe(element);
-        terminal.current = { setTheme: () => (term.options.theme = readTheme()) };
+        screen.current = {
+          apply: (next) => {
+            term.options.fontSize = next.fontSize;
+            term.options.lineHeight = next.lineHeight;
+            term.options.cursorStyle = next.cursorStyle;
+            term.options.cursorBlink = next.cursorBlink;
+            term.options.scrollback = next.scrollback;
+            term.options.theme = terminalTheme(next.theme);
+            resize();
+          },
+          jump: () => {
+            term.scrollToBottom();
+            paused.current = false;
+            setBehind(false);
+          },
+        };
         setState("ready");
         cleanup = () => {
           observer?.disconnect();
+          element.removeEventListener("wheel", settleSoon);
+          element.removeEventListener("touchend", settleSoon);
           stop();
+          scrolled.dispose();
           typed.dispose();
           term.dispose();
-          terminal.current = null;
+          screen.current = null;
         };
       },
       () => {
@@ -86,32 +140,30 @@ export function TerminalView({
     };
   }, [convertEol, loadEngine]);
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: themeKey says when the CSS colors changed.
+  const appearanceKey = JSON.stringify(appearance);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the key says when the look or the page colors changed.
   useEffect(() => {
-    terminal.current?.setTheme();
-  }, [themeKey]);
+    screen.current?.apply(latest.current.appearance);
+  }, [appearanceKey, themeKey]);
+
+  // Turning auto-scroll on shows the newest output right away.
+  useEffect(() => {
+    if (autoScroll) screen.current?.jump();
+  }, [autoScroll]);
 
   return (
-    <div className={styles.view}>
+    <div className={styles.view} data-theme={appearance.theme}>
       {state === "loading" ? <p className={styles.message}>Loading the terminal…</p> : null}
       {state === "failed" ? (
         <p className={styles.message}>The terminal could not load. Reload the page to try again.</p>
       ) : null}
       <div ref={host} className={styles.screen} data-testid="terminal-screen" />
+      {behind && state === "ready" ? (
+        <button type="button" className={styles.jump} onClick={() => screen.current?.jump()}>
+          <Icon name="arrowDown" size={12} />
+          Jump to latest
+        </button>
+      ) : null}
     </div>
   );
-}
-
-function cssVar(name: string): string {
-  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-}
-
-/** xterm.js colors from the design tokens, so the terminal follows light and dark mode. */
-function readTheme() {
-  return {
-    background: cssVar("--color-bg-subtle"),
-    foreground: cssVar("--color-text"),
-    cursor: cssVar("--color-accent"),
-    selectionBackground: cssVar("--color-accent-subtle"),
-  };
 }

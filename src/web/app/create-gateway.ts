@@ -6,8 +6,8 @@ import {
   SAMPLE_LATE_SERVER,
 } from "../features/routes/index.ts";
 import {
+  createSampleTerminals,
   HttpTerminalsGateway,
-  InMemoryTerminalsGateway,
   type TerminalsGateway,
 } from "../features/terminals/index.ts";
 
@@ -33,9 +33,9 @@ export function createGateway(location: Pick<Location, "search">): RoutesGateway
   return new HttpRoutesGateway();
 }
 
-/** The terminals backend that goes with `createGateway`: in memory for `?demo`. */
+/** The terminals backend that goes with `createGateway`: sample terminals in memory for `?demo`. */
 export function createTerminalsGateway(location: Pick<Location, "search">): TerminalsGateway {
   return new URLSearchParams(location.search).has("demo")
-    ? new InMemoryTerminalsGateway()
+    ? createSampleTerminals()
     : new HttpTerminalsGateway();
 }

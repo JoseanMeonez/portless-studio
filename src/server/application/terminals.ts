@@ -3,6 +3,7 @@ import type {
   TerminalOutputChunk,
   TerminalOutputResponse,
 } from "../../core/api/contract.ts";
+import type { RestoreTerminals } from "../../core/config/studio-config.ts";
 import type { DetectedPort } from "../../core/ports/detected-port.ts";
 import { err, ok, type Result } from "../../core/result.ts";
 import type { ItemProject, Route } from "../../core/routes/route.ts";
@@ -13,6 +14,12 @@ import type {
   TerminalNaming,
   TerminalPort,
 } from "../../core/terminals/terminal.ts";
+import {
+  rememberCommand,
+  type SavedTerminal,
+  type TerminalHistory,
+  type TerminalStarter,
+} from "../../core/terminals/terminal-history.ts";
 import { type AppError, appError } from "./app-error.ts";
 
 /** A running command, as the spawner started it. */
@@ -73,6 +80,15 @@ export interface ProcessTree {
   ancestors(pid: number): Promise<number[]>;
 }
 
+/**
+ * Keeps `terminals.json`: the terminals running when Studio stopped and the recent commands per
+ * folder. Synchronous, so the last write lands before Studio exits.
+ */
+export interface TerminalHistoryStore {
+  read(): TerminalHistory;
+  write(history: TerminalHistory): void;
+}
+
 export type TerminalWatcher = {
   onOutput(chunk: TerminalOutputChunk): void;
   onStatus(info: TerminalInfo): void;
@@ -94,6 +110,10 @@ export type TerminalManagerOptions = {
   processTree?: ProcessTree;
   /** What `~` means in a folder picked by hand. */
   homeDir?: string;
+  /** Where the running terminals and recent commands are kept between runs; none without it. */
+  history?: TerminalHistoryStore;
+  /** Wait that gathers several changes into one write of the history. */
+  persistDelayMs?: number;
 };
 
 /**
@@ -110,6 +130,13 @@ const DEFAULT_COLS = 120;
 const DEFAULT_ROWS = 30;
 const MAX_COMMAND_CHARS = 8 * 1024;
 const MAX_TITLE_CHARS = 60;
+const DEFAULT_PERSIST_DELAY_MS = 300;
+/**
+ * A command that ended this shortly before Studio stopped counts as running then: a service
+ * manager stops Studio's commands together with Studio, and their exits can arrive first.
+ */
+const RECENT_EXIT_MS = 2_000;
+const RESTART_NOTE = "\r\n[Studio] Stopped by a Studio restart. Run it again to start it.\r\n";
 
 type Entry = {
   info: TerminalInfo;
@@ -123,6 +150,21 @@ type Entry = {
   /** Ports in use when naming started; a new port is one not in here. */
   baseline: Set<number> | null;
   namingTimer: NodeJS.Timeout | undefined;
+  /** Someone asked it to stop, so its end is not caused by Studio stopping. */
+  stoppedOnPurpose: boolean;
+};
+
+type NewEntry = {
+  id: string;
+  command: string | null;
+  cwd: string;
+  title: string | undefined;
+  cols: number;
+  rows: number;
+  naming: TerminalNaming | null;
+  project: Pick<ItemProject, "name" | "worktree" | "branch"> | null;
+  startedBy: TerminalStarter;
+  startedAt: number;
 };
 
 /**
@@ -141,6 +183,11 @@ export class TerminalManager {
   readonly #namingTimeoutMs: number;
   readonly #processTree: ProcessTree | undefined;
   readonly #homeDir: string | undefined;
+  readonly #history: TerminalHistoryStore | undefined;
+  readonly #persistDelayMs: number;
+  #recent: Record<string, string[]> | null = null;
+  #persistTimer: NodeJS.Timeout | undefined;
+  #closing = false;
   readonly #entries = new Map<string, Entry>();
   readonly #watchers = new Set<() => void>();
   /** Folders a local program ran a terminal in. */
@@ -162,6 +209,8 @@ export class TerminalManager {
     this.#namingTimeoutMs = options.namingTimeoutMs ?? DEFAULT_NAMING_TIMEOUT_MS;
     this.#processTree = options.processTree;
     this.#homeDir = options.homeDir;
+    this.#history = options.history;
+    this.#persistDelayMs = options.persistDelayMs ?? DEFAULT_PERSIST_DELAY_MS;
   }
 
   get mode(): TerminalMode {
@@ -194,6 +243,7 @@ export class TerminalManager {
     const wanted = title.trim().slice(0, MAX_TITLE_CHARS);
     entry.info = { ...entry.info, title: wanted || entry.defaultTitle };
     this.#publishStatus(entry);
+    this.#schedulePersist();
     return ok({ ...entry.info });
   }
 
@@ -215,66 +265,87 @@ export class TerminalManager {
     if (!cwd.ok) return cwd;
     if (origin.trusted) this.#trustedFolders.add(cwd.value);
 
-    const id = `t${this.#nextId++}`;
-    const cols = readSize(request.cols, DEFAULT_COLS);
-    const rows = readSize(request.rows, DEFAULT_ROWS);
     const naming = readNaming(request.name);
-    const defaultTitle = (command.value || this.#spawner.shellName || "shell").slice(
-      0,
-      MAX_TITLE_CHARS,
-    );
-    const title = request.title?.trim().slice(0, MAX_TITLE_CHARS) || defaultTitle;
     const project = await this.#projectOf(cwd.value);
-    const entry: Entry = {
-      defaultTitle,
-      info: {
-        id,
-        title,
-        cwd: cwd.value,
-        command: command.value ?? "",
-        project: project?.name ?? null,
-        worktree: project?.worktree ?? null,
-        branch: project?.branch ?? null,
-        ports: [],
-        status: "running",
-        exitCode: null,
-        startedAt: this.#now(),
-        endedAt: null,
-        pid: null,
-        mode: this.#spawner.mode,
-        cols,
-        rows,
-        nextSeq: 0,
-        naming,
-      },
-      request: {
-        command: command.value,
-        cwd: cwd.value,
-        cols,
-        rows,
-        env: {
-          TERM: "xterm-256color",
-          COLUMNS: String(cols),
-          LINES: String(rows),
-          PORTLESS_STUDIO_TERMINAL: id,
-        },
-      },
-      buffer: new OutputBuffer(this.#maxOutput),
-      process: null,
-      stopTimers: [],
-      watchers: new Set(),
-      baseline: null,
-      namingTimer: undefined,
-    };
+    const entry = this.#newEntry({
+      id: `t${this.#nextId++}`,
+      command: command.value,
+      cwd: cwd.value,
+      title: request.title,
+      cols: readSize(request.cols, DEFAULT_COLS),
+      rows: readSize(request.rows, DEFAULT_ROWS),
+      naming,
+      project,
+      startedBy: origin.trusted ? "program" : "person",
+      startedAt: this.#now(),
+    });
     if (naming) entry.baseline = await this.#portsInUse();
     const started = await this.#spawn(entry);
     if (!started.ok) return started;
-    this.#entries.set(id, entry);
+    this.#entries.set(entry.info.id, entry);
+    if (command.value) {
+      this.#recent = rememberCommand(this.#recentCommands(), cwd.value, command.value);
+    }
     if (naming) this.#startNaming(entry);
     else this.#updateWorkspaceWatch();
     this.#changed();
+    this.#schedulePersist();
     if (this.#watchers.size > 0) void this.#refreshPorts();
     return ok({ ...entry.info });
+  }
+
+  /** The last commands run in each folder, newest first. */
+  recentCommands(): Record<string, string[]> {
+    return Object.fromEntries(
+      Object.entries(this.#recentCommands()).map(([folder, list]) => [folder, [...list]]),
+    );
+  }
+
+  /**
+   * Brings back the terminals that were running when Studio last stopped: listed as stopped by a
+   * restart (`ask`), started again unless they are a plain shell (`always`), or forgotten
+   * (`never`). Folders that no longer exist are skipped. Call it once, on start.
+   */
+  async restore(mode: RestoreTerminals): Promise<void> {
+    if (this.#closing) return;
+    const saved = this.#history?.read().running ?? [];
+    if (mode === "never" || saved.length === 0) {
+      if (saved.length > 0) this.#persistNow();
+      return;
+    }
+    const restored: Entry[] = [];
+    for (const item of saved) {
+      if (this.#entries.size >= this.#maxTerminals) break;
+      const cwd = this.#folders.directory(item.cwd);
+      if (cwd === null) continue;
+      if (item.startedBy === "program") this.#trustedFolders.add(cwd);
+      const entry = this.#newEntry({
+        id: `t${this.#nextId++}`,
+        command: item.command || null,
+        cwd,
+        title: item.title,
+        cols: DEFAULT_COLS,
+        rows: DEFAULT_ROWS,
+        naming: null,
+        project: { name: item.project ?? "", worktree: item.worktree, branch: item.branch },
+        startedBy: item.startedBy,
+        startedAt: item.startedAt,
+      });
+      if (item.project === null) {
+        entry.info = { ...entry.info, project: null, worktree: null, branch: null };
+      }
+      entry.info = { ...entry.info, status: "exited", stoppedByRestart: true };
+      this.#append(entry, RESTART_NOTE);
+      this.#entries.set(entry.info.id, entry);
+      restored.push(entry);
+    }
+    this.#changed();
+    this.#persistNow();
+    if (mode !== "always") return;
+    for (const entry of restored) {
+      if (this.#closing) return;
+      if (entry.info.command !== "") await this.restart(entry.info.id);
+    }
   }
 
   input(id: string, text: string): Result<void, AppError> {
@@ -290,6 +361,7 @@ export class TerminalManager {
     const entry = this.#entries.get(id);
     if (!entry) return notFound(id);
     if (!entry.process || entry.info.status !== "running") return ok({ ...entry.info });
+    entry.stoppedOnPurpose = true;
     this.#escalate(entry, entry.process);
     return ok({ ...entry.info });
   }
@@ -301,15 +373,35 @@ export class TerminalManager {
     const current = entry.process;
     if (current && entry.info.status === "running") {
       const ended = new Promise<void>((resolve) => current.onExit(() => resolve()));
+      entry.stoppedOnPurpose = true;
       this.#escalate(entry, current);
       await ended;
     }
     this.#append(entry, `\r\n[Studio] restarted: ${entry.info.command || "shell"}\r\n`);
+    if (entry.info.project === null) {
+      const project = await this.#projectOf(entry.info.cwd);
+      if (project) {
+        entry.info = {
+          ...entry.info,
+          project: project.name,
+          worktree: project.worktree ?? null,
+          branch: project.branch ?? null,
+        };
+      }
+    }
     const started = await this.#spawn(entry);
     if (!started.ok) return started;
-    entry.info = { ...entry.info, status: "running", exitCode: null, endedAt: null };
+    entry.stoppedOnPurpose = false;
+    entry.info = {
+      ...entry.info,
+      status: "running",
+      exitCode: null,
+      endedAt: null,
+      stoppedByRestart: false,
+    };
     entry.info.startedAt = this.#now();
     this.#publishStatus(entry);
+    this.#schedulePersist();
     this.#updateWorkspaceWatch();
     if (this.#watchers.size > 0) void this.#refreshPorts();
     return ok({ ...entry.info });
@@ -326,6 +418,7 @@ export class TerminalManager {
     entry.watchers.clear();
     this.#updateWorkspaceWatch();
     this.#changed();
+    this.#schedulePersist();
     return ok(undefined);
   }
 
@@ -346,8 +439,16 @@ export class TerminalManager {
     return ok(() => entry.watchers.delete(watcher));
   }
 
-  /** Studio is stopping: every command gets SIGTERM and SIGKILL right away. */
+  /**
+   * Studio is stopping: the terminals still running are written down for the next start, then
+   * every command gets SIGTERM and SIGKILL right away.
+   */
   closeAll(): void {
+    if (!this.#closing) {
+      this.#persistNow(true);
+      this.#closing = true;
+      clearTimeout(this.#persistTimer);
+    }
     for (const entry of this.#entries.values()) {
       this.#clearTimers(entry);
       if (entry.process && entry.info.status === "running") {
@@ -389,9 +490,114 @@ export class TerminalManager {
       }
       entry.info.ports = [];
       this.#publishStatus(entry);
+      this.#schedulePersist();
       this.#updateWorkspaceWatch();
     });
     return ok(undefined);
+  }
+
+  #newEntry(fields: NewEntry): Entry {
+    const defaultTitle = (fields.command || this.#spawner.shellName || "shell").slice(
+      0,
+      MAX_TITLE_CHARS,
+    );
+    const title = fields.title?.trim().slice(0, MAX_TITLE_CHARS) || defaultTitle;
+    const { id, cols, rows } = fields;
+    return {
+      defaultTitle,
+      info: {
+        id,
+        title,
+        cwd: fields.cwd,
+        command: fields.command ?? "",
+        project: fields.project?.name ?? null,
+        worktree: fields.project?.worktree ?? null,
+        branch: fields.project?.branch ?? null,
+        ports: [],
+        status: "running",
+        exitCode: null,
+        startedAt: fields.startedAt,
+        endedAt: null,
+        pid: null,
+        mode: this.#spawner.mode,
+        cols,
+        rows,
+        nextSeq: 0,
+        naming: fields.naming,
+        startedBy: fields.startedBy,
+        stoppedByRestart: false,
+      },
+      request: {
+        command: fields.command,
+        cwd: fields.cwd,
+        cols,
+        rows,
+        env: {
+          TERM: "xterm-256color",
+          COLUMNS: String(cols),
+          LINES: String(rows),
+          PORTLESS_STUDIO_TERMINAL: id,
+        },
+      },
+      buffer: new OutputBuffer(this.#maxOutput),
+      process: null,
+      stopTimers: [],
+      watchers: new Set(),
+      baseline: null,
+      namingTimer: undefined,
+      stoppedOnPurpose: false,
+    };
+  }
+
+  #recentCommands(): Record<string, string[]> {
+    this.#recent ??= this.#history?.read().recentCommands ?? {};
+    return this.#recent;
+  }
+
+  #schedulePersist(): void {
+    if (!this.#history || this.#closing || this.#persistTimer) return;
+    this.#persistTimer = setTimeout(() => {
+      this.#persistTimer = undefined;
+      this.#persistNow();
+    }, this.#persistDelayMs);
+    this.#persistTimer.unref?.();
+  }
+
+  /**
+   * Writes the terminals that run and the recent commands. When Studio stops, commands that just
+   * ended without anyone asking count as running too.
+   */
+  #persistNow(stopping = false): void {
+    const history = this.#history;
+    if (!history || this.#closing) return;
+    clearTimeout(this.#persistTimer);
+    this.#persistTimer = undefined;
+    const now = this.#now();
+    const running: SavedTerminal[] = [...this.#entries.values()]
+      .filter(
+        (entry) =>
+          entry.info.status === "running" ||
+          entry.info.stoppedByRestart === true ||
+          (stopping &&
+            !entry.stoppedOnPurpose &&
+            entry.info.endedAt !== null &&
+            now - entry.info.endedAt <= RECENT_EXIT_MS),
+      )
+      .map(({ info }) => ({
+        command: info.command,
+        cwd: info.cwd,
+        title: info.title,
+        startedAt: info.startedAt,
+        startedBy: info.startedBy ?? "person",
+        project: info.project,
+        worktree: info.worktree,
+        branch: info.branch,
+      }));
+    try {
+      history.write({ running, recentCommands: this.#recentCommands() });
+    } catch {
+      // A full disk or a read-only config folder: terminals keep working, they just are not kept.
+    }
   }
 
   #escalate(entry: Entry, child: TerminalProcess): void {

@@ -2,6 +2,42 @@
 
 All notable changes are listed here. Versions follow [Semantic Versioning](https://semver.org).
 
+## Unreleased
+
+- The terminal look is configurable: `terminal` in the config (Settings, Terminal) sets the font
+  size (10 to 24, default 12), line height (1 to 2, default 1.2), cursor (`block`, `bar` or
+  `underline`, blinking or not), scrollback (1000 to 100000 lines, default 10000) and colors:
+  `studio` follows the page's light or dark mode with a full 16-color palette, `dark` and `light`
+  stay fixed. Settings shows a live preview, and saving changes open terminals at once.
+
+- Terminals come back after a Studio restart. Studio keeps `terminals.json` next to the config
+  with the terminals that were running (command, folder, title, start time, and whether `run` or
+  an agent started it or a person did) and the last 20 commands per folder. On start they are
+  listed as "Stopped by a Studio restart" with Run again on each and Run all again;
+  `restoreTerminals: "always"` runs their commands again on start (never plain shells) and
+  `"never"` forgets them. New terminal offers the recent commands of each folder. MCP:
+  `list_terminals` lists the stopped ones with `stopped_by_restart` and `started_by`, and the new
+  `restart_terminal` tool runs a terminal again. `GET /api/terminals/recent-commands` returns the
+  recent commands.
+
+- Follow is now Auto-scroll: it keeps the view at the newest output, scrolling up pauses it, and
+  scrolling back to the bottom resumes it. While the view is not at the newest output, a Jump to
+  latest button brings it back. Before, Follow pulled the view down on every line, so scrolling
+  back through a busy log was not possible.
+
+- With three or more terminals the panel shows a list instead of cramped tabs: grouped by project
+  and worktree with the branch, each with its status, title, command, open ports and a close
+  button on hover. The list resizes and collapses (both remembered), has a filter past eight
+  terminals, and becomes a dropdown on narrow screens. While the panel has focus, Ctrl+PageUp and
+  Ctrl+PageDown switch terminals and Ctrl+Shift+W closes the active one.
+
+- In a window 1100 px or wider the terminals open in a resizable pane on the right of the list,
+  and the selected row's terminal shows there. The panel header and Ctrl+K ("Terminal at the
+  bottom", "Terminal on the right") move it; the choice and both sizes are remembered.
+
+- Rows whose port a Studio terminal serves show its status (`running`, `exited 1`) and Logs, Stop
+  and Run again; other rows keep the open-a-shell button.
+
 ## 0.1.3 (2026-10-25)
 
 - Helper ports stay out of the way. A named server's other ports (opened by the same process), Node, V8 and Chrome debuggers (found by their `/json/version` answer, and

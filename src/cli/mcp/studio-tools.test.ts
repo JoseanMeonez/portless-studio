@@ -140,6 +140,7 @@ describe("studio tools", () => {
       "read_terminal",
       "send_to_terminal",
       "stop_terminal",
+      "restart_terminal",
       "focus_studio",
     ]);
     for (const tool of tools().values()) {
@@ -524,6 +525,35 @@ describe("terminal tools", () => {
     expect(writes()).toHaveLength(0);
     await call("stop_terminal", { id: "t3", confirm: true });
     expect(writes().map((request) => request.url)).toEqual(["/api/terminals/t3/stop"]);
+  });
+
+  it("list_terminals lists terminals stopped by a Studio restart and who started each", async () => {
+    const stopped = { ...TERMINAL, id: "t4", status: "exited", stoppedByRestart: true };
+    respond = (request) =>
+      request.url === "/api/session"
+        ? { status: 200, body: { token: TOKEN } }
+        : { status: 200, body: { terminals: [{ ...TERMINAL, startedBy: "program" }, stopped] } };
+    const result = await call("list_terminals");
+    expect(result.summary).toBe(
+      "2 terminals (1 running, 1 stopped by a Studio restart: run it again with restart_terminal).",
+    );
+    expect(result.data).toEqual([
+      expect.objectContaining({ id: "t3", started_by: "program", stopped_by_restart: false }),
+      expect.objectContaining({ id: "t4", stopped_by_restart: true }),
+    ]);
+  });
+
+  it("restart_terminal runs the terminal's command again", async () => {
+    respond = (request) =>
+      request.url === "/api/session"
+        ? { status: 200, body: { token: TOKEN } }
+        : { status: 200, body: TERMINAL };
+    const result = await call("restart_terminal", { id: "t3" });
+    expect(writes().map((request) => request.url)).toEqual(["/api/terminals/t3/restart"]);
+    expect(result.summary).toBe(
+      'Running t3 again in /work/shop: pnpm dev. Read its output with read_terminal {"id": "t3"}.',
+    );
+    expect((await call("restart_terminal", {})).isError).toBe(true);
   });
 
   it("focus_studio asks Studio to show the target and says how", async () => {

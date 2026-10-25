@@ -2,6 +2,7 @@ import {
   API_PATHS,
   type ApiError,
   type CreateTerminalRequest,
+  type RecentCommandsResponse,
   type RenameTerminalRequest,
   type Session,
   TERMINAL_OUTPUT_EVENT,
@@ -104,6 +105,13 @@ export class HttpTerminalsGateway implements TerminalsGateway {
     if (!result.ok) return result;
     const data = (result.value as Partial<TerminalOutputResponse> | null)?.data;
     return ok(typeof data === "string" ? data : "");
+  }
+
+  async recentCommands(): Promise<Result<Record<string, string[]>, ApiError>> {
+    const result = await this.#send(API_PATHS.terminalsRecentCommands, "GET");
+    if (!result.ok) return result;
+    const recent = (result.value as Partial<RecentCommandsResponse> | null)?.recentCommands;
+    return ok(typeof recent === "object" && recent !== null ? recent : {});
   }
 
   stream(id: string, from: number, handlers: TerminalStreamHandlers): () => void {

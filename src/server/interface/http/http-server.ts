@@ -8,6 +8,7 @@ import {
   INCLUDE_STUDIO_PARAM,
   type OpenWithAppsResponse,
   type ProxyAction,
+  type RecentCommandsResponse,
   type RenameAliasRequest,
   type Session,
   STUDIO_HEADER,
@@ -301,6 +302,10 @@ export function createHttpServer(options: HttpServerOptions): HttpServer {
       });
       if (!created.ok) return sendAppError(res, created.error);
       return sendJson(res, 201, created.value);
+    }
+    if (pathname === API_PATHS.terminalsRecentCommands && method === "GET") {
+      const body: RecentCommandsResponse = { recentCommands: terminals.recentCommands() };
+      return sendJson(res, 200, body);
     }
     if (pathname === API_PATHS.terminalsEvents && method === "GET") {
       terminalStreams.list(res);

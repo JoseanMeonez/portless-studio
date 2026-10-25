@@ -42,3 +42,10 @@
     padding: 0;
   }
 }
+
+.waiting {
+  width: var(--dot-size);
+  height: var(--dot-size);
+  border-radius: var(--radius-full);
+  background: var(--color-warning);
+}

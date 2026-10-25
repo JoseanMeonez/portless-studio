@@ -9,22 +9,35 @@ const FALCON = "/home/dev/code/acme-falcon";
 
 /** Stands in for xterm.js, which needs a real browser: records what it is given. */
 function fakeEngine() {
-  const screens: { written: string[]; type(text: string): void; disposed: boolean }[] = [];
+  const screens: {
+    written: string[];
+    type(text: string): void;
+    disposed: boolean;
+    options: Record<string, unknown>;
+  }[] = [];
   const engine: TerminalEngine = {
     createTerminal: () => {
       let onData: (text: string) => void = () => {};
+      const options: Record<string, unknown> = {};
       const screen = {
         written: [] as string[],
         disposed: false,
+        options,
         type: (text: string) => onData(text),
       };
       screens.push(screen);
       const terminal = {
-        options: {},
+        options,
+        buffer: { active: { viewportY: 0, baseY: 0 } },
         loadAddon: () => {},
         open: () => {},
-        write: (text: string) => screen.written.push(text),
+        write: (text: string, done?: () => void) => {
+          screen.written.push(text);
+          done?.();
+        },
         scrollToBottom: () => {},
+        scrollToLine: () => {},
+        onScroll: () => ({ dispose: () => {} }),
         onData: (listener: (text: string) => void) => {
           onData = listener;
           return { dispose: () => {} };
@@ -58,6 +71,15 @@ async function routeRow(name: string): Promise<HTMLElement> {
     .find((item) => item.querySelector("a")?.textContent === name);
   if (!row) throw new Error(`no row for ${name}`);
   return row;
+}
+
+/** Makes the window wide enough for the right pane. */
+function wideWindow() {
+  const original = window.matchMedia;
+  vi.spyOn(window, "matchMedia").mockImplementation((query: string) => ({
+    ...original(query),
+    matches: query === "(min-width: 1100px)",
+  }));
 }
 
 const panel = () => screen.findByRole("region", { name: "Terminals" });
@@ -146,16 +168,19 @@ describe("terminal panel", () => {
   });
 
   it("remembers its dock and size", async () => {
+    wideWindow();
     const { user, view } = setup();
     await user.click(await screen.findByRole("button", { name: /Show terminals/ }));
+    // A wide window starts with the pane on the right of the list.
+    expect((await panel()).getAttribute("data-dock")).toBe("right");
+    await user.click(screen.getByRole("button", { name: "Terminal at the bottom" }));
     const handle = await screen.findByRole("separator", { name: "Resize the terminal panel" });
     handle.focus();
     await user.keyboard("{ArrowUp}");
-    await user.click(screen.getByRole("button", { name: "Dock on the right" }));
     view.unmount();
     setup();
     const again = await panel();
-    expect(again.getAttribute("data-dock")).toBe("right");
+    expect(again.getAttribute("data-dock")).toBe("bottom");
     expect(again.style.getPropertyValue("--panel-size")).toBe("344px");
   });
 });
@@ -293,7 +318,10 @@ describe("terminal button on rows", () => {
       terminals.update("t1", { ports: [{ port: 6006, route: "storybook", url: null }] });
     });
     const row = await routeRow("storybook");
-    await user.click(within(row).getByRole("button", { name: "Open a terminal for storybook" }));
+    expect(
+      within(row).getByRole("button", { name: /Terminal of storybook: running/ }),
+    ).toBeTruthy();
+    await user.click(within(row).getByRole("button", { name: "Logs of storybook" }));
     expect(
       within(await panel())
         .getByRole("tab", { name: "pnpm storybook" })
@@ -380,5 +408,243 @@ describe("focus requests", () => {
           .getAttribute("aria-selected"),
       ).toBe("true"),
     );
+  });
+});
+
+describe("terminal list", () => {
+  async function threeTerminals(terminals: InMemoryTerminalsGateway) {
+    await act(async () => {
+      await terminals.create({ cwd: FALCON, command: "pnpm dev", title: "web" });
+      await terminals.create({ cwd: FALCON, command: "pnpm test" });
+      await terminals.create({ cwd: "/home/dev/code/acme", command: "pnpm api" });
+      terminals.update("t1", {
+        project: "acme-monorepo",
+        worktree: "falcon",
+        branch: "fix/dark-mode",
+        ports: [{ port: 6006, route: "storybook", url: null }],
+      });
+      terminals.update("t2", { project: "acme-monorepo", worktree: "falcon" });
+    });
+  }
+
+  it("lists several terminals by worktree with their command and ports, and switches", async () => {
+    const { terminals, user } = setup();
+    await threeTerminals(terminals);
+    await user.click(screen.getByRole("button", { name: /Show terminals/ }));
+    const terminalsPanel = await panel();
+    const list = within(terminalsPanel).getByRole("tablist", { name: "Open terminals" });
+    expect(list.getAttribute("aria-orientation")).toBe("vertical");
+    const falcon = within(list).getByRole("group", { name: "acme-monorepo / falcon" });
+    expect(falcon.textContent).toContain("fix/dark-mode");
+    expect(falcon.textContent).toContain("pnpm dev");
+    expect(within(falcon).getByTitle("1 open ports")).toBeTruthy();
+    await user.click(within(list).getByRole("tab", { name: "web" }));
+    expect(within(list).getByRole("tab", { name: "web" }).getAttribute("aria-selected")).toBe(
+      "true",
+    );
+    expect(within(terminalsPanel).queryByLabelText("Filter terminals")).toBeNull();
+  });
+
+  it("switches with Ctrl+PageDown and Ctrl+PageUp and closes with Ctrl+Shift+W", async () => {
+    const { terminals, user } = setup();
+    await threeTerminals(terminals);
+    await user.click(screen.getByRole("button", { name: /Show terminals/ }));
+    const list = within(await panel()).getByRole("tablist", { name: "Open terminals" });
+    const selected = () =>
+      within(list)
+        .getAllByRole("tab")
+        .find((tab) => tab.getAttribute("aria-selected") === "true")
+        ?.getAttribute("aria-label");
+    within(list).getByRole("tab", { name: "web" }).focus();
+    await user.click(within(list).getByRole("tab", { name: "web" }));
+    await user.keyboard("{Control>}{PageDown}{/Control}");
+    expect(selected()).toBe("pnpm test");
+    await user.keyboard("{Control>}{PageUp}{PageUp}{/Control}");
+    expect(selected()).toBe("pnpm api");
+    await user.keyboard("{Control>}{Shift>}W{/Shift}{/Control}");
+    // Two terminals left: they go back to header tabs.
+    await waitFor(async () =>
+      expect(within(await panel()).queryByRole("tab", { name: "pnpm api" })).toBeNull(),
+    );
+    expect(within(await panel()).getAllByRole("tab")).toHaveLength(2);
+  });
+
+  it("filters the list once there are more than eight terminals", async () => {
+    const { terminals, user } = setup();
+    await act(async () => {
+      for (let index = 1; index <= 9; index += 1) {
+        await terminals.create({ cwd: FALCON, command: `job ${index}` });
+      }
+    });
+    await user.click(screen.getByRole("button", { name: /Show terminals/ }));
+    const terminalsPanel = await panel();
+    await user.type(within(terminalsPanel).getByLabelText("Filter terminals"), "job 7");
+    expect(
+      within(terminalsPanel)
+        .getAllByRole("tab")
+        .map((tab) => tab.textContent),
+    ).toEqual(["job 7job 7"]);
+  });
+
+  it("collapses the list into a dropdown, and remembers it", async () => {
+    const { terminals, user, view } = setup();
+    await threeTerminals(terminals);
+    await user.click(screen.getByRole("button", { name: /Show terminals/ }));
+    await user.click(within(await panel()).getByRole("button", { name: "Hide the terminal list" }));
+    const dropdown = within(await panel()).getByRole("combobox", { name: "Terminal" });
+    await user.selectOptions(dropdown, "t1");
+    expect((dropdown as HTMLSelectElement).value).toBe("t1");
+    view.unmount();
+    const again = setup();
+    await threeTerminals(again.terminals);
+    expect(within(await panel()).getByRole("combobox", { name: "Terminal" })).toBeTruthy();
+  });
+
+  it("shows a dropdown instead of the list on a narrow screen", async () => {
+    const original = window.matchMedia;
+    vi.spyOn(window, "matchMedia").mockImplementation((query: string) => ({
+      ...original(query),
+      matches: query === "(max-width: 480px)",
+    }));
+    const { terminals, user } = setup();
+    await threeTerminals(terminals);
+    await user.click(screen.getByRole("button", { name: /Show terminals/ }));
+    const terminalsPanel = await panel();
+    expect(within(terminalsPanel).queryByRole("tablist")).toBeNull();
+    expect(within(terminalsPanel).getByRole("combobox", { name: "Terminal" })).toBeTruthy();
+  });
+});
+
+describe("terminals stopped by a Studio restart", () => {
+  it("says so and runs them all again", async () => {
+    const { terminals, user } = setup();
+    act(() => {
+      terminals.addStopped({ cwd: FALCON, command: "pnpm dev" });
+      terminals.addStopped({ cwd: FALCON, command: "pnpm worker" });
+    });
+    await user.click(screen.getByRole("button", { name: /stopped by a Studio restart/ }));
+    const terminalsPanel = await panel();
+    expect(within(terminalsPanel).getByText("Stopped by a Studio restart")).toBeTruthy();
+    expect(
+      within(terminalsPanel).getByText("2 terminals were stopped by a Studio restart."),
+    ).toBeTruthy();
+    await user.click(within(terminalsPanel).getByRole("button", { name: "Run all again" }));
+    await waitFor(() =>
+      expect(within(terminalsPanel).queryByText(/stopped by a Studio restart/)).toBeNull(),
+    );
+    expect(within(terminalsPanel).getByText("Running")).toBeTruthy();
+  });
+});
+
+describe("auto-scroll", () => {
+  it("says what it does and turns on and off", async () => {
+    const { terminals, user } = setup();
+    await act(() => terminals.create({ cwd: FALCON, command: "pnpm dev" }));
+    await user.click(screen.getByRole("button", { name: /Show terminals/ }));
+    const toggle = within(await panel()).getByRole("button", { name: "Auto-scroll" });
+    expect(toggle.getAttribute("title")).toBe(
+      "Keep the view at the newest output; scrolling up pauses it",
+    );
+    expect(toggle.getAttribute("aria-pressed")).toBe("true");
+    await user.click(toggle);
+    expect(toggle.getAttribute("aria-pressed")).toBe("false");
+  });
+});
+
+describe("recent commands", () => {
+  it("offers the last commands of each folder in New terminal", async () => {
+    const { terminals, user } = setup();
+    terminals.recent = { [FALCON]: ["pnpm storybook"] };
+    await screen.findByRole("list", { name: "Routes" });
+    await user.keyboard("{Control>}`{/Control}");
+    const picker = await screen.findByRole("dialog", { name: "New terminal" });
+    await user.click(within(picker).getByRole("option", { name: /pnpm storybook/ }));
+    await waitFor(() =>
+      expect(terminals.created).toEqual([{ cwd: FALCON, command: "pnpm storybook" }]),
+    );
+  });
+
+  it("suggests them for the chosen folder in the panel's form", async () => {
+    const { terminals, user } = setup();
+    terminals.recent = { [FALCON]: ["pnpm test"] };
+    await user.click(await screen.findByRole("button", { name: /Show terminals/ }));
+    const form = await screen.findByRole("form", { name: "New terminal" });
+    await user.selectOptions(within(form).getByLabelText("Project folder"), FALCON);
+    const recent = await within(form).findByRole("group", { name: "Recent commands" });
+    await user.click(within(recent).getByRole("button", { name: "pnpm test" }));
+    await waitFor(() => expect(terminals.created).toEqual([{ cwd: FALCON, command: "pnpm test" }]));
+  });
+});
+
+describe("terminals on rows", () => {
+  it("shows the status of a row's terminal and stops it or runs it again from the row", async () => {
+    const { terminals, user } = setup();
+    await act(async () => {
+      await terminals.create({ cwd: FALCON, command: "pnpm storybook" });
+      terminals.update("t1", { ports: [{ port: 6006, route: "storybook", url: null }] });
+    });
+    const row = await routeRow("storybook");
+    await user.click(within(row).getByRole("button", { name: "Stop the terminal of storybook" }));
+    expect(
+      await within(await routeRow("storybook")).findByRole("button", {
+        name: /Terminal of storybook: exited 130/,
+      }),
+    ).toBeTruthy();
+    await user.click(
+      within(await routeRow("storybook")).getByRole("button", {
+        name: "Run the terminal of storybook again",
+      }),
+    );
+    expect(
+      await within(await routeRow("storybook")).findByRole("button", {
+        name: /Terminal of storybook: running/,
+      }),
+    ).toBeTruthy();
+  });
+});
+
+describe("right pane", () => {
+  it("shows the terminal of the selected row and moves to the bottom from the command menu", async () => {
+    wideWindow();
+    const { terminals, user } = setup();
+    await act(async () => {
+      await terminals.create({ cwd: FALCON, command: "pnpm storybook" });
+      await terminals.create({ cwd: FALCON, command: "pnpm web" });
+      terminals.update("t1", { ports: [{ port: 6006, route: "storybook", url: null }] });
+      terminals.update("t2", { ports: [{ port: 3000, route: "web.acme", url: null }] });
+    });
+    await user.click(screen.getByRole("button", { name: /Show terminals/ }));
+    const terminalsPanel = await panel();
+    expect(terminalsPanel.getAttribute("data-dock")).toBe("right");
+    await user.click(await routeRow("storybook"));
+    await waitFor(() =>
+      expect(
+        within(terminalsPanel)
+          .getByRole("tab", { name: "pnpm storybook" })
+          .getAttribute("aria-selected"),
+      ).toBe("true"),
+    );
+    await user.keyboard("{Control>}k{/Control}");
+    await user.click(await screen.findByRole("option", { name: /Terminal at the bottom/ }));
+    await waitFor(async () => expect((await panel()).getAttribute("data-dock")).toBe("bottom"));
+  });
+});
+
+describe("terminal look", () => {
+  it("applies the font size saved in Settings to the open terminal at once", async () => {
+    const { terminals, screens, user } = setup();
+    await act(() => terminals.create({ cwd: FALCON, command: "pnpm dev" }));
+    await user.click(screen.getByRole("button", { name: /Show terminals/ }));
+    await waitFor(() => expect(screens).toHaveLength(1));
+    await user.click(screen.getByRole("button", { name: "Settings" }));
+    const dialog = await screen.findByRole("dialog", { name: "Settings" });
+    const size = await within(dialog).findByLabelText("Font size");
+    await user.clear(size);
+    await user.type(size, "16");
+    expect(within(dialog).getByTestId("terminal-preview").style.fontSize).toBe("16px");
+    await user.selectOptions(within(dialog).getByLabelText("Colors"), "dark");
+    await user.click(within(dialog).getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(screens[0]?.options.fontSize).toBe(16));
+    expect(screens[0]?.disposed).toBe(false);
   });
 });

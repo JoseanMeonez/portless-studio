@@ -1,6 +1,7 @@
 import type { ApiError, CreateTerminalRequest } from "../../../../core/api/contract.ts";
 import { err, ok, type Result } from "../../../../core/result.ts";
 import type { TerminalInfo } from "../../../../core/terminals/terminal.ts";
+import { rememberCommand } from "../../../../core/terminals/terminal-history.ts";
 import type { TerminalStreamHandlers, TerminalsGateway } from "./terminals-gateway.ts";
 
 type Entry = { info: TerminalInfo; output: string; watchers: Set<TerminalStreamHandlers> };
@@ -20,6 +21,8 @@ export class InMemoryTerminalsGateway implements TerminalsGateway {
   readonly created: CreateTerminalRequest[] = [];
   /** Requests `createInFolder` received; tests read them. */
   readonly picked: CreateTerminalRequest[] = [];
+  /** The last commands per folder, newest first; tests and the demo can set it. */
+  recent: Record<string, string[]> = {};
   /** Whether a typed folder exists; tests replace it. */
   folderExists: (path: string) => boolean = (path) => path.startsWith("/") || path.startsWith("~");
 
@@ -74,6 +77,7 @@ export class InMemoryTerminalsGateway implements TerminalsGateway {
     if (cwd === "") return err({ error: "invalid_request", message: "Give a folder." });
     const id = `t${this.#nextId++}`;
     const command = request.command?.trim() ?? "";
+    if (command) this.recent = rememberCommand(this.recent, cwd, command);
     const info: TerminalInfo = {
       id,
       title: request.title ?? (command || "shell"),
@@ -93,6 +97,8 @@ export class InMemoryTerminalsGateway implements TerminalsGateway {
       rows: request.rows ?? 30,
       nextSeq: 0,
       naming: null,
+      startedBy: "person",
+      stoppedByRestart: false,
     };
     this.#entries.set(id, { info, output: "", watchers: new Set() });
     this.write(id, command ? `$ ${command}\r\n` : "$ ");
@@ -121,7 +127,13 @@ export class InMemoryTerminalsGateway implements TerminalsGateway {
   async restart(id: string): Promise<Result<TerminalInfo, ApiError>> {
     const entry = this.#entries.get(id);
     if (!entry) return notFound(id);
-    entry.info = { ...entry.info, status: "running", exitCode: null, endedAt: null };
+    entry.info = {
+      ...entry.info,
+      status: "running",
+      exitCode: null,
+      endedAt: null,
+      stoppedByRestart: false,
+    };
     this.write(id, `\r\n[Studio] restarted: ${entry.info.command || "shell"}\r\n`);
     this.#publishStatus(entry);
     return ok({ ...entry.info });
@@ -138,6 +150,10 @@ export class InMemoryTerminalsGateway implements TerminalsGateway {
     return entry ? ok(entry.output) : notFound(id);
   }
 
+  async recentCommands(): Promise<Result<Record<string, string[]>, ApiError>> {
+    return ok(structuredClone(this.recent));
+  }
+
   stream(id: string, from: number, handlers: TerminalStreamHandlers): () => void {
     const entry = this.#entries.get(id);
     if (!entry) return () => {};
@@ -146,6 +162,38 @@ export class InMemoryTerminalsGateway implements TerminalsGateway {
     handlers.onStatus({ ...entry.info });
     entry.watchers.add(handlers);
     return () => entry.watchers.delete(handlers);
+  }
+
+  /** Adds a terminal that a Studio restart stopped, waiting for Run again, as Studio lists them. */
+  addStopped(request: CreateTerminalRequest & { cwd: string }): TerminalInfo {
+    const id = `t${this.#nextId++}`;
+    const command = request.command?.trim() ?? "";
+    const info: TerminalInfo = {
+      id,
+      title: request.title ?? (command || "shell"),
+      cwd: request.cwd,
+      command,
+      project: request.project ?? null,
+      worktree: null,
+      branch: null,
+      ports: [],
+      status: "exited",
+      exitCode: null,
+      startedAt: this.#now(),
+      endedAt: null,
+      pid: null,
+      mode: "pty",
+      cols: 120,
+      rows: 30,
+      nextSeq: 0,
+      naming: null,
+      startedBy: "program",
+      stoppedByRestart: true,
+    };
+    this.#entries.set(id, { info, output: "", watchers: new Set() });
+    this.write(id, "\r\n[Studio] Stopped by a Studio restart. Run it again to start it.\r\n");
+    this.#publishList();
+    return { ...info };
   }
 
   /** Adds output, as a running command would. */

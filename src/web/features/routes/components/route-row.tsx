@@ -9,6 +9,9 @@ import { ProjectLocation } from "./project-location.tsx";
 import { RouteHealthDot } from "./route-health-dot.tsx";
 import styles from "./route-row.module.css";
 import { type MenuPoint, rowMenuTrigger } from "./row-menu-trigger.ts";
+import type { RowTerminal } from "./row-terminal.ts";
+import { RowTerminalActions } from "./row-terminal-actions.tsx";
+import { RowTerminalStatus } from "./row-terminal-status.tsx";
 import { TunnelLinks } from "./tunnel-links.tsx";
 
 export type RouteRowProps = {
@@ -35,6 +38,8 @@ export type RouteRowProps = {
   onCopyDirectUrl: () => void;
   /** Shows the terminal of the route's folder, or opens a shell there; hidden without it. */
   onOpenTerminal?: (() => void) | undefined;
+  /** The Studio terminal serving the route's port: a status chip and its actions. */
+  terminal?: RowTerminal | null | undefined;
 };
 
 export type RowConfirmation = "remove" | "stop";
@@ -58,6 +63,7 @@ export function RouteRow({
   onMenu,
   onCopyDirectUrl,
   onOpenTerminal,
+  terminal,
 }: RouteRowProps) {
   const uptime = formatUptime(route.registeredAt, now);
   const isAlias = route.kind === "alias";
@@ -90,6 +96,7 @@ export function RouteRow({
               <Icon name="star" size={12} />
             </span>
           ) : null}
+          {terminal ? <RowTerminalStatus terminal={terminal} label={route.name} /> : null}
         </span>
         <span className={styles.url}>{route.url.replace(/^https?:\/\//, "")}</span>
         <DirectUrl port={route.port} onCopy={onCopyDirectUrl} />
@@ -168,7 +175,9 @@ export function RouteRow({
           >
             <Icon name="copy" size={14} />
           </Button>
-          {onOpenTerminal ? (
+          {terminal ? (
+            <RowTerminalActions terminal={terminal} label={route.name} />
+          ) : onOpenTerminal ? (
             <Button
               size="xs"
               variant="ghost"
@@ -180,7 +189,7 @@ export function RouteRow({
               <Icon name="terminal" size={14} />
             </Button>
           ) : null}
-          {route.listenerPid !== undefined ? (
+          {route.listenerPid !== undefined && !terminal?.running ? (
             <Button
               size="xs"
               variant="ghost"

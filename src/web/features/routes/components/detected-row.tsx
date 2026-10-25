@@ -8,6 +8,9 @@ import styles from "./detected-row.module.css";
 import { DirectUrl } from "./direct-url.tsx";
 import { ProjectLocation } from "./project-location.tsx";
 import { type MenuPoint, rowMenuTrigger } from "./row-menu-trigger.ts";
+import type { RowTerminal } from "./row-terminal.ts";
+import { RowTerminalActions } from "./row-terminal-actions.tsx";
+import { RowTerminalStatus } from "./row-terminal-status.tsx";
 
 type DetectedRowProps = {
   detected: DetectedPort;
@@ -25,6 +28,8 @@ type DetectedRowProps = {
   onCopyDirectUrl: (port: number) => void;
   /** Shows the terminal running this server, or opens a shell in its folder; hidden without it. */
   onOpenTerminal?: (() => void) | undefined;
+  /** The Studio terminal serving this port: a status chip and its actions. */
+  terminal?: RowTerminal | null | undefined;
 };
 
 /** One port that answers HTTP but has no name: what runs there and the name Studio suggests. */
@@ -39,6 +44,7 @@ export function DetectedRow({
   onMenu,
   onCopyDirectUrl,
   onOpenTerminal,
+  terminal,
 }: DetectedRowProps) {
   const { port, pid, processName, cwd, suggestedName, container } = detected;
   const stopTarget = container ? `container ${container.name}` : processName || "the server";
@@ -59,6 +65,7 @@ export function DetectedRow({
           ) : (
             <span className={styles.noSuggestion}>No name suggested</span>
           )}
+          {terminal ? <RowTerminalStatus terminal={terminal} label={`port ${port}`} /> : null}
         </span>
         <span className={styles.process}>
           {container ? (
@@ -110,7 +117,9 @@ export function DetectedRow({
         </div>
       ) : (
         <div className={styles.actions}>
-          {onOpenTerminal ? (
+          {terminal ? (
+            <RowTerminalActions terminal={terminal} label={`port ${port}`} />
+          ) : onOpenTerminal ? (
             <Button
               size="xs"
               variant="ghost"
@@ -122,7 +131,7 @@ export function DetectedRow({
               <Icon name="terminal" size={14} />
             </Button>
           ) : null}
-          {pid !== null || container ? (
+          {(pid !== null || container) && !terminal?.running ? (
             <Button
               size="xs"
               variant="ghost"

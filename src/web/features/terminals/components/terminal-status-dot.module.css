@@ -1,0 +1,19 @@
+.dot {
+  flex-shrink: 0;
+  width: var(--dot-size);
+  height: var(--dot-size);
+  border-radius: var(--radius-full);
+  background: var(--color-text-tertiary);
+}
+
+.dot[data-status="running"] {
+  background: var(--color-success);
+}
+
+.dot[data-status="failed"] {
+  background: var(--color-danger);
+}
+
+.dot[data-status="restart"] {
+  background: var(--color-warning);
+}

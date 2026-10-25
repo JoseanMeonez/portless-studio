@@ -10,6 +10,8 @@ type NewTerminalFormProps = {
   folders: readonly TerminalFolder[];
   initialPath?: string | undefined;
   busy: boolean;
+  /** The last commands per folder, offered as one-click suggestions for the chosen one. */
+  recentCommands?: Readonly<Record<string, readonly string[]>>;
   onSubmit: (request: { cwd: string; command: string }) => void;
   onCancel: () => void;
 };
@@ -19,6 +21,7 @@ export function NewTerminalForm({
   folders,
   initialPath,
   busy,
+  recentCommands = {},
   onSubmit,
   onCancel,
 }: NewTerminalFormProps) {
@@ -72,6 +75,24 @@ export function NewTerminalForm({
         value={command}
         onChange={(event) => setCommand(event.target.value)}
       />
+      {(recentCommands[path] ?? []).length > 0 ? (
+        // biome-ignore lint/a11y/useSemanticElements: a fieldset is for form controls; these run at once.
+        <div className={styles.recent} role="group" aria-label="Recent commands">
+          <span className={styles.recentLabel}>Recent</span>
+          {(recentCommands[path] ?? []).slice(0, 6).map((recent) => (
+            <button
+              key={recent}
+              type="button"
+              className={styles.recentCommand}
+              title={`Run ${recent}`}
+              disabled={busy}
+              onClick={() => onSubmit({ cwd: path, command: recent })}
+            >
+              {recent}
+            </button>
+          ))}
+        </div>
+      ) : null}
       <div className={styles.buttons}>
         <Button size="sm" variant="ghost" onClick={onCancel}>
           Cancel

@@ -1,3 +1,4 @@
+import type { StudioConfig } from "../../../../core/config/studio-config.ts";
 import { SettingsDialog } from "../components/settings-dialog.tsx";
 import { useRouteActions } from "../hooks/use-route-actions.ts";
 import { useSettingsForm } from "../hooks/use-settings-form.ts";
@@ -7,12 +8,20 @@ import { CustomAppsContainer } from "./custom-apps-container.tsx";
 export function SettingsDialogContainer({
   projects,
   onClose,
+  onSaved,
 }: {
   /** Projects the dashboard shows, offered in the icon settings. */
   projects: readonly string[];
   onClose: () => void;
+  /** Gets the config that was saved. */
+  onSaved?: ((config: StudioConfig) => void) | undefined;
 }) {
-  const form = useSettingsForm({ onSaved: onClose });
+  const form = useSettingsForm({
+    onSaved: (config) => {
+      onSaved?.(config);
+      onClose();
+    },
+  });
   const actions = useRouteActions();
   return (
     <SettingsDialog

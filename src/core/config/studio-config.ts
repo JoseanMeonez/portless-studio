@@ -3,6 +3,27 @@ import { projectIconKind } from "../projects/project-icon.ts";
 import { err, ok, type Result } from "../result.ts";
 import { DEFAULT_VIEW, isItemKey, parseViews, type View } from "../views/view.ts";
 
+/** How the terminal panel draws text. See docs/terminals.md. */
+export type TerminalAppearance = {
+  /** Pixels, 10 to 24. */
+  fontSize: number;
+  /** Line height as a multiple of the font size, 1 to 2. */
+  lineHeight: number;
+  cursorStyle: "block" | "bar" | "underline";
+  cursorBlink: boolean;
+  /** Lines kept above the screen, 1000 to 100000. */
+  scrollback: number;
+  /** `studio` follows the page's light or dark mode; `dark` and `light` stay fixed. */
+  theme: "studio" | "dark" | "light";
+};
+
+/**
+ * What Studio does on start with the terminals that were running when it stopped: list them with
+ * a Run again button (`ask`), run their commands again (`always`, never plain shells), or forget
+ * them (`never`).
+ */
+export type RestoreTerminals = "ask" | "always" | "never";
+
 /** Settings people edit in the JSON file or in the settings panel. Every field has a default. */
 export type StudioConfig = {
   /** Port the Studio server listens on. */
@@ -79,6 +100,19 @@ export type StudioConfig = {
    * helper ports of tools like wrangler; they still show under "Other ports".
    */
   showEphemeralPorts: boolean;
+  /** Font, cursor, scrollback and colors of the terminal panel. */
+  terminal: TerminalAppearance;
+  /** Terminals that were running when Studio stopped; see `RestoreTerminals`. */
+  restoreTerminals: RestoreTerminals;
+};
+
+export const DEFAULT_TERMINAL_APPEARANCE: TerminalAppearance = {
+  fontSize: 12,
+  lineHeight: 1.2,
+  cursorStyle: "block",
+  cursorBlink: true,
+  scrollback: 10_000,
+  theme: "studio",
 };
 
 export const DEFAULT_CONFIG: StudioConfig = {
@@ -118,6 +152,8 @@ export const DEFAULT_CONFIG: StudioConfig = {
   shortUrls: false,
   showStudioRoute: false,
   showEphemeralPorts: false,
+  terminal: DEFAULT_TERMINAL_APPEARANCE,
+  restoreTerminals: "ask",
 };
 
 const MIN_SCAN_INTERVAL_MS = 1000;
@@ -236,7 +272,73 @@ export function parseConfig(input: unknown): Result<StudioConfig, string> {
     config.nameTemplate = template;
   }
 
+  if (raw.terminal !== undefined) {
+    const terminal = parseTerminalAppearance(raw.terminal);
+    if (!terminal.ok) return terminal;
+    config.terminal = terminal.value;
+  }
+
+  if (raw.restoreTerminals !== undefined) {
+    const value = raw.restoreTerminals;
+    if (value !== "ask" && value !== "always" && value !== "never") {
+      return err(`"restoreTerminals" must be "ask", "always" or "never".`);
+    }
+    config.restoreTerminals = value;
+  }
+
   return ok(config);
+}
+
+function parseTerminalAppearance(input: unknown): Result<TerminalAppearance, string> {
+  if (typeof input !== "object" || input === null || Array.isArray(input)) {
+    return err(`"terminal" must be an object.`);
+  }
+  const raw = input as Record<string, unknown>;
+  const terminal: TerminalAppearance = { ...DEFAULT_TERMINAL_APPEARANCE };
+  if (raw.fontSize !== undefined) {
+    if (!isWholeBetween(raw.fontSize, 10, 24)) {
+      return err(`"terminal.fontSize" must be a whole number from 10 to 24.`);
+    }
+    terminal.fontSize = raw.fontSize;
+  }
+  if (raw.lineHeight !== undefined) {
+    const value = raw.lineHeight;
+    if (typeof value !== "number" || !Number.isFinite(value) || value < 1 || value > 2) {
+      return err(`"terminal.lineHeight" must be a number from 1 to 2.`);
+    }
+    terminal.lineHeight = value;
+  }
+  if (raw.cursorStyle !== undefined) {
+    const value = raw.cursorStyle;
+    if (value !== "block" && value !== "bar" && value !== "underline") {
+      return err(`"terminal.cursorStyle" must be "block", "bar" or "underline".`);
+    }
+    terminal.cursorStyle = value;
+  }
+  if (raw.cursorBlink !== undefined) {
+    if (typeof raw.cursorBlink !== "boolean") {
+      return err(`"terminal.cursorBlink" must be true or false.`);
+    }
+    terminal.cursorBlink = raw.cursorBlink;
+  }
+  if (raw.scrollback !== undefined) {
+    if (!isWholeBetween(raw.scrollback, 1000, 100_000)) {
+      return err(`"terminal.scrollback" must be a whole number from 1000 to 100000.`);
+    }
+    terminal.scrollback = raw.scrollback;
+  }
+  if (raw.theme !== undefined) {
+    const value = raw.theme;
+    if (value !== "studio" && value !== "dark" && value !== "light") {
+      return err(`"terminal.theme" must be "studio", "dark" or "light".`);
+    }
+    terminal.theme = value;
+  }
+  return ok(terminal);
+}
+
+function isWholeBetween(value: unknown, min: number, max: number): value is number {
+  return typeof value === "number" && Number.isInteger(value) && value >= min && value <= max;
 }
 
 /** Empty names and values are dropped, so clearing a field in the panel removes its icon. */

@@ -95,6 +95,73 @@
   --shadow-overlay:
     0 1px 1px rgb(0 0 0 / 0.02), 0 8px 24px rgb(0 0 0 / 0.08), 0 24px 48px rgb(0 0 0 / 0.06);
   --focus-ring: 0 0 0 2px var(--color-bg), 0 0 0 4px var(--color-accent-ring);
+
+  /*
+   * Terminal colors. The fixed light and dark sets back the "light" and "dark" terminal themes;
+   * the --term-* set the "studio" theme reads follows the page, like every other color.
+   */
+  --term-light-background: #ffffff;
+  --term-light-foreground: #171717;
+  --term-light-cursor: #006bff;
+  --term-light-selection: #cfe2ff;
+  --term-light-black: #171717;
+  --term-light-red: #c42b31;
+  --term-light-green: #0b7a3b;
+  --term-light-yellow: #8a5a00;
+  --term-light-blue: #0060e6;
+  --term-light-magenta: #9a33b8;
+  --term-light-cyan: #08788a;
+  --term-light-white: #6e6e6e;
+  --term-light-bright-black: #5c5c5c;
+  --term-light-bright-red: #e5484d;
+  --term-light-bright-green: #12a150;
+  --term-light-bright-yellow: #b07800;
+  --term-light-bright-blue: #3d8bff;
+  --term-light-bright-magenta: #b65fd1;
+  --term-light-bright-cyan: #0b97ad;
+  --term-light-bright-white: #8f8f8f;
+
+  --term-dark-background: #111111;
+  --term-dark-foreground: #ededed;
+  --term-dark-cursor: #52a8ff;
+  --term-dark-selection: #1f3a5f;
+  --term-dark-black: #2e2e2e;
+  --term-dark-red: #ff6b70;
+  --term-dark-green: #3ecf8e;
+  --term-dark-yellow: #f5b638;
+  --term-dark-blue: #52a8ff;
+  --term-dark-magenta: #d08bf2;
+  --term-dark-cyan: #3dc7d9;
+  --term-dark-white: #d4d4d4;
+  --term-dark-bright-black: #737373;
+  --term-dark-bright-red: #ff8589;
+  --term-dark-bright-green: #5fdba2;
+  --term-dark-bright-yellow: #f5c56a;
+  --term-dark-bright-blue: #7cbcff;
+  --term-dark-bright-magenta: #e0aaf8;
+  --term-dark-bright-cyan: #7ad9e6;
+  --term-dark-bright-white: #ffffff;
+
+  --term-background: var(--color-bg-subtle);
+  --term-foreground: var(--color-text);
+  --term-cursor: var(--color-accent);
+  --term-selection: var(--term-light-selection);
+  --term-black: var(--term-light-black);
+  --term-red: var(--term-light-red);
+  --term-green: var(--term-light-green);
+  --term-yellow: var(--term-light-yellow);
+  --term-blue: var(--term-light-blue);
+  --term-magenta: var(--term-light-magenta);
+  --term-cyan: var(--term-light-cyan);
+  --term-white: var(--term-light-white);
+  --term-bright-black: var(--term-light-bright-black);
+  --term-bright-red: var(--term-light-bright-red);
+  --term-bright-green: var(--term-light-bright-green);
+  --term-bright-yellow: var(--term-light-bright-yellow);
+  --term-bright-blue: var(--term-light-bright-blue);
+  --term-bright-magenta: var(--term-light-bright-magenta);
+  --term-bright-cyan: var(--term-light-bright-cyan);
+  --term-bright-white: var(--term-light-bright-white);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -129,6 +196,26 @@
     --color-danger-subtle: #2e1214;
     --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.3);
     --shadow-overlay: 0 0 0 1px rgb(255 255 255 / 0.06), 0 16px 48px rgb(0 0 0 / 0.6);
+    --term-background: var(--color-bg-subtle);
+    --term-foreground: var(--color-text);
+    --term-cursor: var(--color-accent-text);
+    --term-selection: var(--term-dark-selection);
+    --term-black: var(--term-dark-black);
+    --term-red: var(--term-dark-red);
+    --term-green: var(--term-dark-green);
+    --term-yellow: var(--term-dark-yellow);
+    --term-blue: var(--term-dark-blue);
+    --term-magenta: var(--term-dark-magenta);
+    --term-cyan: var(--term-dark-cyan);
+    --term-white: var(--term-dark-white);
+    --term-bright-black: var(--term-dark-bright-black);
+    --term-bright-red: var(--term-dark-bright-red);
+    --term-bright-green: var(--term-dark-bright-green);
+    --term-bright-yellow: var(--term-dark-bright-yellow);
+    --term-bright-blue: var(--term-dark-bright-blue);
+    --term-bright-magenta: var(--term-dark-bright-magenta);
+    --term-bright-cyan: var(--term-dark-bright-cyan);
+    --term-bright-white: var(--term-dark-bright-white);
   }
 }
 
@@ -163,6 +250,26 @@
   --color-danger-subtle: #2e1214;
   --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.3);
   --shadow-overlay: 0 0 0 1px rgb(255 255 255 / 0.06), 0 16px 48px rgb(0 0 0 / 0.6);
+  --term-background: var(--color-bg-subtle);
+  --term-foreground: var(--color-text);
+  --term-cursor: var(--color-accent-text);
+  --term-selection: var(--term-dark-selection);
+  --term-black: var(--term-dark-black);
+  --term-red: var(--term-dark-red);
+  --term-green: var(--term-dark-green);
+  --term-yellow: var(--term-dark-yellow);
+  --term-blue: var(--term-dark-blue);
+  --term-magenta: var(--term-dark-magenta);
+  --term-cyan: var(--term-dark-cyan);
+  --term-white: var(--term-dark-white);
+  --term-bright-black: var(--term-dark-bright-black);
+  --term-bright-red: var(--term-dark-bright-red);
+  --term-bright-green: var(--term-dark-bright-green);
+  --term-bright-yellow: var(--term-dark-bright-yellow);
+  --term-bright-blue: var(--term-dark-bright-blue);
+  --term-bright-magenta: var(--term-dark-bright-magenta);
+  --term-bright-cyan: var(--term-dark-bright-cyan);
+  --term-bright-white: var(--term-dark-bright-white);
 }
 
 @media (prefers-reduced-motion: reduce) {

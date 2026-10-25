@@ -86,10 +86,11 @@ prints as the command.
 | `get_config`          | Reads Studio's settings and the path of the config file                |
 | `set_auto_name`       | Turns automatic naming of new dev servers on or off (`enabled`)        |
 | `run_in_terminal`     | Runs a command in a Studio terminal (`command`, `project` or `cwd`, optional `name`, `name_port`, `title`) and names the port it opens |
-| `list_terminals`      | Terminals: id, folder, command, running or exit code, the port named   |
+| `list_terminals`      | Terminals: id, folder, command, running or exit code, the port named, `started_by`, and `stopped_by_restart` for those a Studio restart stopped |
 | `read_terminal`       | Output as plain text (`id`, optional `from`, `max_bytes`), with the offset to read from next |
 | `send_to_terminal`    | Types into a terminal (`id`, `text`, `enter` defaults to true)          |
 | `stop_terminal`       | Stops a terminal's command; needs `confirm: true`                      |
+| `restart_terminal`    | Runs a terminal's command again (`id`), also one stopped by a Studio restart |
 | `focus_studio`        | Brings Studio to the front showing a route, project, terminal or `port:<n>` (`target`) |
 
 Every tool answers with one summary line followed by the data as compact JSON.

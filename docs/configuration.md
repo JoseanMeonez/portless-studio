@@ -42,11 +42,39 @@ is enough:
 | `nameTemplate` | `"{work}.{package}.{repo}"` | How suggested names are built. See [naming.md](naming.md). |
 | `projectIcons` | `{}` | Icon per project: an emoji, an http(s) image URL or a `data:image` URL. |
 | `checkForUpdates` | `true` | Once a day, asks npm whether a newer portless-studio exists. See below. |
+| `terminal` | see below | How the terminal panel draws text. Each field is optional. |
+| `restoreTerminals` | `"ask"` | What happens on start to the terminals that were running when Studio stopped: `"ask"` lists them with Run again, `"always"` runs their commands again (never plain shells), `"never"` forgets them. See [terminals.md](terminals.md#after-a-studio-restart). |
 
 The `--port`, `--no-open` and `--no-register` flags win over the file for one run.
 `PORTLESS_STUDIO_SHORT_URL_PORT` makes short URLs listen on another port than 80, for tests that
 must not bind port 80; URLs then carry that port. Apps you add to
 the Open with menu live in `open-with.json` next to the config file.
+
+## Terminal look
+
+```json
+{
+  "terminal": {
+    "fontSize": 12,
+    "lineHeight": 1.2,
+    "cursorStyle": "block",
+    "cursorBlink": true,
+    "scrollback": 10000,
+    "theme": "studio"
+  }
+}
+```
+
+| Field | Allowed | What it does |
+| --- | --- | --- |
+| `fontSize` | whole number, 10 to 24 | Text size in pixels. |
+| `lineHeight` | 1 to 2 | Line height as a multiple of the font size. |
+| `cursorStyle` | `"block"`, `"bar"`, `"underline"` | Shape of the cursor. |
+| `cursorBlink` | `true`, `false` | Whether the cursor blinks. |
+| `scrollback` | whole number, 1000 to 100000 | Lines kept above the screen in the browser. Studio itself keeps the last 2 MB of output per terminal. |
+| `theme` | `"studio"`, `"dark"`, `"light"` | `studio` follows the page's light or dark mode; the other two stay fixed. Each has 16 ANSI colors, defined as `--term-*` tokens in `src/web/styles/tokens.css`. |
+
+Settings has a Terminal section with a preview. Saving applies the look to open terminals at once.
 
 ## Update notice
 

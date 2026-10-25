@@ -1,3 +1,5 @@
+import type { TerminalStarter } from "./terminal-history.ts";
+
 /**
  * A terminal Studio runs: one command in one project folder, with its output kept so the page,
  * the CLI and agents can read it. See docs/terminals.md.
@@ -67,6 +69,13 @@ export type TerminalInfo = {
   /** Offset just past the newest output character; read with `?from=` to get only newer output. */
   nextSeq: number;
   naming: TerminalNaming | null;
+  /** Who started it: the CLI or an agent (`program`), or someone on the page. Absent from older servers. */
+  startedBy?: TerminalStarter;
+  /**
+   * True while a terminal that was running when Studio last stopped waits to run again. Its
+   * status is `exited`; Run again (restart) starts its command. Absent from older servers.
+   */
+  stoppedByRestart?: boolean;
 };
 
 // Control sequences: CSI (colors, cursor), OSC (window title) and two-character escapes.

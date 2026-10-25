@@ -72,6 +72,37 @@ describe("createStudioServices", () => {
   });
 });
 
+describe("terminals", () => {
+  it("lists the terminals running when Studio last stopped and keeps them on the next stop", async () => {
+    const configPath = path.join(dir, "studio.json");
+    fs.writeFileSync(configPath, JSON.stringify({ restoreTerminals: "ask" }));
+    const saved = {
+      command: "pnpm dev",
+      cwd: dir,
+      title: "web",
+      startedAt: 1,
+      startedBy: "program",
+      project: null,
+      worktree: null,
+      branch: null,
+    };
+    const file = path.join(dir, "terminals.json");
+    fs.writeFileSync(file, JSON.stringify({ running: [saved], recentCommands: {} }));
+    const services = { ...createStudioServices({ stateDir: dir, configPath }), scanner };
+    running = await startServer({ port: 0, services });
+    const headers = { [TOKEN_HEADER]: running.token };
+    const list = async () => {
+      const response = await fetch(`${running?.url}${API_PATHS.terminals}`, { headers });
+      return ((await response.json()) as { terminals: { stoppedByRestart?: boolean }[] }).terminals;
+    };
+    await vi.waitFor(async () => expect(await list()).toHaveLength(1));
+    expect((await list())[0]?.stoppedByRestart).toBe(true);
+    await running.close();
+    running = undefined;
+    expect(JSON.parse(fs.readFileSync(file, "utf8")).running).toEqual([saved]);
+  });
+});
+
 describe("open with", () => {
   it("keeps custom apps in open-with.json next to the config and lists them", async () => {
     const configPath = path.join(dir, "studio.json");
@@ -99,6 +130,7 @@ describe("open with", () => {
         "route-projects.json",
         "open-with.json",
         "update-check.json",
+        "terminals.json",
       ]),
     );
   });

@@ -308,3 +308,31 @@ describe("project icons", () => {
     ).toBeTruthy();
   });
 });
+
+describe("terminal settings", () => {
+  it("saves the terminal look and what happens after a restart, and checks the numbers", async () => {
+    const { user, gateway } = setup();
+    const updateConfig = vi.spyOn(gateway, "updateConfig");
+    const dialog = await openSettings(user);
+    const size = within(dialog).getByLabelText("Font size");
+    await user.clear(size);
+    await user.type(size, "30");
+    await user.click(within(dialog).getByRole("button", { name: "Save" }));
+    expect(within(dialog).getByText("Use a whole number of pixels from 10 to 24.")).toBeTruthy();
+    expect(updateConfig).not.toHaveBeenCalled();
+
+    await user.clear(size);
+    await user.type(size, "14");
+    await user.selectOptions(within(dialog).getByLabelText("Cursor"), "bar");
+    await user.selectOptions(within(dialog).getByLabelText("After Studio restarts"), "always");
+    await user.click(within(dialog).getByRole("button", { name: "Save" }));
+    await waitFor(() =>
+      expect(updateConfig).toHaveBeenCalledWith(
+        expect.objectContaining({
+          terminal: expect.objectContaining({ fontSize: 14, cursorStyle: "bar", lineHeight: 1.2 }),
+          restoreTerminals: "always",
+        }),
+      ),
+    );
+  });
+});

@@ -33,15 +33,51 @@ Words after `--` are quoted for the shell where needed, so `run -- node "my app.
 `my app.js` as one argument. A single word is used as written, which keeps `&&` and pipes working.
 
 From an agent, through the MCP tools `run_in_terminal`, `list_terminals`, `read_terminal`,
-`send_to_terminal` and `stop_terminal` (docs/mcp.md).
+`send_to_terminal`, `stop_terminal` and `restart_terminal` (docs/mcp.md).
 
 ## The panel
 
-Tabs are grouped by project. The toolbar shows whether the command runs or its exit code, and has
-Stop, Restart (Run again once it ended), Follow (keep the newest output in view) and Copy output
-(the kept output as plain text). Drag the panel's inner edge, or focus it and use the arrow keys,
-to resize it; the layout button docks it at the bottom or on the right. Size, dock and whether it
-is open are remembered in this browser. Below 640 px wide the panel covers the whole page.
+In a window 1100 px or wider the terminals open in a pane on the right of the routes list, which
+makes room for it: select a row and its terminal shows there, the way an editor shows the file
+you pick. Narrower windows dock the panel at the bottom. The layout button in the panel header,
+or "Terminal at the bottom" and "Terminal on the right" in the command menu (`Ctrl+K`), move it.
+Drag the pane's inner edge, or focus it and use the arrow keys, to resize it. The layout, the
+size at the bottom and on the right, and whether it is open are remembered in this browser. Below
+640 px wide the panel covers the whole page.
+
+One or two terminals show as tabs in the panel header. With three or more, a list on the left of
+the panel takes their place, grouped by project and worktree with the branch. Each item shows a
+status dot (green while running, red after a failure, amber when a Studio restart stopped it),
+its title, its command in small type and how many ports it opened; its close button shows on
+hover. Drag the list's edge to resize it, and use the list button in the header to fold it into a
+dropdown; both are remembered. Past eight terminals the list has a filter box. Below 480 px wide
+the list is always a dropdown, so the panel fits a 360 px phone screen. While the panel has
+focus, `Ctrl+PageDown` and `Ctrl+PageUp` switch terminals and `Ctrl+Shift+W` closes the active
+one (browsers may keep these keys for their own tabs; see docs/keyboard-shortcuts.md).
+
+The toolbar shows whether the command runs or its exit code, and has Rename, Stop, Restart (Run
+again once it ended), Auto-scroll and Copy output (the kept output as plain text).
+
+Auto-scroll (on by default) keeps the view at the newest output. Scrolling up pauses it, so you
+can read back through a busy log, and scrolling back to the bottom resumes it. While the view is
+not at the newest output, a Jump to latest button shows at the bottom right of the screen. With
+Auto-scroll off, the view stays where it is while output arrives.
+
+## Terminals on rows
+
+A route or detected port whose server runs in a Studio terminal shows the terminal's status next
+to its name (`running`, `exited 1`, `stopped`); click it to see the output. Its row actions are
+Logs (show the terminal), Stop while it runs and Run again once it ended. Rows with no terminal
+keep the button that opens a shell in their folder. Studio links a port to a terminal through the
+processes the terminal started (Linux and macOS), so on Windows rows show no terminal status.
+
+## How the terminal looks
+
+`terminal` in the config sets the font size, line height, cursor, scrollback and colors; Settings
+has the same fields under Terminal, with a preview. Saving applies them to open terminals at once.
+The `studio` colors follow the page's light or dark mode; `dark` and `light` stay fixed. Each has
+the 16 ANSI colors, so programs that print in color look right on both. The fields and their
+limits are in docs/configuration.md.
 
 xterm.js draws the terminal. It loads the first time a terminal opens, in its own file, so the
 dashboard itself stays small.
@@ -74,9 +110,34 @@ page or an agent can ask for only what came after the last part it read (`?from=
 when older output was dropped. Studio keeps at most 32 terminals; close one to open another.
 
 Terminals belong to the Studio that runs them. When Studio stops, every command still running is
-sent SIGTERM and SIGKILL, and the terminals are gone; they do not come back after a restart. If
-Studio crashes instead of stopping, commands started in their own process group may keep
-running.
+sent SIGTERM and SIGKILL. If Studio crashes instead of stopping, commands started in their own
+process group may keep running.
+
+## After a Studio restart
+
+Studio writes `terminals.json` next to the config file with the terminals that run (command,
+folder, title, when it started, and whether the CLI's `run` or an agent started it or a person on
+the page did) and the last 20 commands run in each folder. It writes it a moment after each
+change and once more when Studio stops, before it stops the commands. A command that ended up to
+2 seconds before Studio stopped, without anyone asking it to stop, counts as running: a service
+manager such as systemd stops Studio's commands together with Studio, and their ends can arrive
+first.
+
+On the next start, `restoreTerminals` decides what happens to them:
+
+| Value | What Studio does |
+| --- | --- |
+| `"ask"` (default) | Lists them as "Stopped by a Studio restart", with their last title. The panel says how many there are, with Run all again, and each has Run again. |
+| `"always"` | Runs their commands again right away, in their folders. Plain shells are listed as with `"ask"` and never start on their own. |
+| `"never"` | Forgets them. |
+
+Their old output is not kept. A folder that no longer exists is skipped. The New terminal picker
+lists the recent commands of each folder, and the form the empty panel shows offers those of the
+chosen folder; one click runs one. Agents see the stopped terminals in `list_terminals`
+(`stopped_by_restart: true`) and run them again with `restart_terminal`.
+
+Anyone who can write files in Studio's config folder can put commands in `terminals.json`, the
+same as in a shell's startup file; with `"always"` Studio runs them as you on its next start.
 
 ## Security
 
@@ -128,9 +189,9 @@ On Linux, some window managers show a "ready" notice instead of raising the brow
 - A terminal with no command starts your login shell (`$SHELL -l`). On Windows it starts `pwsh` or
   Windows PowerShell, which shows no prompt over pipes, else `cmd.exe`.
 
-## The panel
+## Names and groups
 
-- Tabs are grouped by project and worktree (`acme-monorepo / falcon`) with the branch. A folder
+- Tabs and list items are grouped by project and worktree (`acme-monorepo / falcon`) with the branch. A folder
   Studio does not know is grouped under its own name.
 - Double-click a tab, press `F2`, or use Rename to name it. An empty name brings back the command
   or the shell's name.

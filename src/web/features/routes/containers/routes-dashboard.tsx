@@ -1,5 +1,6 @@
 import { type ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { StudioActionResponse } from "../../../../core/api/contract.ts";
+import type { StudioConfig } from "../../../../core/config/studio-config.ts";
 import type { DetectedPort } from "../../../../core/ports/detected-port.ts";
 import { directUrl } from "../../../../core/ports/direct-url.ts";
 import type { OtherPort } from "../../../../core/ports/helper-ports.ts";
@@ -21,6 +22,7 @@ import { ProxyBanner } from "../components/proxy-banner.tsx";
 import { RouteList } from "../components/route-list.tsx";
 import type { RowConfirmation } from "../components/route-row.tsx";
 import type { MenuPoint } from "../components/row-menu-trigger.ts";
+import type { RowTerminal } from "../components/row-terminal.ts";
 import { ShortcutHints } from "../components/shortcut-hints.tsx";
 import { ShortcutsDialog } from "../components/shortcuts-dialog.tsx";
 import { StudioStopped } from "../components/studio-stopped.tsx";
@@ -65,6 +67,22 @@ export type TerminalLauncher = {
   show: (id: string) => void;
   /** Opens the New terminal picker: any project folder, or one typed by hand. */
   pick: () => void;
+  /** The terminal whose processes serve `port` (or last did); rows show it and act on it. */
+  terminalForPort?: ((port: number) => PortTerminalState | null) | undefined;
+  stop?: ((id: string) => void) | undefined;
+  restart?: ((id: string) => void) | undefined;
+  /** A row was selected: the right pane, when open, shows that row's terminal. */
+  followSelection?: ((port: number) => void) | undefined;
+  /** Moves the terminals between the right pane and the bottom; the label says where to. */
+  dock?: { label: string; toggle: () => void } | undefined;
+};
+
+/** What a row needs to know about the terminal serving its port. */
+export type PortTerminalState = {
+  id: string;
+  title: string;
+  running: boolean;
+  exitCode: number | null;
 };
 
 type RoutesDashboardProps = {
@@ -74,6 +92,8 @@ type RoutesDashboardProps = {
   terminals?: TerminalLauncher | undefined;
   /** Draws the terminal panel, given the project folders a new terminal can run in. */
   terminalPanel?: ((folders: readonly ProjectFolder[]) => ReactNode) | undefined;
+  /** Called with the config Settings saved, so other parts of the page can follow it. */
+  onConfigSaved?: ((config: StudioConfig) => void) | undefined;
 };
 
 /** A project folder Studio shows, for starting a terminal there. */
@@ -106,6 +126,7 @@ export function RoutesDashboard({
   onToggleTheme,
   terminals,
   terminalPanel,
+  onConfigSaved,
 }: RoutesDashboardProps) {
   const { snapshot, error, connection, reload, events, focus } = useRoutes();
   const gateway = useRoutesGateway();
@@ -320,6 +341,27 @@ export function RoutesDashboard({
     onEscape: () => setConfirming(null),
   });
   const selected = routeAt(navigation.selectedIndex) ?? null;
+
+  const launcherForSelection = useRef(terminals);
+  launcherForSelection.current = terminals;
+  const rowTerminal = (port: number): RowTerminal | null => {
+    const terminal = terminals?.terminalForPort?.(port);
+    if (!terminal || !terminals) return null;
+    return {
+      title: terminal.title,
+      running: terminal.running,
+      exitCode: terminal.exitCode,
+      onShow: () => terminals.show(terminal.id),
+      onStop: () => terminals.stop?.(terminal.id),
+      onRunAgain: () => terminals.restart?.(terminal.id),
+    };
+  };
+
+  // In the right pane, the terminal follows the selected row.
+  const selectedPort = selected?.port ?? null;
+  useEffect(() => {
+    if (selectedPort !== null) launcherForSelection.current?.followSelection?.(selectedPort);
+  }, [selectedPort]);
   const selectRoute = (route: Route) => navigation.select(views.ordered.indexOf(route));
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: scrollRequest asks for a scroll even when the selection stays put.
@@ -548,6 +590,7 @@ export function RoutesDashboard({
                 onOpenTerminal={
                   terminals ? (item, folder) => terminals.openIn(folder, item.port) : undefined
                 }
+                rowTerminalFor={(item) => rowTerminal(item.port)}
               />
             ) : null}
             {hasRoutes && hasDetected ? <h2 className={styles.sectionTitle}>Routes</h2> : null}
@@ -576,6 +619,7 @@ export function RoutesDashboard({
                   onCopyDirectUrl={(route) => void actions.copyDirectUrl(route.port)}
                   onOpenTerminal={terminals ? openTerminal : undefined}
                   canOpenTerminal={(route) => Boolean(route.project?.path)}
+                  terminalFor={(route) => rowTerminal(route.port)}
                   onRenameGroup={(groupId, name) =>
                     setNaming({ kind: "rename-group", groupId, name })
                   }
@@ -609,6 +653,7 @@ export function RoutesDashboard({
         <SettingsDialogContainer
           projects={knownProjects(routes, detected)}
           onClose={() => setSettingsOpen(false)}
+          onSaved={onConfigSaved}
         />
       ) : null}
 
@@ -675,6 +720,7 @@ export function RoutesDashboard({
           onToggleFavorite={toggleFavorite}
           onMoveToGroup={setMoving}
           onNewTerminal={terminals ? terminals.pick : undefined}
+          terminalDock={terminals?.dock}
           onStopServer={(route) => {
             selectRoute(route);
             setConfirming({ name: route.name, action: "stop" });

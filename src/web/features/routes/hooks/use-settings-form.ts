@@ -1,6 +1,11 @@
 import { useEffect, useState } from "react";
 import type { ApiError } from "../../../../core/api/contract.ts";
-import { parseConfig, type StudioConfig } from "../../../../core/config/studio-config.ts";
+import {
+  DEFAULT_TERMINAL_APPEARANCE,
+  parseConfig,
+  type StudioConfig,
+  type TerminalAppearance,
+} from "../../../../core/config/studio-config.ts";
 import { suggestName } from "../../../../core/ports/detected-port.ts";
 import { parseNameTemplate } from "../../../../core/ports/name-template.ts";
 import { projectIconKind } from "../../../../core/projects/project-icon.ts";
@@ -9,19 +14,25 @@ import { useToast } from "../../../shared/ui/toast/use-toast.ts";
 import { apiErrorMessage, PORT_MESSAGE } from "./route-messages.ts";
 import { useRoutesGateway } from "./routes-gateway-context.tsx";
 
-export type SettingsField = keyof StudioConfig;
+type TerminalNumber = "fontSize" | "lineHeight" | "scrollback";
+export type SettingsField = keyof StudioConfig | `terminal.${TerminalNumber}`;
 export type FieldErrors = Partial<Record<SettingsField, string>>;
+
+/** The terminal look as the form edits it: the numbers stay text until saving. */
+export type TerminalDraft = Omit<TerminalAppearance, TerminalNumber> &
+  Record<TerminalNumber, string>;
 
 /** What the form edits: numbers stay text until saving, so half-typed values are allowed. */
 type Draft = Omit<
   StudioConfig,
-  "port" | "proxyPort" | "scanIntervalMs" | "ignoredPorts" | "autoRemoveAfterMinutes"
+  "port" | "proxyPort" | "scanIntervalMs" | "ignoredPorts" | "autoRemoveAfterMinutes" | "terminal"
 > & {
   port: string;
   proxyPort: string;
   scanSeconds: string;
   ignoredPorts: number[];
   autoRemoveMinutes: string;
+  terminal: TerminalDraft;
 };
 
 type LoadState =
@@ -54,7 +65,45 @@ const FIELDS = new Set<string>([
   "shortUrls",
   "showStudioRoute",
   "showEphemeralPorts",
+  "terminal",
+  "terminal.fontSize",
+  "terminal.lineHeight",
+  "terminal.scrollback",
+  "restoreTerminals",
 ]);
+
+const TERMINAL_LIMITS: Record<TerminalNumber, { min: number; max: number; whole: boolean }> = {
+  fontSize: { min: 10, max: 24, whole: true },
+  lineHeight: { min: 1, max: 2, whole: false },
+  scrollback: { min: 1000, max: 100_000, whole: true },
+};
+
+const TERMINAL_MESSAGES: Record<TerminalNumber, string> = {
+  fontSize: "Use a whole number of pixels from 10 to 24.",
+  lineHeight: "Use a number from 1 to 2, like 1.2.",
+  scrollback: "Use a whole number of lines from 1000 to 100000.",
+};
+
+/** The look the preview shows: what is typed when it is valid, the default otherwise. */
+export function previewAppearance(draft: TerminalDraft): TerminalAppearance {
+  const value = (key: TerminalNumber) =>
+    readTerminalNumber(draft[key], key) ?? DEFAULT_TERMINAL_APPEARANCE[key];
+  return {
+    ...draft,
+    fontSize: value("fontSize"),
+    lineHeight: value("lineHeight"),
+    scrollback: value("scrollback"),
+  };
+}
+
+function readTerminalNumber(text: string, key: TerminalNumber): number | null {
+  const limits = TERMINAL_LIMITS[key];
+  const trimmed = text.trim();
+  const number = Number(trimmed);
+  if (trimmed === "" || !Number.isFinite(number)) return null;
+  if (limits.whole && !Number.isInteger(number)) return null;
+  return number >= limits.min && number <= limits.max ? number : null;
+}
 
 /** A made-up project the name template preview renders. */
 export const PREVIEW_PROJECT = {
@@ -77,7 +126,7 @@ export function previewName(template: string): NamePreview {
 }
 
 /** Loads the Studio config, edits a copy and saves it, with errors shown next to each field. */
-export function useSettingsForm({ onSaved }: { onSaved: () => void }) {
+export function useSettingsForm({ onSaved }: { onSaved: (config: StudioConfig) => void }) {
   const gateway = useRoutesGateway();
   const toast = useToast();
   const [load, setLoad] = useState<LoadState>({ status: "loading" });
@@ -108,6 +157,14 @@ export function useSettingsForm({ onSaved }: { onSaved: () => void }) {
           ? "autoRemoveAfterMinutes"
           : key;
     setErrors(({ [field]: _cleared, ...rest }) => rest);
+    setFormError(null);
+  };
+
+  const changeTerminal = <K extends keyof TerminalDraft>(key: K, value: TerminalDraft[K]) => {
+    setDraft((previous) =>
+      previous ? { ...previous, terminal: { ...previous.terminal, [key]: value } } : previous,
+    );
+    setErrors(({ [`terminal.${key}` as SettingsField]: _cleared, ...rest }) => rest);
     setFormError(null);
   };
 
@@ -178,7 +235,7 @@ export function useSettingsForm({ onSaved }: { onSaved: () => void }) {
     setSaving(false);
     if (result.ok) {
       toast({ title: "Settings saved", tone: "success" });
-      onSaved();
+      onSaved(result.value.config);
       return;
     }
     showServerError(result.error);
@@ -194,10 +251,12 @@ export function useSettingsForm({ onSaved }: { onSaved: () => void }) {
     load,
     draft,
     namePreview: draft ? previewName(draft.nameTemplate) : null,
+    terminalPreview: draft ? previewAppearance(draft.terminal) : null,
     errors,
     formError,
     saving,
     change,
+    changeTerminal,
     addIgnoredPort,
     removeIgnoredPort,
     addIgnoredProcess,
@@ -217,6 +276,12 @@ function toDraft(config: StudioConfig): Draft {
     proxyPort: String(config.proxyPort),
     scanSeconds: String(config.scanIntervalMs / 1000),
     autoRemoveMinutes: String(config.autoRemoveAfterMinutes),
+    terminal: {
+      ...config.terminal,
+      fontSize: String(config.terminal.fontSize),
+      lineHeight: String(config.terminal.lineHeight),
+      scrollback: String(config.terminal.scrollback),
+    },
   };
 }
 
@@ -243,6 +308,12 @@ function toConfig(
       break;
     }
   }
+  const terminal: Partial<Record<TerminalNumber, number>> = {};
+  for (const key of ["fontSize", "lineHeight", "scrollback"] as const) {
+    const value = readTerminalNumber(draft.terminal[key], key);
+    if (value === null) errors[`terminal.${key}`] = TERMINAL_MESSAGES[key];
+    else terminal[key] = value;
+  }
   if (Object.keys(errors).length > 0) return { ok: false, errors };
 
   const { scanSeconds: _seconds, autoRemoveMinutes: _minutes, ...rest } = draft;
@@ -252,6 +323,7 @@ function toConfig(
     proxyPort: proxyPort.ok ? proxyPort.value : 0,
     scanIntervalMs: Math.round(seconds * 1000),
     autoRemoveAfterMinutes: minutes,
+    terminal: { ...draft.terminal, ...terminal },
   });
   if (parsed.ok) return { ok: true, config: parsed.value };
   const field = fieldNamedIn(parsed.error);
@@ -260,6 +332,6 @@ function toConfig(
 
 /** `parseConfig` and the server quote the field they reject: `"port" must be ...`. */
 function fieldNamedIn(message: string): SettingsField | null {
-  const name = /"(\w+)"/.exec(message)?.[1];
+  const name = /"([\w.]+)"/.exec(message)?.[1];
   return name && FIELDS.has(name) ? (name as SettingsField) : null;
 }

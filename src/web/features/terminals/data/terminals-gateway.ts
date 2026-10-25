@@ -31,6 +31,8 @@ export interface TerminalsGateway {
   remove(id: string): Promise<Result<null, ApiError>>;
   /** All the output Studio still keeps, escape codes included. */
   output(id: string): Promise<Result<string, ApiError>>;
+  /** The last commands run in each folder, newest first. */
+  recentCommands(): Promise<Result<Record<string, string[]>, ApiError>>;
   /** Output from offset `from`, then live output and status, until unsubscribed. */
   stream(id: string, from: number, handlers: TerminalStreamHandlers): () => void;
 }

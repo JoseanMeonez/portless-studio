@@ -9,7 +9,9 @@ import { TagInput } from "../../../shared/ui/tag-input.tsx";
 import { TextField } from "../../../shared/ui/text-field.tsx";
 import type { SettingsForm } from "../hooks/use-settings-form.ts";
 import { ProjectIconsField } from "./project-icons-field.tsx";
+import { SelectField } from "./select-field.tsx";
 import styles from "./settings-dialog.module.css";
+import { TerminalPreview } from "./terminal-preview.tsx";
 
 type SettingsDialogProps = {
   form: SettingsForm;
@@ -267,6 +269,78 @@ export function SettingsDialog({
               {customApps}
             </fieldset>
           ) : null}
+
+          <fieldset className={styles.group}>
+            <legend className={styles.legend}>Terminal</legend>
+            {form.terminalPreview ? <TerminalPreview appearance={form.terminalPreview} /> : null}
+            <div className={styles.columns}>
+              <TextField
+                label="Font size"
+                mono
+                inputMode="numeric"
+                value={draft.terminal.fontSize}
+                error={errors["terminal.fontSize"] ?? null}
+                hint="Pixels, 10 to 24."
+                onChange={(event) => form.changeTerminal("fontSize", event.target.value)}
+              />
+              <TextField
+                label="Line height"
+                mono
+                inputMode="decimal"
+                value={draft.terminal.lineHeight}
+                error={errors["terminal.lineHeight"] ?? null}
+                hint="1 to 2 times the font size."
+                onChange={(event) => form.changeTerminal("lineHeight", event.target.value)}
+              />
+              <TextField
+                label="Scrollback"
+                mono
+                inputMode="numeric"
+                value={draft.terminal.scrollback}
+                error={errors["terminal.scrollback"] ?? null}
+                hint="Lines kept above the screen."
+                onChange={(event) => form.changeTerminal("scrollback", event.target.value)}
+              />
+            </div>
+            <div className={styles.columns}>
+              <SelectField
+                label="Colors"
+                value={draft.terminal.theme}
+                options={[
+                  ["studio", "Follow the page"],
+                  ["dark", "Dark"],
+                  ["light", "Light"],
+                ]}
+                onChange={(value) => form.changeTerminal("theme", value)}
+              />
+              <SelectField
+                label="Cursor"
+                value={draft.terminal.cursorStyle}
+                options={[
+                  ["block", "Block"],
+                  ["bar", "Bar"],
+                  ["underline", "Underline"],
+                ]}
+                onChange={(value) => form.changeTerminal("cursorStyle", value)}
+              />
+            </div>
+            <Switch
+              label="Blinking cursor"
+              checked={draft.terminal.cursorBlink}
+              onChange={(value) => form.changeTerminal("cursorBlink", value)}
+            />
+            <SelectField
+              label="After Studio restarts"
+              value={draft.restoreTerminals}
+              options={[
+                ["ask", "List them with a Run again button"],
+                ["always", "Run their commands again"],
+                ["never", "Forget them"],
+              ]}
+              hint="What happens to the terminals that were running when Studio stopped, for example for an update. Plain shells never start again on their own."
+              onChange={(value) => form.change("restoreTerminals", value)}
+            />
+          </fieldset>
 
           <fieldset className={styles.group}>
             <legend className={styles.legend}>Studio</legend>

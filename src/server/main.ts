@@ -37,6 +37,10 @@ import {
   JsonAutoNamedStore,
 } from "./infrastructure/config/json-auto-named-store.ts";
 import { defaultConfigPath, JsonConfigStore } from "./infrastructure/config/json-config-store.ts";
+import {
+  JsonTerminalHistoryStore,
+  terminalHistoryPathFor,
+} from "./infrastructure/config/json-terminal-history-store.ts";
 import { JsonUpdateCache, updateCheckPathFor } from "./infrastructure/config/json-update-cache.ts";
 import {
   type ProxyStartRecord,
@@ -199,6 +203,7 @@ export function createStudioServices(options: StudioServicesOptions = {}): Studi
     folders: nodeTerminalFolders(),
     processTree: systemProcessTree(),
     homeDir: os.homedir(),
+    history: new JsonTerminalHistoryStore(terminalHistoryPathFor(configPath)),
     workspace: {
       openableFolders: () => runtime.openableFolders(),
       snapshot: () => runtime.readSnapshot(),
@@ -299,6 +304,7 @@ export function createUninstallServices(configPath = defaultConfigPath()): Unins
     routeProjectsPathFor(configPath),
     openWithPathFor(configPath),
     updateCheckPathFor(configPath),
+    terminalHistoryPathFor(configPath),
   ];
   const processes = new SystemProcessControl({
     platform: process.platform,
@@ -387,6 +393,11 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   studio.start();
   // The short-URL forwarder settles before anyone prints or registers a URL.
   await studio.ready();
+  // Terminals that were running when Studio stopped; never holds up the start.
+  void studio
+    .settings()
+    .then((config) => services.terminals?.restore(config.restoreTerminals))
+    .catch(() => {});
 
   return {
     url: `http://${LOOPBACK}:${port}`,

@@ -1,4 +1,8 @@
 import { useCallback, useState } from "react";
+import {
+  DEFAULT_TERMINAL_APPEARANCE,
+  type TerminalAppearance,
+} from "../../../../core/config/studio-config.ts";
 import { plainText } from "../../../../core/terminals/terminal.ts";
 import { copyText } from "../../../shared/lib/clipboard.ts";
 import { useToast } from "../../../shared/ui/toast/use-toast.ts";
@@ -6,7 +10,9 @@ import { NewTerminalForm, type TerminalFolder } from "../components/new-terminal
 import { TerminalPanel } from "../components/terminal-panel.tsx";
 import { TerminalView } from "../components/terminal-view.tsx";
 import { useTerminalsGateway } from "../hooks/terminals-gateway-context.tsx";
-import type { TerminalPanelController } from "../hooks/use-terminal-panel.ts";
+import { useMediaQuery } from "../hooks/use-media-query.ts";
+import { useRecentCommands } from "../hooks/use-recent-commands.ts";
+import { NARROW_QUERY, type TerminalPanelController } from "../hooks/use-terminal-panel.ts";
 import { loadTerminalEngine, type TerminalEngine } from "../hooks/xterm-loader.ts";
 
 type TerminalPanelContainerProps = {
@@ -15,20 +21,24 @@ type TerminalPanelContainerProps = {
   folders: readonly TerminalFolder[];
   /** Changes with the page theme, so the terminal colors follow. */
   themeKey: string;
+  /** Font, cursor, scrollback and colors from the Studio config. */
+  appearance?: TerminalAppearance;
   /** Replaced in tests, which cannot run xterm.js. */
   loadEngine?: () => Promise<TerminalEngine>;
 };
 
-/** The terminal panel wired to the gateway: tabs, controls, the live screen and new terminals. */
+/** The terminal panel wired to the gateway: list, controls, the live screen and new terminals. */
 export function TerminalPanelContainer({
   panel,
   folders,
   themeKey,
+  appearance = DEFAULT_TERMINAL_APPEARANCE,
   loadEngine = loadTerminalEngine,
 }: TerminalPanelContainerProps) {
   const gateway = useTerminalsGateway();
   const toast = useToast();
-  const [follow, setFollow] = useState(true);
+  const narrow = useMediaQuery(NARROW_QUERY, false);
+  const [autoScroll, setAutoScroll] = useState(true);
   const [busy, setBusy] = useState(false);
   // Until the terminal asked for shows up in the list, the newest one stands in.
   const active =
@@ -36,6 +46,7 @@ export function TerminalPanelContainer({
     panel.terminals.at(-1) ??
     null;
   const activeId = active?.id ?? null;
+  const recentCommands = useRecentCommands(panel.open && panel.terminals.length === 0);
 
   const connect = useCallback(
     (write: (text: string) => void) =>
@@ -55,10 +66,6 @@ export function TerminalPanelContainer({
   );
 
   if (!panel.open) return null;
-  const report = (result: { ok: boolean; error?: { message: string } }, failed: string) => {
-    if (!result.ok)
-      toast({ title: failed, description: result.error?.message ?? "", tone: "error" });
-  };
   // With no terminal yet, the panel itself offers to start one.
   const showForm = panel.terminals.length === 0;
 
@@ -67,28 +74,39 @@ export function TerminalPanelContainer({
       terminals={panel.terminals}
       active={showForm ? null : active}
       dock={panel.dock}
+      canDockRight={panel.wide}
+      narrow={narrow}
       size={panel.size}
-      follow={follow}
+      sidebarWidth={panel.sidebarWidth}
+      sidebarCollapsed={panel.sidebarCollapsed}
+      autoScroll={autoScroll}
       onSelect={panel.show}
       onRename={(id, title) => void panel.rename(id, title)}
-      onCloseTerminal={(id) =>
-        void gateway.remove(id).then((result) => report(result, "Could not close it"))
-      }
+      onCloseTerminal={(id) => void panel.remove(id)}
       onNew={() => panel.setPicker("folders")}
       onStop={() => {
-        if (activeId)
-          void gateway.stop(activeId).then((result) => report(result, "Could not stop it"));
+        if (activeId) void panel.stop(activeId);
       }}
       onRestart={() => {
-        if (activeId) {
-          void gateway.restart(activeId).then((result) => report(result, "Could not restart it"));
+        if (activeId) void panel.restart(activeId);
+      }}
+      onRunAllAgain={() => {
+        for (const terminal of panel.terminals) {
+          if (terminal.stoppedByRestart) void panel.restart(terminal.id);
         }
       }}
-      onToggleFollow={() => setFollow((value) => !value)}
+      onToggleAutoScroll={() => setAutoScroll((value) => !value)}
       onCopy={() => {
         if (!activeId) return;
         void gateway.output(activeId).then(async (result) => {
-          if (!result.ok) return report(result, "Could not read the output");
+          if (!result.ok) {
+            toast({
+              title: "Could not read the output",
+              description: result.error.message,
+              tone: "error",
+            });
+            return;
+          }
           const copied = await copyText(plainText(result.value));
           toast(
             copied
@@ -99,6 +117,8 @@ export function TerminalPanelContainer({
       }}
       onToggleDock={() => panel.setDock(panel.dock === "bottom" ? "right" : "bottom")}
       onResize={panel.setSize}
+      onResizeSidebar={panel.setSidebarWidth}
+      onToggleSidebar={() => panel.setSidebarCollapsed(!panel.sidebarCollapsed)}
       onClose={() => panel.setOpen(false)}
     >
       {showForm ? (
@@ -106,6 +126,7 @@ export function TerminalPanelContainer({
           folders={folders}
           initialPath={active?.cwd}
           busy={busy}
+          recentCommands={recentCommands}
           onCancel={() => panel.setOpen(false)}
           onSubmit={({ cwd, command }) => {
             setBusy(true);
@@ -118,7 +139,8 @@ export function TerminalPanelContainer({
         <TerminalView
           key={active.id}
           convertEol={active.mode === "pipes"}
-          follow={follow}
+          autoScroll={autoScroll}
+          appearance={appearance}
           themeKey={themeKey}
           loadEngine={loadEngine}
           connect={connect}

@@ -25,6 +25,8 @@ type RouteCommandMenuProps = {
   onMoveToGroup: (route: Route) => void;
   /** Opens the New terminal picker; absent hides the action. */
   onNewTerminal?: (() => void) | undefined;
+  /** Moves the terminals between the right pane and the bottom; absent hides the action. */
+  terminalDock?: { label: string; toggle: () => void } | undefined;
   onStopServer: (route: Route) => void;
   /** Copies every route as `.env` lines. */
   onCopyEnv: () => void;
@@ -139,6 +141,17 @@ export function RouteCommandMenu(props: RouteCommandMenuProps) {
             icon: "terminal",
             shortcut: keys("new-terminal"),
             onSelect: props.onNewTerminal,
+          } satisfies CommandItem,
+        ]
+      : []),
+    ...(props.terminalDock
+      ? [
+          {
+            id: "terminal-dock",
+            group: "Actions",
+            label: props.terminalDock.label,
+            icon: "layers",
+            onSelect: props.terminalDock.toggle,
           } satisfies CommandItem,
         ]
       : []),

@@ -178,6 +178,21 @@ function openStream(pathname: string) {
 }
 
 describe("terminal endpoints", () => {
+  it("list the recent commands per folder, with the token", async () => {
+    const shown = path.join(scratch, "shown");
+    await send("POST", "/api/terminals", {
+      origin: true,
+      body: { cwd: shown, command: "pnpm dev" },
+    });
+    expect((await send("GET", "/api/terminals/recent-commands", { token: false })).status).toBe(
+      403,
+    );
+    expect(await send("GET", "/api/terminals/recent-commands")).toEqual({
+      status: 200,
+      body: { recentCommands: { [shown]: ["pnpm dev"] } },
+    });
+  });
+
   it("need the token, reads included", async () => {
     expect((await send("GET", "/api/terminals", { token: false })).status).toBe(403);
     expect(await send("GET", "/api/terminals")).toEqual({ status: 200, body: { terminals: [] } });

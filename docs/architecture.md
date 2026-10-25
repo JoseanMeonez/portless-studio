@@ -336,6 +336,7 @@ tools) share; docs/terminals.md covers what people see. `application/terminals.t
 | `TerminalSpawner` | `infrastructure/terminal/terminal-spawner.ts` | Starts a command in a pseudo-terminal through the system `script` command (util-linux on Linux, BSD on macOS), or with pipes and `FORCE_COLOR=1` on Windows and where `script` is missing. `detectTerminalMode` runs `script -V` once, on the first terminal. Stops go to the command's process group; on Windows `stopProcessTree` in `infrastructure/system/process-runner.ts` stops the tree. |
 | `TerminalFolders` | `nodeTerminalFolders` in the same file | Whether a folder exists, and whether one folder is inside another (case-insensitive on Windows). |
 | `TerminalWorkspace` | built in `main.ts` from `StudioRuntime` and the route use cases | The folders Studio shows, the current routes and detected ports, and naming the port a `run` command opens. |
+| `TerminalHistoryStore` | `infrastructure/config/json-terminal-history-store.ts` | Reads and writes `terminals.json` next to the config: the terminals running when Studio stopped and the recent commands per folder (`core/terminals/terminal-history.ts`). Synchronous, so the write `closeAll` makes lands before Studio exits. `startServer` calls `TerminalManager.restore(restoreTerminals)` once the server runs. |
 
 Each terminal keeps its output in an `OutputBuffer` (`core/terminals/output-buffer.ts`): the
 newest 2 MB, every character numbered, so a client resumes with `?from=<n>`. `plainText`
@@ -355,10 +356,14 @@ existing folder; a page may run only in folders Studio shows (`StudioRuntime.ope
 or one a local program already used.
 
 On the web side, `features/terminals` has its own port, `TerminalsGateway`, with an HTTP and an
-in-memory version, the panel and the xterm.js view. xterm.js is loaded with a dynamic `import()`
-in `hooks/xterm-loader.ts`, so it lands in its own chunk. The routes feature does not import the
+in-memory version (`?demo` fills it from `data/sample-terminals.ts`), the panel and the xterm.js
+view. The view reads its colors from the `--term-*` tokens (`hooks/terminal-theme.ts`) and the
+font, cursor and scrollback from the config's `terminal`, which `app/use-terminal-appearance.ts`
+reads on load and takes from every config Settings saves. xterm.js is loaded with a dynamic
+`import()` in `hooks/xterm-loader.ts`, so it lands in its own chunk. The routes feature does not import the
 terminals feature: `RoutesDashboard` takes a `TerminalLauncher` (open a terminal in a folder, show
-one by id) and a function that draws the panel, and `app/studio-layout.tsx` connects the two.
+one by id, the terminal serving a port with stop and run again for the rows, the dock toggle) and
+a function that draws the panel, and `app/studio-layout.tsx` connects the two.
 
 ## Bringing Studio to the front
 

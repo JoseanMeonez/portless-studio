@@ -3,6 +3,7 @@ import type { DetectedPort } from "../../../../core/ports/detected-port.ts";
 import type { OtherPort } from "../../../../core/ports/helper-ports.ts";
 import { DetectedSection } from "../components/detected-section.tsx";
 import type { MenuPoint } from "../components/row-menu-trigger.ts";
+import type { RowTerminal } from "../components/row-terminal.ts";
 import { useAutoName } from "../hooks/use-auto-name.ts";
 import { useDetectedActions } from "../hooks/use-detected-actions.ts";
 import { useRouteActions } from "../hooks/use-route-actions.ts";
@@ -25,6 +26,8 @@ type DetectedContainerProps = {
   onMenu: (detected: DetectedPort, point: MenuPoint) => void;
   /** Shows the port's terminal or opens a shell in its folder; absent hides the button. */
   onOpenTerminal?: ((detected: DetectedPort, folder: string) => void) | undefined;
+  /** The Studio terminal serving a port, if any. */
+  rowTerminalFor?: ((detected: DetectedPort) => RowTerminal | null) | undefined;
 };
 
 export function DetectedContainer({
@@ -35,6 +38,7 @@ export function DetectedContainer({
   onName,
   onMenu,
   onOpenTerminal,
+  rowTerminalFor,
 }: DetectedContainerProps) {
   const routeActions = useRouteActions();
   const actions = useDetectedActions();
@@ -89,6 +93,7 @@ export function DetectedContainer({
             }
           : undefined
       }
+      rowTerminalFor={rowTerminalFor}
     />
   );
 }

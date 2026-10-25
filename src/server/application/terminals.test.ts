@@ -1,9 +1,11 @@
 import type { DetectedPort } from "../../core/ports/detected-port.ts";
 import { ok } from "../../core/result.ts";
 import type { Route } from "../../core/routes/route.ts";
+import type { SavedTerminal, TerminalHistory } from "../../core/terminals/terminal-history.ts";
 import {
   type SpawnRequest,
   type TerminalFolders,
+  type TerminalHistoryStore,
   TerminalManager,
   type TerminalManagerOptions,
   type TerminalProcess,
@@ -466,5 +468,138 @@ describe("TerminalManager", () => {
     expect(changes).toBeGreaterThan(1);
     stopWatching();
     await vi.waitFor(() => expect(listeners.size).toBe(0));
+  });
+});
+
+function memoryHistory(initial: Partial<TerminalHistory> = {}) {
+  const store = {
+    saved: { running: [], recentCommands: {}, ...initial } as TerminalHistory,
+    writes: 0,
+    read: () => store.saved,
+    write: (history: TerminalHistory) => {
+      store.writes += 1;
+      store.saved = history;
+    },
+  };
+  return store satisfies TerminalHistoryStore;
+}
+
+const savedDev: SavedTerminal = {
+  command: "pnpm dev",
+  cwd: "/work/shop",
+  title: "web",
+  startedAt: 500,
+  startedBy: "program",
+  project: "shop",
+  worktree: null,
+  branch: "main",
+};
+
+describe("TerminalManager saved terminals", () => {
+  it("writes the running terminals and who started them, and drops one once it ends", async () => {
+    vi.useFakeTimers();
+    const history = memoryHistory();
+    const { manager, spawned } = setup({ history });
+    await manager.create(
+      { cwd: "/work/shop", command: "pnpm dev", title: "web" },
+      { trusted: true },
+    );
+    await manager.create({ cwd: "/work/shop" }, { trusted: false });
+    vi.runOnlyPendingTimers();
+    expect(history.saved.running).toEqual([
+      { ...savedDev, startedAt: 1_000, branch: null },
+      {
+        command: "",
+        cwd: "/work/shop",
+        title: "shell",
+        startedAt: 1_000,
+        startedBy: "person",
+        project: "shop",
+        worktree: null,
+        branch: null,
+      },
+    ]);
+    expect(manager.list().map((info) => info.startedBy)).toEqual(["program", "person"]);
+    spawned[0]?.process.exit(0);
+    vi.runOnlyPendingTimers();
+    expect(history.saved.running.map((item) => item.command)).toEqual([""]);
+  });
+
+  it("remembers the last commands per folder, newest first", async () => {
+    vi.useFakeTimers();
+    const history = memoryHistory({ recentCommands: { "/work/shop": ["pnpm test"] } });
+    const { manager } = setup({ history });
+    await manager.create({ cwd: "/work/shop", command: "pnpm dev" }, { trusted: false });
+    await manager.create({ cwd: "/work/shop", command: "pnpm test" }, { trusted: false });
+    await manager.create({ cwd: "/work/shop" }, { trusted: false });
+    expect(manager.recentCommands()).toEqual({ "/work/shop": ["pnpm test", "pnpm dev"] });
+    vi.runOnlyPendingTimers();
+    expect(history.saved.recentCommands).toEqual({ "/work/shop": ["pnpm test", "pnpm dev"] });
+  });
+
+  it("keeps the running terminals in the file when Studio stops, even those ending with it", async () => {
+    const history = memoryHistory();
+    let now = 1_000;
+    const { manager, spawned } = setup({ history, now: () => now });
+    await manager.create({ cwd: "/work/shop", command: "pnpm dev" }, { trusted: true });
+    await manager.create({ cwd: "/work/shop", command: "pnpm api" }, { trusted: true });
+    await manager.create({ cwd: "/work/shop", command: "pnpm lint" }, { trusted: true });
+    manager.stop("t3");
+    spawned[2]?.process.exit(130);
+    // A service manager stops the commands together with Studio.
+    now = 1_500;
+    spawned[1]?.process.exit(143);
+    manager.closeAll();
+    expect(history.saved.running.map((item) => item.command)).toEqual(["pnpm dev", "pnpm api"]);
+    spawned[0]?.process.exit(143);
+    expect(history.saved.running.map((item) => item.command)).toEqual(["pnpm dev", "pnpm api"]);
+  });
+
+  it("lists the terminals that were running as stopped by a restart, ready to run again", async () => {
+    const history = memoryHistory({ running: [savedDev] });
+    const { manager, spawned } = setup({ history });
+    await manager.restore("ask");
+    expect(spawned).toHaveLength(0);
+    const [restored] = manager.list();
+    expect(restored).toMatchObject({
+      id: "t1",
+      title: "web",
+      command: "pnpm dev",
+      cwd: "/work/shop",
+      status: "exited",
+      exitCode: null,
+      stoppedByRestart: true,
+      startedBy: "program",
+      branch: "main",
+    });
+    const again = await manager.restart("t1");
+    expect(again.ok && again.value).toMatchObject({ status: "running", stoppedByRestart: false });
+    expect(spawned[0]?.request).toMatchObject({ command: "pnpm dev", cwd: "/work/shop" });
+  });
+
+  it("runs saved commands again on start with always, but never a plain shell", async () => {
+    const shell = { ...savedDev, command: "", title: "zsh" };
+    const history = memoryHistory({ running: [savedDev, shell] });
+    const { manager, spawned } = setup({ history });
+    await manager.restore("always");
+    expect(spawned.map((item) => item.request.command)).toEqual(["pnpm dev"]);
+    expect(manager.list().map((info) => [info.status, info.stoppedByRestart])).toEqual([
+      ["running", false],
+      ["exited", true],
+    ]);
+  });
+
+  it("forgets them with never, and skips folders that are gone", async () => {
+    const gone = { ...savedDev, cwd: "/gone/app" };
+    const history = memoryHistory({ running: [gone] });
+    const first = setup({ history });
+    await first.manager.restore("ask");
+    expect(first.manager.list()).toEqual([]);
+
+    const again = memoryHistory({ running: [savedDev] });
+    const second = setup({ history: again });
+    await second.manager.restore("never");
+    expect(second.manager.list()).toEqual([]);
+    expect(again.saved.running).toEqual([]);
   });
 });

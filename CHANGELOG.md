@@ -2,7 +2,7 @@
 
 All notable changes are listed here. Versions follow [Semantic Versioning](https://semver.org).
 
-## Unreleased
+## 0.1.5 (2026-10-25)
 
 - Simultaneous terminal restarts share one replacement. Stop, Close and Studio shutdown cancel
   pending restarts, including commands still starting. Stop all recognizes the installed npm

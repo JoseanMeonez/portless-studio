@@ -2,7 +2,7 @@
 
 All notable changes are listed here. Versions follow [Semantic Versioning](https://semver.org).
 
-## Unreleased
+## 0.1.2 (2026-10-25)
 
 - Docker containers show under Detected: Studio reads `docker ps` once per scan (2-second limit,
   silently skipped when Docker is missing, stopped or refuses the user) and lists each published

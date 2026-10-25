@@ -2,7 +2,7 @@
 
 All notable changes are listed here. Versions follow [Semantic Versioning](https://semver.org).
 
-## Unreleased
+## 0.1.3 (2026-10-25)
 
 - Helper ports stay out of the way. A named server's other ports (opened by the same process), Node, V8 and Chrome debuggers (found by their `/json/version` answer, and
   9229 or 9222 when that is unclear) and ports in the system's ephemeral range no longer show as

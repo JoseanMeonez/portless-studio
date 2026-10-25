@@ -9,6 +9,7 @@ import {
   detectTerminalMode,
   nodeTerminalFolders,
   planTerminal,
+  shellName,
 } from "./terminal-spawner.ts";
 
 const request: SpawnRequest = {
@@ -42,17 +43,53 @@ describe("planTerminal", () => {
     ]);
   });
 
-  it("starts the user's shell when there is no command", () => {
+  it("starts the user's login shell when there is no command", () => {
     const plan = planTerminal(
       { ...request, command: null },
       { ...context, platform: "linux", mode: "pty" },
     );
-    expect(plan.args[4]).toBe("stty cols 100 rows 30 2>/dev/null; exec '/bin/zsh'");
+    expect(plan.args[4]).toBe("stty cols 100 rows 30 2>/dev/null; exec '/bin/zsh' -l");
     const pipes = planTerminal(
       { ...request, command: null },
       { ...context, platform: "linux", mode: "pipes" },
     );
-    expect(pipes.args).toEqual(["-c", "exec '/bin/zsh' -i"]);
+    expect(pipes.args).toEqual(["-c", "exec '/bin/zsh' -l -i"]);
+  });
+
+  it("starts PowerShell for a shell on Windows when it is installed, else cmd.exe", () => {
+    const pwsh = "C:\\Program Files\\PowerShell\\7\\pwsh.exe";
+    const plan = planTerminal(
+      { ...request, command: null },
+      { ...context, platform: "win32", mode: "pipes", windowsShell: pwsh },
+    );
+    expect(plan).toEqual({
+      file: pwsh,
+      args: ["-NoLogo", "-Command", "-"],
+      env: { TERM: "xterm-256color", FORCE_COLOR: "1" },
+      detached: false,
+      windowsVerbatimArguments: false,
+    });
+    const cmd = planTerminal(
+      { ...request, command: null },
+      { ...context, platform: "win32", mode: "pipes", windowsShell: null },
+    );
+    expect(cmd.file).toBe("C:\\Windows\\system32\\cmd.exe");
+    expect(cmd.args).toEqual(["/d"]);
+  });
+
+  it("names the shell a terminal opens, for its default title", () => {
+    expect(shellName({ ...context, platform: "linux", mode: "pty" })).toBe("zsh");
+    expect(
+      shellName({
+        ...context,
+        platform: "win32",
+        mode: "pipes",
+        windowsShell: "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+      }),
+    ).toBe("powershell");
+    expect(shellName({ ...context, platform: "win32", mode: "pipes", windowsShell: null })).toBe(
+      "cmd",
+    );
   });
 
   it("uses sh with forced colors when script is missing", () => {

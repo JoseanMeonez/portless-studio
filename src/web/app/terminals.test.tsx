@@ -160,6 +160,162 @@ describe("terminal panel", () => {
   });
 });
 
+describe("new terminal picker", () => {
+  it("opens a shell in any known project folder with Ctrl+`", async () => {
+    const { terminals, user } = setup();
+    await screen.findByRole("list", { name: "Routes" });
+    await user.keyboard("{Control>}`{/Control}");
+    const picker = await screen.findByRole("dialog", { name: "New terminal" });
+    const falcon = within(picker).getByRole("option", { name: /acme-monorepo \/ falcon/ });
+    expect(falcon.textContent).toContain("fix/dark-mode");
+    expect(falcon.textContent).toContain("~/code/acme-falcon");
+    await user.type(within(picker).getByRole("combobox"), "falcon");
+    await user.keyboard("{Enter}");
+    await waitFor(() => expect(terminals.created).toEqual([{ cwd: FALCON }]));
+    expect(screen.queryByRole("dialog", { name: "New terminal" })).toBeNull();
+    expect(await within(await panel()).findByRole("tab", { name: "shell" })).toBeTruthy();
+  });
+
+  it("opens a shell in a folder typed by hand, and says when it is not a folder", async () => {
+    const { terminals, user } = setup();
+    terminals.folderExists = (path) => path !== "/nope";
+    await screen.findByRole("list", { name: "Routes" });
+    await user.keyboard("{Control>}`{/Control}");
+    await user.click(await screen.findByRole("option", { name: /Other folder/ }));
+    const dialog = await screen.findByRole("dialog", { name: "Open a shell in any folder" });
+    const field = within(dialog).getByLabelText("Folder");
+    await user.type(field, "/nope{Enter}");
+    expect(await within(dialog).findByText("/nope is not a folder on this machine.")).toBeTruthy();
+    await user.clear(field);
+    await user.type(field, "~/scratch{Enter}");
+    await waitFor(() => expect(terminals.picked).toEqual([{ cwd: "/nope" }, { cwd: "~/scratch" }]));
+    expect(terminals.created).toEqual([]);
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(await within(await panel()).findByRole("tab", { name: "shell" })).toBeTruthy();
+  });
+
+  it("opens from the panel's New terminal button and from the command menu", async () => {
+    const { terminals, user } = setup();
+    await act(() => terminals.create({ cwd: FALCON, command: "pnpm dev" }));
+    await user.click(screen.getByRole("button", { name: /Show terminals/ }));
+    await user.click(within(await panel()).getByRole("button", { name: "New terminal" }));
+    expect(await screen.findByRole("dialog", { name: "New terminal" })).toBeTruthy();
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await user.keyboard("{Control>}k{/Control}");
+    await user.click(await screen.findByRole("option", { name: /New terminal/ }));
+    expect(await screen.findByRole("dialog", { name: "New terminal" })).toBeTruthy();
+  });
+});
+
+describe("terminal names and groups", () => {
+  it("renames a tab by double-clicking it, and the active one with F2", async () => {
+    const { terminals, user } = setup();
+    await act(() => terminals.create({ cwd: FALCON, command: "pnpm dev" }));
+    await user.click(screen.getByRole("button", { name: /Show terminals/ }));
+    const terminalsPanel = await panel();
+    await user.dblClick(within(terminalsPanel).getByRole("tab", { name: "pnpm dev" }));
+    const field = within(terminalsPanel).getByRole("textbox", { name: "Rename pnpm dev" });
+    await user.clear(field);
+    await user.type(field, "web server{Enter}");
+    expect(await within(terminalsPanel).findByRole("tab", { name: "web server" })).toBeTruthy();
+
+    within(terminalsPanel).getByRole("tab", { name: "web server" }).focus();
+    await user.keyboard("{F2}");
+    const again = within(terminalsPanel).getByRole("textbox", { name: "Rename web server" });
+    await user.clear(again);
+    await user.type(again, "api{Escape}");
+    expect(within(terminalsPanel).getByRole("tab", { name: "web server" })).toBeTruthy();
+
+    // Clicking away keeps what was typed.
+    await user.click(within(terminalsPanel).getByRole("button", { name: "Rename" }));
+    await user.type(
+      within(terminalsPanel).getByRole("textbox", { name: "Rename web server" }),
+      " 2",
+    );
+    await user.click(within(terminalsPanel).getByText("Running"));
+    expect(await within(terminalsPanel).findByRole("tab", { name: "web server 2" })).toBeTruthy();
+  });
+
+  it("groups tabs by project and worktree, with the branch", async () => {
+    const { terminals, user } = setup();
+    await act(async () => {
+      await terminals.create({ cwd: FALCON, command: "pnpm dev" });
+      await terminals.create({ cwd: "/home/dev/code/acme", command: "pnpm test" });
+      await terminals.create({ cwd: "/tmp/scratch" });
+      terminals.update("t1", {
+        project: "acme-monorepo",
+        worktree: "falcon",
+        branch: "fix/dark-mode",
+      });
+      terminals.update("t2", { project: "acme-monorepo", worktree: null, branch: "main" });
+      terminals.update("t3", { project: null });
+    });
+    await user.click(screen.getByRole("button", { name: /Show terminals/ }));
+    const groups = within(await panel()).getAllByRole("group");
+    expect(groups.map((group) => group.getAttribute("aria-label"))).toEqual([
+      "acme-monorepo / falcon",
+      "acme-monorepo",
+      "scratch",
+    ]);
+    expect(groups[0]?.textContent).toContain("fix/dark-mode");
+  });
+
+  it("shows the URLs of the ports its processes opened", async () => {
+    const { terminals, user } = setup();
+    await act(async () => {
+      await terminals.create({ cwd: FALCON });
+      terminals.update("t1", {
+        ports: [
+          { port: 6006, route: "storybook", url: "http://storybook.localhost:1355" },
+          { port: 4321, route: null, url: null },
+        ],
+      });
+    });
+    await user.click(screen.getByRole("button", { name: /Show terminals/ }));
+    const ports = within(await panel()).getByLabelText("Ports it opened");
+    const links = within(ports)
+      .getAllByRole("link")
+      .map((link) => link.getAttribute("href"));
+    expect(links).toEqual([
+      "http://storybook.localhost:1355",
+      "http://localhost:6006",
+      "http://localhost:4321",
+    ]);
+  });
+});
+
+describe("terminal button on rows", () => {
+  it("shows the terminal whose processes serve the row, else opens a shell in its folder", async () => {
+    const { terminals, user } = setup();
+    await act(async () => {
+      await terminals.create({ cwd: "/home/dev/elsewhere", command: "pnpm storybook" });
+      terminals.update("t1", { ports: [{ port: 6006, route: "storybook", url: null }] });
+    });
+    const row = await routeRow("storybook");
+    await user.click(within(row).getByRole("button", { name: "Open a terminal for storybook" }));
+    expect(
+      within(await panel())
+        .getByRole("tab", { name: "pnpm storybook" })
+        .getAttribute("aria-selected"),
+    ).toBe("true");
+    expect(terminals.created).toHaveLength(1);
+
+    const detected = (await screen.findByRole("list", { name: "Detected ports" })).querySelector(
+      '[data-port="4209"]',
+    ) as HTMLElement;
+    await user.click(
+      within(detected).getByRole("button", { name: "Open a terminal for port 4209" }),
+    );
+    await waitFor(() =>
+      expect(terminals.created.at(-1)).toEqual({ cwd: "/home/dev/code/shop-admin/otter" }),
+    );
+    expect(
+      within(await routeRow("db")).queryByRole("button", { name: /Open a terminal/ }),
+    ).toBeNull();
+  });
+});
+
 describe("focus requests", () => {
   it("shows the terminal a request names and tells Studio whether the window came forward", async () => {
     const { gateway, terminals } = setup();

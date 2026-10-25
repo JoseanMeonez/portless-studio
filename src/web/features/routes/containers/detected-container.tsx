@@ -4,6 +4,7 @@ import { DetectedSection } from "../components/detected-section.tsx";
 import type { MenuPoint } from "../components/row-menu-trigger.ts";
 import { useAutoName } from "../hooks/use-auto-name.ts";
 import { useDetectedActions } from "../hooks/use-detected-actions.ts";
+import { useRouteActions } from "../hooks/use-route-actions.ts";
 import { useStopContainer } from "../hooks/use-stop-container.ts";
 import { useStopProcess } from "../hooks/use-stop-process.ts";
 
@@ -15,6 +16,8 @@ type DetectedContainerProps = {
   onName: (detected: DetectedPort) => void;
   /** Opens the row menu (open with, copy path…) for this port. */
   onMenu: (detected: DetectedPort, point: MenuPoint) => void;
+  /** Shows the port's terminal or opens a shell in its folder; absent hides the button. */
+  onOpenTerminal?: ((detected: DetectedPort, folder: string) => void) | undefined;
 };
 
 export function DetectedContainer({
@@ -23,7 +26,9 @@ export function DetectedContainer({
   autoName,
   onName,
   onMenu,
+  onOpenTerminal,
 }: DetectedContainerProps) {
+  const routeActions = useRouteActions();
   const actions = useDetectedActions();
   const auto = useAutoName(autoName);
   const [namingAll, setNamingAll] = useState(false);
@@ -60,6 +65,15 @@ export function DetectedContainer({
       onConfirmStop={(item) => void stop(item)}
       onCancelStop={() => setConfirmingStop(null)}
       onMenu={onMenu}
+      onCopyDirectUrl={(item) => void routeActions.copyDirectUrl(item.port)}
+      terminalFor={
+        onOpenTerminal
+          ? (item) => {
+              const folder = item.project?.path ?? item.cwd;
+              return folder ? () => onOpenTerminal(item, folder) : null;
+            }
+          : undefined
+      }
     />
   );
 }

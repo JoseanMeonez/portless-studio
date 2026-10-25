@@ -18,6 +18,10 @@ export class InMemoryTerminalsGateway implements TerminalsGateway {
   readonly inputs: { id: string; text: string }[] = [];
   /** Requests `create` received; tests read them. */
   readonly created: CreateTerminalRequest[] = [];
+  /** Requests `createInFolder` received; tests read them. */
+  readonly picked: CreateTerminalRequest[] = [];
+  /** Whether a typed folder exists; tests replace it. */
+  folderExists: (path: string) => boolean = (path) => path.startsWith("/") || path.startsWith("~");
 
   constructor(now: () => number = Date.now) {
     this.#now = now;
@@ -31,6 +35,41 @@ export class InMemoryTerminalsGateway implements TerminalsGateway {
 
   async create(request: CreateTerminalRequest): Promise<Result<TerminalInfo, ApiError>> {
     this.created.push(request);
+    return this.#start(request);
+  }
+
+  async createInFolder(request: CreateTerminalRequest): Promise<Result<TerminalInfo, ApiError>> {
+    this.picked.push(request);
+    const typed = request.cwd?.trim() ?? "";
+    if (!this.folderExists(typed)) {
+      return err({
+        error: "path_not_allowed",
+        message: `${typed} is not a folder on this machine.`,
+      });
+    }
+    return this.#start({ ...request, cwd: typed.replace(/^~/, "/home/demo") });
+  }
+
+  async rename(id: string, title: string): Promise<Result<TerminalInfo, ApiError>> {
+    const entry = this.#entries.get(id);
+    if (!entry) return notFound(id);
+    entry.info = {
+      ...entry.info,
+      title: title.trim().slice(0, 60) || entry.info.command || "shell",
+    };
+    this.#publishStatus(entry);
+    return ok({ ...entry.info });
+  }
+
+  /** Changes what Studio reports about a terminal, such as the ports it opened. */
+  update(id: string, change: Partial<TerminalInfo>): void {
+    const entry = this.#entries.get(id);
+    if (!entry) return;
+    entry.info = { ...entry.info, ...change };
+    this.#publishStatus(entry);
+  }
+
+  async #start(request: CreateTerminalRequest): Promise<Result<TerminalInfo, ApiError>> {
     const cwd = request.cwd ?? (request.project ? `/demo/${request.project}` : "");
     if (cwd === "") return err({ error: "invalid_request", message: "Give a folder." });
     const id = `t${this.#nextId++}`;
@@ -41,6 +80,9 @@ export class InMemoryTerminalsGateway implements TerminalsGateway {
       cwd,
       command,
       project: request.project ?? cwd.split("/").filter(Boolean).at(-1) ?? null,
+      worktree: null,
+      branch: null,
+      ports: [],
       status: "running",
       exitCode: null,
       startedAt: this.#now(),

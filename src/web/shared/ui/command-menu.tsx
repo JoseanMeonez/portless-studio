@@ -29,6 +29,10 @@ type CommandMenuProps = {
   items: readonly CommandItem[];
   onClose: () => void;
   placeholder?: string;
+  /** The dialog's accessible name. */
+  label?: string;
+  /** The search field's accessible name. */
+  searchLabel?: string;
 };
 
 /** Search-as-you-type list of commands. Mount it to open it; picking a command closes it. */
@@ -36,6 +40,8 @@ export function CommandMenu({
   items,
   onClose,
   placeholder = "Type a command or search",
+  label = "Command menu",
+  searchLabel = "Search commands",
 }: CommandMenuProps) {
   const panel = useRef<HTMLDivElement>(null);
   const [query, setQuery] = useState("");
@@ -82,13 +88,7 @@ export function CommandMenu({
       className={styles.backdrop}
       onMouseDown={(event) => event.target === event.currentTarget && onClose()}
     >
-      <div
-        ref={panel}
-        role="dialog"
-        aria-modal="true"
-        aria-label="Command menu"
-        className={styles.panel}
-      >
+      <div ref={panel} role="dialog" aria-modal="true" aria-label={label} className={styles.panel}>
         <div className={styles.search}>
           <Icon name="search" className={styles.searchIcon} />
           <input
@@ -99,7 +99,7 @@ export function CommandMenu({
             aria-controls={listId}
             aria-activedescendant={active ? optionId(active) : undefined}
             aria-autocomplete="list"
-            aria-label="Search commands"
+            aria-label={searchLabel}
             className={styles.input}
             placeholder={placeholder}
             value={query}

@@ -2,6 +2,7 @@ import {
   API_PATHS,
   type ApiError,
   type CreateTerminalRequest,
+  type RenameTerminalRequest,
   type Session,
   TERMINAL_OUTPUT_EVENT,
   TERMINAL_STATUS_EVENT,
@@ -59,6 +60,19 @@ export class HttpTerminalsGateway implements TerminalsGateway {
 
   async create(request: CreateTerminalRequest): Promise<Result<TerminalInfo, ApiError>> {
     return this.#send(API_PATHS.terminals, "POST", request) as Promise<
+      Result<TerminalInfo, ApiError>
+    >;
+  }
+
+  createInFolder(request: CreateTerminalRequest): Promise<Result<TerminalInfo, ApiError>> {
+    return this.#send(API_PATHS.terminalsInFolder, "POST", request) as Promise<
+      Result<TerminalInfo, ApiError>
+    >;
+  }
+
+  rename(id: string, title: string): Promise<Result<TerminalInfo, ApiError>> {
+    const body: RenameTerminalRequest = { title };
+    return this.#send(API_PATHS.terminal(id), "PATCH", body) as Promise<
       Result<TerminalInfo, ApiError>
     >;
   }

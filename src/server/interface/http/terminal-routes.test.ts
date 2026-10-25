@@ -219,6 +219,42 @@ describe("terminal endpoints", () => {
     );
   });
 
+  it("open a folder picked by hand from the page, when it is an existing folder", async () => {
+    const other = path.join(scratch, "other");
+    const picked = await send("POST", "/api/terminals/in-folder", {
+      origin: true,
+      body: { cwd: other },
+    });
+    expect(picked).toMatchObject({ status: 201, body: { id: "t1", cwd: other, command: "" } });
+    const missing = await send("POST", "/api/terminals/in-folder", {
+      origin: true,
+      body: { cwd: path.join(scratch, "missing") },
+    });
+    expect(missing).toMatchObject({ status: 403, body: { error: "path_not_allowed" } });
+    const noToken = await send("POST", "/api/terminals/in-folder", {
+      origin: true,
+      token: false,
+      body: { cwd: other },
+    });
+    expect(noToken.status).toBe(403);
+    expect(children).toHaveLength(1);
+  });
+
+  it("rename a terminal", async () => {
+    await send("POST", "/api/terminals", { body: { cwd: scratch, command: "cat" } });
+    expect(
+      await send("PATCH", "/api/terminals/t1", { origin: true, body: { title: "notes" } }),
+    ).toMatchObject({ status: 200, body: { id: "t1", title: "notes" } });
+    expect((await send("GET", "/api/terminals/t1")).body).toMatchObject({ title: "notes" });
+    expect(
+      (await send("PATCH", "/api/terminals/t1", { origin: true, body: { title: 4 } })).status,
+    ).toBe(400);
+    expect(
+      (await send("PATCH", "/api/terminals/t1", { token: false, body: { title: "x" } })).status,
+    ).toBe(403);
+    expect((await send("PATCH", "/api/terminals/t9", { body: { title: "x" } })).status).toBe(404);
+  });
+
   it("refuse writes without the token", async () => {
     const reply = await send("POST", "/api/terminals", {
       token: false,

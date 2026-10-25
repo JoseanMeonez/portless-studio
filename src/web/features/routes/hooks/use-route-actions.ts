@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import type { ApiError, CreateAliasRequest } from "../../../../core/api/contract.ts";
+import { directUrl } from "../../../../core/ports/direct-url.ts";
 import type { Result } from "../../../../core/result.ts";
 import type { Route } from "../../../../core/routes/route.ts";
 import { copyText } from "../../../shared/lib/clipboard.ts";
@@ -14,6 +15,9 @@ export type RouteActions = {
   copyPath: (path: string) => Promise<void>;
   /** Copies any URL, e.g. the localhost one of a detected port. */
   copyLink: (url: string) => Promise<void>;
+  /** Copies `http://localhost:<port>`, the address that skips the proxy. */
+  copyDirectUrl: (port: number) => Promise<void>;
+  openLink: (url: string) => void;
   /** Errors come back to the caller, which shows them next to the form fields. */
   createAlias: (request: CreateAliasRequest) => Promise<Result<null, ApiError>>;
   renameAlias: (route: Route, newName: string) => Promise<Result<null, ApiError>>;
@@ -43,6 +47,10 @@ export function useRouteActions(): RouteActions {
       copyCommand: (command) => copy(command, "Copied command"),
       copyPath: (path) => copy(path, "Copied path"),
       copyLink: (url) => copy(url, "Copied URL"),
+      copyDirectUrl: (port) => copy(directUrl(port), "Copied direct URL"),
+      openLink: (url) => {
+        window.open(url, "_blank", "noopener,noreferrer");
+      },
       createAlias: async (request) => {
         const result = await gateway.createAlias(request);
         if (result.ok) {

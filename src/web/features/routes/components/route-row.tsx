@@ -4,6 +4,7 @@ import { Badge } from "../../../shared/ui/badge.tsx";
 import { Button } from "../../../shared/ui/button.tsx";
 import { Icon } from "../../../shared/ui/icons/icon.tsx";
 import { ItemIcon } from "../../../shared/ui/item-icon.tsx";
+import { DirectUrl } from "./direct-url.tsx";
 import { ProjectLocation } from "./project-location.tsx";
 import { RouteHealthDot } from "./route-health-dot.tsx";
 import styles from "./route-row.module.css";
@@ -31,6 +32,9 @@ export type RouteRowProps = {
   onMoveToGroup: () => void;
   /** Right-click or Ctrl+click: the menu with open with, copy path and more. */
   onMenu: (point: MenuPoint) => void;
+  onCopyDirectUrl: () => void;
+  /** Shows the terminal of the route's folder, or opens a shell there; hidden without it. */
+  onOpenTerminal?: (() => void) | undefined;
 };
 
 export type RowConfirmation = "remove" | "stop";
@@ -52,6 +56,8 @@ export function RouteRow({
   onToggleFavorite,
   onMoveToGroup,
   onMenu,
+  onCopyDirectUrl,
+  onOpenTerminal,
 }: RouteRowProps) {
   const uptime = formatUptime(route.registeredAt, now);
   const isAlias = route.kind === "alias";
@@ -86,6 +92,7 @@ export function RouteRow({
           ) : null}
         </span>
         <span className={styles.url}>{route.url.replace(/^https?:\/\//, "")}</span>
+        <DirectUrl port={route.port} onCopy={onCopyDirectUrl} />
         <ProjectLocation project={route.project} />
       </div>
 
@@ -161,6 +168,18 @@ export function RouteRow({
           >
             <Icon name="copy" size={14} />
           </Button>
+          {onOpenTerminal ? (
+            <Button
+              size="xs"
+              variant="ghost"
+              iconOnly
+              aria-label={`Open a terminal for ${route.name}`}
+              title="Terminal (T)"
+              onClick={onOpenTerminal}
+            >
+              <Icon name="terminal" size={14} />
+            </Button>
+          ) : null}
           {route.listenerPid !== undefined ? (
             <Button
               size="xs"

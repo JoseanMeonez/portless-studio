@@ -5,6 +5,7 @@ import {
   type SpawnRequest,
   type TerminalFolders,
   TerminalManager,
+  type TerminalManagerOptions,
   type TerminalProcess,
   type TerminalSpawner,
   type TerminalWorkspace,
@@ -102,7 +103,7 @@ function fakeWorkspace() {
   return { workspace, state, listeners, aliases, change };
 }
 
-function setup(options: { maxOutputChars?: number } = {}) {
+function setup(options: Partial<TerminalManagerOptions> = {}) {
   const spawner = fakeSpawner();
   const workspace = fakeWorkspace();
   const manager = new TerminalManager({
@@ -363,5 +364,107 @@ describe("TerminalManager", () => {
     await manager.create({ cwd: "/work/shop", command: "x", name: true }, { trusted: false });
     spawned[0]?.process.exit(1);
     expect(manager.get("t1")?.naming).toMatchObject({ state: "failed" });
+  });
+
+  it("renames a terminal, and an empty name gives back the default title", async () => {
+    const { manager } = setup();
+    let changes = 0;
+    manager.watch(() => changes++);
+    await manager.create({ cwd: "/work/shop", command: "pnpm dev" }, { trusted: false });
+    const renamed = manager.rename("t1", "  api server  ");
+    expect(renamed).toMatchObject({ ok: true, value: { title: "api server" } });
+    expect(manager.get("t1")?.title).toBe("api server");
+    expect(changes).toBe(2);
+    expect(manager.rename("t1", "   ")).toMatchObject({ ok: true, value: { title: "pnpm dev" } });
+    expect(manager.rename("t1", "x".repeat(80))).toMatchObject({
+      ok: true,
+      value: { title: "x".repeat(60) },
+    });
+    expect(manager.rename("t9", "a")).toMatchObject({ ok: false, error: { code: "not_found" } });
+  });
+
+  it("titles a shell after the user's shell, and keeps the title across a restart", async () => {
+    const spawner = fakeSpawner();
+    const { manager } = setup({ spawner: { ...spawner.spawner, shellName: "zsh" } });
+    await manager.create({ cwd: "/work/shop" }, { trusted: false });
+    expect(manager.get("t1")?.title).toBe("zsh");
+    manager.rename("t1", "scratch");
+    spawner.spawned[0]?.process.exit(0);
+    await manager.restart("t1");
+    expect(manager.get("t1")?.title).toBe("scratch");
+  });
+
+  it("carries the worktree and branch of the folder's project, for grouping tabs", async () => {
+    const { manager, state } = setup();
+    state.routes = [
+      {
+        ...route("falcon.shop", 3100, "/work/shop-falcon"),
+        project: {
+          name: "shop",
+          worktree: "falcon",
+          branch: "feat/falcon",
+          path: "/work/shop-falcon",
+        },
+      },
+    ];
+    const created = await manager.create({ cwd: "/work/shop-falcon/apps/web" }, { trusted: true });
+    expect(created).toMatchObject({
+      ok: true,
+      value: { project: "shop", worktree: "falcon", branch: "feat/falcon" },
+    });
+    const outside = await manager.create({ cwd: "/tmp/scratch" }, { trusted: true });
+    expect(outside).toMatchObject({
+      ok: true,
+      value: { project: null, worktree: null, branch: null },
+    });
+  });
+
+  it("opens a folder picked by hand from the page only when it is an existing folder", async () => {
+    const { manager, spawned } = setup({ homeDir: "/work" });
+    const picked = await manager.create({ cwd: "/tmp/other" }, { trusted: false, picked: true });
+    expect(picked).toMatchObject({ ok: true, value: { cwd: "/tmp/other" } });
+    const home = await manager.create({ cwd: "~/notes" }, { trusted: false, picked: true });
+    expect(home).toMatchObject({ ok: true, value: { cwd: "/work/notes" } });
+    expect(await manager.create({ cwd: "/nope" }, { trusted: false, picked: true })).toMatchObject({
+      ok: false,
+      error: { code: "path_not_allowed", message: "/nope is not a folder on this machine." },
+    });
+    expect(await manager.create({ cwd: "notes" }, { trusted: false, picked: true })).toMatchObject({
+      ok: false,
+      error: { code: "invalid_request" },
+    });
+    expect(spawned).toHaveLength(2);
+    // A picked folder does not open other page requests there.
+    expect(await manager.create({ cwd: "/tmp/other" }, { trusted: false })).toMatchObject({
+      ok: false,
+      error: { code: "path_not_allowed" },
+    });
+  });
+
+  it("lists the ports that processes started in the terminal listen on", async () => {
+    const parents: Record<number, number[]> = { 2001: [1500, 1000, 1], 2002: [1, 0] };
+    const { manager, state, change, listeners } = setup({
+      processTree: { ancestors: async (pid) => parents[pid] ?? [] },
+    });
+    let changes = 0;
+    const stopWatching = manager.watch(() => changes++);
+    await manager.create({ cwd: "/work/shop" }, { trusted: false });
+    expect(manager.get("t1")?.ports).toEqual([]);
+    expect(listeners.size).toBe(1);
+    state.detected = [
+      { port: 5173, pid: 2001, processName: "node", cwd: "/work/shop", suggestedName: null },
+      { port: 8080, pid: 2002, processName: "node", cwd: "/work/shop", suggestedName: null },
+    ];
+    state.routes = [{ ...route("web.shop", 3000, "/work/shop"), listenerPid: 2001 }];
+    change();
+    await vi.waitFor(() =>
+      expect(manager.get("t1")?.ports).toEqual([
+        { port: 3000, route: "web.shop", url: "http://web.shop.localhost:1355" },
+        { port: 5173, route: null, url: null },
+      ]),
+    );
+    expect(changes).toBeGreaterThan(1);
+    stopWatching();
+    await vi.waitFor(() => expect(listeners.size).toBe(0));
   });
 });

@@ -5,6 +5,7 @@ import { Button } from "../../../shared/ui/button.tsx";
 import { Icon } from "../../../shared/ui/icons/icon.tsx";
 import { ItemIcon } from "../../../shared/ui/item-icon.tsx";
 import styles from "./detected-row.module.css";
+import { DirectUrl } from "./direct-url.tsx";
 import { ProjectLocation } from "./project-location.tsx";
 import { type MenuPoint, rowMenuTrigger } from "./row-menu-trigger.ts";
 
@@ -20,6 +21,9 @@ type DetectedRowProps = {
   onCancelStop: () => void;
   /** Right-click or Ctrl+click: the menu with open with, copy path and more. */
   onMenu: (point: MenuPoint) => void;
+  onCopyDirectUrl: () => void;
+  /** Shows the terminal running this server, or opens a shell in its folder; hidden without it. */
+  onOpenTerminal?: (() => void) | undefined;
 };
 
 /** One port that answers HTTP but has no name: what runs there and the name Studio suggests. */
@@ -32,6 +36,8 @@ export function DetectedRow({
   onConfirmStop,
   onCancelStop,
   onMenu,
+  onCopyDirectUrl,
+  onOpenTerminal,
 }: DetectedRowProps) {
   const { port, pid, processName, cwd, suggestedName, container } = detected;
   const stopTarget = container ? `container ${container.name}` : processName || "the server";
@@ -78,6 +84,7 @@ export function DetectedRow({
           ) : null}
         </span>
         <ProjectLocation project={detected.project} showPath={false} />
+        <DirectUrl port={port} onCopy={onCopyDirectUrl} />
       </div>
 
       {confirmingStop ? (
@@ -94,6 +101,18 @@ export function DetectedRow({
         </div>
       ) : (
         <div className={styles.actions}>
+          {onOpenTerminal ? (
+            <Button
+              size="xs"
+              variant="ghost"
+              iconOnly
+              aria-label={`Open a terminal for port ${port}`}
+              title="Terminal"
+              onClick={onOpenTerminal}
+            >
+              <Icon name="terminal" size={14} />
+            </Button>
+          ) : null}
           {pid !== null || container ? (
             <Button
               size="xs"

@@ -4,7 +4,9 @@ import {
   type PointerEvent,
   type ReactNode,
   useRef,
+  useState,
 } from "react";
+import { directUrl } from "../../../../core/ports/direct-url.ts";
 import type { TerminalInfo } from "../../../../core/terminals/terminal.ts";
 import { Button } from "../../../shared/ui/button.tsx";
 import { Icon } from "../../../shared/ui/icons/icon.tsx";
@@ -20,6 +22,8 @@ type TerminalPanelProps = {
   /** The terminal view, or the new-terminal form. */
   children: ReactNode;
   onSelect: (id: string) => void;
+  /** An empty title gives back the default one. */
+  onRename: (id: string, title: string) => void;
   onCloseTerminal: (id: string) => void;
   onNew: () => void;
   onStop: () => void;
@@ -34,8 +38,9 @@ type TerminalPanelProps = {
 const RESIZE_STEP = 24;
 
 /**
- * The docked terminal panel: tabs grouped by project, the active terminal's status and controls,
- * and its screen. A handle on its inner edge resizes it; below 640 px it covers the page.
+ * The docked terminal panel: tabs grouped by project and worktree, the active terminal's status,
+ * controls and the ports it opened, and its screen. Double-click a tab or press F2 to rename it.
+ * A handle on its inner edge resizes it; below 640 px it covers the page.
  */
 export function TerminalPanel({
   terminals,
@@ -45,6 +50,7 @@ export function TerminalPanel({
   follow,
   children,
   onSelect,
+  onRename,
   onCloseTerminal,
   onNew,
   onStop,
@@ -56,6 +62,26 @@ export function TerminalPanel({
   onClose,
 }: TerminalPanelProps) {
   const dragging = useRef(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  // Enter and Escape settle the edit; the blur that follows must not apply it again.
+  const settled = useRef(false);
+  const startEditing = (id: string) => {
+    settled.current = false;
+    setEditingId(id);
+  };
+  const finishEditing = (id: string, title: string | null) => {
+    if (settled.current) return;
+    settled.current = true;
+    if (title !== null) onRename(id, title);
+    setEditingId(null);
+  };
+  // F2 renames even from inside the terminal screen, which would otherwise send it to the shell.
+  const renameWithF2 = (event: KeyboardEvent<HTMLElement>) => {
+    if (event.key !== "F2" || !active || editingId !== null) return;
+    event.preventDefault();
+    event.stopPropagation();
+    startEditing(active.id);
+  };
   const sizeFrom = (event: PointerEvent) =>
     dock === "bottom" ? window.innerHeight - event.clientY : window.innerWidth - event.clientX;
   const startDrag = (event: PointerEvent<HTMLDivElement>) => {
@@ -84,6 +110,7 @@ export function TerminalPanel({
       data-dock={dock}
       style={{ "--panel-size": `${size}px` } as CSSProperties}
       aria-label="Terminals"
+      onKeyDownCapture={renameWithF2}
     >
       {/* biome-ignore lint/a11y/useSemanticElements: a draggable splitter has no native element. */}
       <div
@@ -101,30 +128,59 @@ export function TerminalPanel({
       />
       <header className={styles.header}>
         <div className={styles.tabs} role="tablist" aria-label="Open terminals">
-          {groupByProject(terminals).map((group) => (
-            <div key={group.name} className={styles.group}>
-              <span className={styles.groupName}>{group.name}</span>
+          {groupByWorktree(terminals).map((group) => (
+            // biome-ignore lint/a11y/useSemanticElements: a fieldset is for form controls, not tabs.
+            <div key={group.name} className={styles.group} role="group" aria-label={group.name}>
+              <span className={styles.groupName} title={group.path}>
+                {group.name}
+                {group.branch ? <span className={styles.groupBranch}>{group.branch}</span> : null}
+              </span>
               {group.terminals.map((terminal) => (
                 <div
                   key={terminal.id}
                   className={styles.tab}
                   data-active={terminal.id === active?.id ? "" : undefined}
                 >
-                  <button
-                    type="button"
-                    role="tab"
-                    aria-selected={terminal.id === active?.id}
-                    className={styles.tabButton}
-                    onClick={() => onSelect(terminal.id)}
-                    title={`${terminal.command || "shell"} in ${terminal.cwd}`}
-                  >
-                    <span
-                      className={styles.dot}
-                      data-status={statusOf(terminal)}
-                      aria-hidden="true"
+                  {editingId === terminal.id ? (
+                    <input
+                      className={styles.tabInput}
+                      aria-label={`Rename ${terminal.title}`}
+                      defaultValue={terminal.title}
+                      maxLength={60}
+                      // biome-ignore lint/a11y/noAutofocus: the field appears because the person asked to rename.
+                      autoFocus
+                      onFocus={(event) => event.currentTarget.select()}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") {
+                          finishEditing(terminal.id, event.currentTarget.value);
+                        } else if (event.key === "Escape") {
+                          event.stopPropagation();
+                          finishEditing(terminal.id, null);
+                        }
+                      }}
+                      onBlur={(event) => {
+                        const title = event.currentTarget.value;
+                        finishEditing(terminal.id, title === terminal.title ? null : title);
+                      }}
                     />
-                    <span className={styles.tabTitle}>{terminal.title}</span>
-                  </button>
+                  ) : (
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={terminal.id === active?.id}
+                      className={styles.tabButton}
+                      onClick={() => onSelect(terminal.id)}
+                      onDoubleClick={() => startEditing(terminal.id)}
+                      title={`${terminal.command || "shell"} in ${terminal.cwd}. Double-click or F2 to rename.`}
+                    >
+                      <span
+                        className={styles.dot}
+                        data-status={statusOf(terminal)}
+                        aria-hidden="true"
+                      />
+                      <span className={styles.tabTitle}>{terminal.title}</span>
+                    </button>
+                  )}
                   <button
                     type="button"
                     className={styles.tabClose}
@@ -183,7 +239,38 @@ export function TerminalPanel({
               port {active.naming.port} is {active.naming.name}
             </span>
           ) : null}
+          {(active.ports ?? []).length > 0 ? (
+            // biome-ignore lint/a11y/useSemanticElements: a fieldset is for form controls, not links.
+            <span className={styles.ports} role="group" aria-label="Ports it opened">
+              {(active.ports ?? []).map((item) => (
+                <span key={item.port} className={styles.portLinks}>
+                  {item.route && item.url ? (
+                    <a href={item.url} target="_blank" rel="noreferrer" className={styles.portLink}>
+                      {item.route}
+                    </a>
+                  ) : null}
+                  <a
+                    href={directUrl(item.port)}
+                    target="_blank"
+                    rel="noreferrer"
+                    className={styles.portLink}
+                  >
+                    {directUrl(item.port)}
+                  </a>
+                </span>
+              ))}
+            </span>
+          ) : null}
           <div className={styles.toolbarActions}>
+            <Button
+              size="xs"
+              variant="ghost"
+              title="Rename (F2)"
+              onClick={() => startEditing(active.id)}
+            >
+              <Icon name="pencil" size={14} />
+              Rename
+            </Button>
             {running ? (
               <Button size="xs" variant="ghost" onClick={onStop}>
                 <Icon name="power" size={14} />
@@ -215,14 +302,28 @@ function statusOf(terminal: TerminalInfo): "running" | "ok" | "failed" {
   return terminal.exitCode === 0 ? "ok" : "failed";
 }
 
-/** Tabs grouped by project, in the order each project first appears. */
-function groupByProject(terminals: readonly TerminalInfo[]) {
-  const groups = new Map<string, TerminalInfo[]>();
+type TabGroup = { name: string; branch: string | null; path: string; terminals: TerminalInfo[] };
+
+/**
+ * Tabs grouped by project and worktree (`acme-monorepo / falcon`), in the order each first
+ * appears; a folder Studio does not know is its own group, named after the folder.
+ */
+function groupByWorktree(terminals: readonly TerminalInfo[]): TabGroup[] {
+  const groups = new Map<string, TabGroup>();
   for (const terminal of terminals) {
-    const name = terminal.project ?? lastSegment(terminal.cwd);
-    groups.set(name, [...(groups.get(name) ?? []), terminal]);
+    const name = terminal.project
+      ? `${terminal.project}${terminal.worktree ? ` / ${terminal.worktree}` : ""}`
+      : lastSegment(terminal.cwd);
+    const group = groups.get(name) ?? {
+      name,
+      branch: terminal.branch ?? null,
+      path: terminal.cwd,
+      terminals: [],
+    };
+    group.terminals.push(terminal);
+    groups.set(name, group);
   }
-  return [...groups].map(([name, items]) => ({ name, terminals: items }));
+  return [...groups.values()];
 }
 
 function lastSegment(folder: string): string {

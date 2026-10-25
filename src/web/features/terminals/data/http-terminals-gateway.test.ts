@@ -73,4 +73,16 @@ describe("HttpTerminalsGateway", () => {
     stop();
     expect(sources[1]?.closed).toBe(true);
   });
+
+  it("renames with PATCH and opens a picked folder through its own endpoint", async () => {
+    const { gateway, requests } = setup();
+    await gateway.rename("t1", "notes");
+    await gateway.createInFolder({ cwd: "~/scratch" });
+    const rename = requests.find((request) => request.url === "/api/terminals/t1");
+    expect(rename?.init.method).toBe("PATCH");
+    expect(rename?.init.body).toBe(JSON.stringify({ title: "notes" }));
+    const picked = requests.find((request) => request.url === "/api/terminals/in-folder");
+    expect(picked?.init.method).toBe("POST");
+    expect(picked?.init.body).toBe(JSON.stringify({ cwd: "~/scratch" }));
+  });
 });

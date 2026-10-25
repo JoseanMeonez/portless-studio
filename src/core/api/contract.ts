@@ -52,7 +52,16 @@ export const API_PATHS = {
   terminals: "/api/terminals",
   /** Server-sent events: `terminals` with the whole list on connect and after every change. */
   terminalsEvents: "/api/terminals/events",
-  /** GET returns `TerminalInfo`; DELETE stops the command if it runs and closes the terminal. */
+  /**
+   * POST `CreateTerminalRequest` from the page's folder picker: `cwd` may be any existing folder,
+   * typed by the person (`~` is the home folder). Every other page request runs only in folders
+   * Studio shows.
+   */
+  terminalsInFolder: "/api/terminals/in-folder",
+  /**
+   * GET returns `TerminalInfo`; PATCH `RenameTerminalRequest` renames it; DELETE stops the command
+   * if it runs and closes the terminal.
+   */
   terminal: (id: string) => `/api/terminals/${encodeURIComponent(id)}`,
   /** GET `?from=<seq>&max=<chars>` returns `TerminalOutputResponse`. */
   terminalOutput: (id: string) => `/api/terminals/${encodeURIComponent(id)}/output`,
@@ -158,6 +167,9 @@ export type CreateTerminalRequest = {
    */
   name?: boolean | string;
 };
+
+/** PATCH /api/terminals/:id. An empty title gives back the default one, the command or shell. */
+export type RenameTerminalRequest = { title: string };
 
 /** GET /api/terminals */
 export type TerminalsResponse = { terminals: TerminalInfo[] };

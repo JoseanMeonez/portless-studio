@@ -109,7 +109,8 @@ export function resolveWindowsCommand(bin: string, lookup: WindowsLookup): strin
 
 const found = new Map<string, boolean>();
 
-function nodeWindowsLookup(): WindowsLookup {
+/** PATH, PATHEXT and file checks of this machine, for `resolveWindowsCommand`. */
+export function nodeWindowsLookup(): WindowsLookup {
   const pathValue = process.env.PATH ?? process.env.Path ?? "";
   return {
     pathDirs: pathValue

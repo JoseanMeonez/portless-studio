@@ -19,6 +19,10 @@ export interface TerminalsGateway {
   /** Calls `listener` with every terminal now and after each change, until unsubscribed. */
   watchList(listener: (terminals: TerminalInfo[]) => void): () => void;
   create(request: CreateTerminalRequest): Promise<Result<TerminalInfo, ApiError>>;
+  /** Starts a terminal in any existing folder the person typed or picked; `~` is home. */
+  createInFolder(request: CreateTerminalRequest): Promise<Result<TerminalInfo, ApiError>>;
+  /** Names the terminal; an empty title gives back the default one. */
+  rename(id: string, title: string): Promise<Result<TerminalInfo, ApiError>>;
   /** Types into the command; Enter is `\r`. */
   input(id: string, text: string): Promise<Result<null, ApiError>>;
   stop(id: string): Promise<Result<TerminalInfo, ApiError>>;

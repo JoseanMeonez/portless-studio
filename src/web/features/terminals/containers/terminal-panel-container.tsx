@@ -29,7 +29,6 @@ export function TerminalPanelContainer({
   const gateway = useTerminalsGateway();
   const toast = useToast();
   const [follow, setFollow] = useState(true);
-  const [creating, setCreating] = useState(false);
   const [busy, setBusy] = useState(false);
   // Until the terminal asked for shows up in the list, the newest one stands in.
   const active =
@@ -60,7 +59,8 @@ export function TerminalPanelContainer({
     if (!result.ok)
       toast({ title: failed, description: result.error?.message ?? "", tone: "error" });
   };
-  const showForm = creating || panel.terminals.length === 0;
+  // With no terminal yet, the panel itself offers to start one.
+  const showForm = panel.terminals.length === 0;
 
   return (
     <TerminalPanel
@@ -69,14 +69,12 @@ export function TerminalPanelContainer({
       dock={panel.dock}
       size={panel.size}
       follow={follow}
-      onSelect={(id) => {
-        setCreating(false);
-        panel.show(id);
-      }}
+      onSelect={panel.show}
+      onRename={(id, title) => void panel.rename(id, title)}
       onCloseTerminal={(id) =>
         void gateway.remove(id).then((result) => report(result, "Could not close it"))
       }
-      onNew={() => setCreating(true)}
+      onNew={() => panel.setPicker("folders")}
       onStop={() => {
         if (activeId)
           void gateway.stop(activeId).then((result) => report(result, "Could not stop it"));
@@ -108,16 +106,12 @@ export function TerminalPanelContainer({
           folders={folders}
           initialPath={active?.cwd}
           busy={busy}
-          onCancel={() => {
-            setCreating(false);
-            if (panel.terminals.length === 0) panel.setOpen(false);
-          }}
+          onCancel={() => panel.setOpen(false)}
           onSubmit={({ cwd, command }) => {
             setBusy(true);
-            void panel.create({ cwd, ...(command.trim() ? { command } : {}) }).then((created) => {
-              setBusy(false);
-              if (created) setCreating(false);
-            });
+            void panel
+              .create({ cwd, ...(command.trim() ? { command } : {}) })
+              .then(() => setBusy(false));
           }}
         />
       ) : active ? (

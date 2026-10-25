@@ -25,6 +25,15 @@ export type TerminalNaming = {
   message?: string;
 };
 
+/** A port a process started in a terminal listens on, and its route when it has one. */
+export type TerminalPort = {
+  port: number;
+  /** Route name, e.g. `web.acme`; null while the port has no name. */
+  route: string | null;
+  /** The route's URL through the proxy; null without a route. */
+  url: string | null;
+};
+
 export type TerminalInfo = {
   /** Short and unique for this Studio run, e.g. `t3`. */
   id: string;
@@ -35,6 +44,15 @@ export type TerminalInfo = {
   command: string;
   /** The project the folder belongs to, for grouping tabs; null when Studio does not know it. */
   project: string | null;
+  /** The project's linked git worktree folder, e.g. `falcon`; null in the main checkout. */
+  worktree: string | null;
+  /** The project's checked-out branch; null when unknown. */
+  branch: string | null;
+  /**
+   * Ports that processes started in this terminal listen on. Studio links a listener to the
+   * terminal through its parent processes, on Linux and macOS only; elsewhere this stays empty.
+   */
+  ports: TerminalPort[];
   status: TerminalStatus;
   /** Exit code once exited; null while running or when a signal ended it. */
   exitCode: number | null;

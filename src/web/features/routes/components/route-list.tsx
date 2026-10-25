@@ -37,6 +37,10 @@ type RouteListProps = {
   onToggleFavorite: (route: Route) => void;
   onMoveToGroup: (route: Route) => void;
   onMenu: (route: Route, point: MenuPoint) => void;
+  onCopyDirectUrl: (route: Route) => void;
+  /** Hidden for routes it returns false for, and entirely without it. */
+  onOpenTerminal?: ((route: Route) => void) | undefined;
+  canOpenTerminal?: ((route: Route) => boolean) | undefined;
   onRenameGroup: (groupId: string, name: string) => void;
   onDeleteGroup: (groupId: string, name: string) => void;
 };
@@ -66,6 +70,12 @@ export function RouteList(props: RouteListProps) {
           onToggleFavorite={() => props.onToggleFavorite(route)}
           onMoveToGroup={() => props.onMoveToGroup(route)}
           onMenu={(point) => props.onMenu(route, point)}
+          onCopyDirectUrl={() => props.onCopyDirectUrl(route)}
+          onOpenTerminal={
+            props.onOpenTerminal && (props.canOpenTerminal?.(route) ?? true)
+              ? () => props.onOpenTerminal?.(route)
+              : undefined
+          }
         />
       );
     });

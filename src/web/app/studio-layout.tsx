@@ -3,6 +3,7 @@ import { RoutesDashboard, type TerminalLauncher } from "../features/routes/index
 import {
   type TerminalEngine,
   TerminalPanelContainer,
+  TerminalPickerContainer,
   useTerminalPanel,
 } from "../features/terminals/index.ts";
 import styles from "./studio-layout.module.css";
@@ -20,8 +21,9 @@ type StudioLayoutProps = {
 export function StudioLayout({ theme, onToggleTheme, loadTerminalEngine }: StudioLayoutProps) {
   const panel = useTerminalPanel();
   const launcher: TerminalLauncher = {
-    openIn: (folder) => void panel.openIn(folder),
+    openIn: (folder, port) => void panel.openIn(folder, port),
     show: panel.show,
+    pick: () => panel.setPicker("folders"),
   };
   // Room for the docked panel, so it never covers the last rows.
   const room = panel.open ? `${panel.size}px` : "0px";
@@ -43,6 +45,7 @@ export function StudioLayout({ theme, onToggleTheme, loadTerminalEngine }: Studi
               themeKey={theme}
               {...(loadTerminalEngine ? { loadEngine: loadTerminalEngine } : {})}
             />
+            <TerminalPickerContainer panel={panel} folders={folders} />
             {panel.open ? null : (
               <button
                 type="button"

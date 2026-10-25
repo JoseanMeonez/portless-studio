@@ -18,6 +18,7 @@ export type ShortcutId =
   | "favorite"
   | "row-menu"
   | "open-terminal"
+  | "new-terminal"
   | "name-port"
   | "next-view"
   | "collapse-all"
@@ -130,6 +131,15 @@ export const SHORTCUTS: readonly Shortcut[] = [
     keys: ["t"],
     combos: [["T"]],
     needsSelection: true,
+  },
+  {
+    id: "new-terminal",
+    group: "Actions",
+    label: "New terminal in any folder",
+    // Ctrl on every system: Cmd+` switches windows on macOS. The keyboard hook checks it.
+    keys: ["`"],
+    combos: [["Ctrl", "`"]],
+    modifier: true,
   },
   { id: "name-port", group: "Actions", label: "Name a port", keys: ["n"], combos: [["N"]] },
   { id: "next-view", group: "Views", label: "Next view", keys: ["v"], combos: [["V"]] },

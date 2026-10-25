@@ -304,6 +304,16 @@ export function createHttpServer(options: HttpServerOptions): HttpServer {
       terminalStreams.list(res);
       return;
     }
+    if (pathname === API_PATHS.terminalsInFolder && method === "POST") {
+      const body = await readJsonBody(req);
+      if (!body.ok) return sendBodyError(res, body.error);
+      const created = await terminals.create(toTerminalRequest(body.value), {
+        trusted: isLocalProgram(req),
+        picked: true,
+      });
+      if (!created.ok) return sendAppError(res, created.error);
+      return sendJson(res, 201, created.value);
+    }
     const match = TERMINAL.exec(pathname);
     const id = match?.[1] ? decodeName(match[1]) : null;
     if (id === null) return sendError(res, "not_found", "No terminal has that id.");
@@ -312,6 +322,16 @@ export function createHttpServer(options: HttpServerOptions): HttpServer {
       const info = terminals.get(id);
       if (!info) return sendError(res, "not_found", `No terminal has the id "${id}".`);
       return sendJson(res, 200, info);
+    }
+    if (action === undefined && method === "PATCH") {
+      const body = await readJsonBody(req);
+      if (!body.ok) return sendBodyError(res, body.error);
+      const title = asRecord(body.value).title;
+      if (typeof title !== "string")
+        return sendError(res, "invalid_request", "title must be text.");
+      const renamed = terminals.rename(id, title);
+      if (!renamed.ok) return sendAppError(res, renamed.error);
+      return sendJson(res, 200, renamed.value);
     }
     if (action === undefined && method === "DELETE") {
       return sendResult(res, terminals.remove(id), 204);

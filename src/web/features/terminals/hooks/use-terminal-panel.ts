@@ -1,11 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { CreateTerminalRequest } from "../../../../core/api/contract.ts";
+import type { ApiError, CreateTerminalRequest } from "../../../../core/api/contract.ts";
+import type { Result } from "../../../../core/result.ts";
 import type { TerminalInfo } from "../../../../core/terminals/terminal.ts";
 import { useToast } from "../../../shared/ui/toast/use-toast.ts";
 import { useTerminalsGateway } from "./terminals-gateway-context.tsx";
 import { useTerminals } from "./use-terminals.ts";
 
 export type TerminalDock = "bottom" | "right";
+
+/** The New terminal picker: closed, the list of folders, or the field for any folder. */
+export type TerminalPickerState = "closed" | "folders" | "other";
 
 type Layout = { dock: TerminalDock; size: number; open: boolean };
 
@@ -21,8 +25,17 @@ export type TerminalPanelController = {
   dock: TerminalDock;
   /** Height when docked at the bottom, width when docked on the right, in pixels. */
   size: number;
-  /** Shows a terminal in this folder: a running one if there is one, else a new shell. */
-  openIn(folder: string): Promise<void>;
+  /**
+   * Shows a terminal for an item: the running one whose processes listen on `port`, else one in
+   * this folder (a running one first), else a new shell there.
+   */
+  openIn(folder: string, port?: number): Promise<void>;
+  picker: TerminalPickerState;
+  setPicker(state: TerminalPickerState): void;
+  /** Opens a shell in a folder typed by hand; the error comes back for the form to show. */
+  openTypedFolder(folder: string): Promise<Result<TerminalInfo, ApiError>>;
+  /** Renames a terminal; an empty title gives back the default one. */
+  rename(id: string, title: string): Promise<void>;
   show(id: string): void;
   setOpen(open: boolean): void;
   setDock(dock: TerminalDock): void;
@@ -37,6 +50,7 @@ export function useTerminalPanel(): TerminalPanelController {
   const toast = useToast();
   const [layout, setLayout] = useState<Layout>(readLayout);
   const [activeId, setActiveId] = useState<string | null>(null);
+  const [picker, setPicker] = useState<TerminalPickerState>("closed");
   const latest = useRef(terminals);
   latest.current = terminals;
 
@@ -76,9 +90,18 @@ export function useTerminalPanel(): TerminalPanelController {
   );
 
   const openIn = useCallback(
-    async (folder: string) => {
+    async (folder: string, port?: number) => {
+      const serving =
+        port === undefined
+          ? undefined
+          : latest.current.find(
+              (terminal) =>
+                terminal.status === "running" &&
+                (terminal.ports ?? []).some((item) => item.port === port),
+            );
       const here = latest.current.filter((terminal) => terminal.cwd === folder);
-      const existing = here.find((terminal) => terminal.status === "running") ?? here.at(-1);
+      const existing =
+        serving ?? here.find((terminal) => terminal.status === "running") ?? here.at(-1);
       if (existing) {
         show(existing.id);
         return;
@@ -86,6 +109,25 @@ export function useTerminalPanel(): TerminalPanelController {
       await create({ cwd: folder });
     },
     [create, show],
+  );
+
+  const openTypedFolder = useCallback(
+    async (folder: string) => {
+      const created = await gateway.createInFolder({ cwd: folder });
+      if (created.ok) show(created.value.id);
+      return created;
+    },
+    [gateway, show],
+  );
+
+  const rename = useCallback(
+    async (id: string, title: string) => {
+      const renamed = await gateway.rename(id, title);
+      if (!renamed.ok) {
+        toast({ title: "Could not rename it", description: renamed.error.message, tone: "error" });
+      }
+    },
+    [gateway, toast],
   );
 
   return useMemo(
@@ -96,6 +138,10 @@ export function useTerminalPanel(): TerminalPanelController {
       dock: layout.dock,
       size: layout.size,
       openIn,
+      picker,
+      setPicker,
+      openTypedFolder,
+      rename,
       show,
       create,
       setOpen: (open: boolean) => setLayout((current) => ({ ...current, open })),
@@ -103,7 +149,7 @@ export function useTerminalPanel(): TerminalPanelController {
       setSize: (size: number) =>
         setLayout((current) => ({ ...current, size: Math.max(MIN_PANEL_SIZE, Math.round(size)) })),
     }),
-    [terminals, layout, activeId, openIn, show, create],
+    [terminals, layout, activeId, openIn, picker, openTypedFolder, rename, show, create],
   );
 }
 

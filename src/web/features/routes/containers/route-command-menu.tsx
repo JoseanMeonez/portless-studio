@@ -1,4 +1,5 @@
 import type { ProxyAction } from "../../../../core/api/contract.ts";
+import { directUrl } from "../../../../core/ports/direct-url.ts";
 import type { Route } from "../../../../core/routes/route.ts";
 import { ITEM_KINDS, type ItemKind, type View } from "../../../../core/views/view.ts";
 import { modifierLabel } from "../../../shared/lib/keyboard.ts";
@@ -22,6 +23,8 @@ type RouteCommandMenuProps = {
   onRename: (route: Route) => void;
   onToggleFavorite: (route: Route) => void;
   onMoveToGroup: (route: Route) => void;
+  /** Opens the New terminal picker; absent hides the action. */
+  onNewTerminal?: (() => void) | undefined;
   onStopServer: (route: Route) => void;
   onSwitchView: (id: string) => void;
   onSaveView: () => void;
@@ -78,6 +81,14 @@ export function RouteCommandMenu(props: RouteCommandMenuProps) {
             onSelect: () => void actions.copyUrl(selected),
           } satisfies CommandItem,
           {
+            id: "copy-direct-selected",
+            group: "Actions",
+            label: `Copy direct URL of ${selected.name}`,
+            detail: directUrl(selected.port),
+            icon: "copy",
+            onSelect: () => void actions.copyDirectUrl(selected.port),
+          } satisfies CommandItem,
+          {
             id: "favorite-selected",
             group: "Actions",
             label: props.selectedIsFavorite
@@ -115,6 +126,18 @@ export function RouteCommandMenu(props: RouteCommandMenuProps) {
         onSelect: () => selected && props.onStopServer(selected),
       },
     ]),
+    ...(props.onNewTerminal
+      ? [
+          {
+            id: "new-terminal",
+            group: "Actions",
+            label: "New terminal…",
+            icon: "terminal",
+            shortcut: keys("new-terminal"),
+            onSelect: props.onNewTerminal,
+          } satisfies CommandItem,
+        ]
+      : []),
     {
       id: "filter",
       group: "Actions",

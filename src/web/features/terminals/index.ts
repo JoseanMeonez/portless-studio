@@ -2,6 +2,7 @@
 
 export type { TerminalFolder } from "./components/new-terminal-form.tsx";
 export { TerminalPanelContainer } from "./containers/terminal-panel-container.tsx";
+export { TerminalPickerContainer } from "./containers/terminal-picker-container.tsx";
 export { HttpTerminalsGateway } from "./data/http-terminals-gateway.ts";
 export { InMemoryTerminalsGateway } from "./data/in-memory-terminals-gateway.ts";
 export type { TerminalsGateway } from "./data/terminals-gateway.ts";

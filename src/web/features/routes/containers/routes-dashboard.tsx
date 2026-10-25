@@ -1,6 +1,7 @@
 import { type ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { StudioActionResponse } from "../../../../core/api/contract.ts";
 import type { DetectedPort } from "../../../../core/ports/detected-port.ts";
+import { directUrl } from "../../../../core/ports/direct-url.ts";
 import type { Route } from "../../../../core/routes/route.ts";
 import { hasFilters, type ItemKind, routeKey } from "../../../../core/views/view.ts";
 import { modifierLabel } from "../../../shared/lib/keyboard.ts";
@@ -52,10 +53,15 @@ import { UpdateBannerContainer } from "./update-banner-container.tsx";
 
 /** What the dashboard asks of the terminals feature; the app root wires it in. */
 export type TerminalLauncher = {
-  /** Shows a terminal in this folder: a running one, else a new shell there. */
-  openIn: (folder: string) => void;
+  /**
+   * Shows a terminal for an item: the running one whose processes listen on `port`, else one in
+   * this folder, else a new shell there.
+   */
+  openIn: (folder: string, port?: number) => void;
   /** Shows the terminal with this id. */
   show: (id: string) => void;
+  /** Opens the New terminal picker: any project folder, or one typed by hand. */
+  pick: () => void;
 };
 
 type RoutesDashboardProps = {
@@ -68,7 +74,12 @@ type RoutesDashboardProps = {
 };
 
 /** A project folder Studio shows, for starting a terminal there. */
-export type ProjectFolder = { label: string; path: string };
+export type ProjectFolder = {
+  /** `acme-monorepo / falcon` for a linked worktree, else the project name. */
+  label: string;
+  path: string;
+  branch: string | null;
+};
 
 /** How long a page waits after `window.focus()` before saying whether it came forward. */
 const FOCUS_CHECK_MS = 300;
@@ -174,7 +185,7 @@ export function RoutesDashboard({
   const openTerminal = (route: Route) => {
     if (!terminals) return;
     const folder = route.project?.path;
-    if (folder) terminals.openIn(folder);
+    if (folder) terminals.openIn(folder, route.port);
     else
       toast({
         title: `No folder for ${route.name}`,
@@ -281,6 +292,7 @@ export function RoutesDashboard({
     onRowMenu: (index) => withRoute(routeAt(index), selectedRowMenu),
     onTerminal: (index) => withRoute(routeAt(index), openTerminal),
     onCreate: openCreate,
+    onNewTerminal: () => terminals?.pick(),
     onFocusFilter: () => filterInput.current?.focus(),
     onToggleCommandMenu: () => setCommandMenuOpen((open) => !open),
     onOpenSettings: openSettings,
@@ -517,6 +529,9 @@ export function RoutesDashboard({
                 autoName={snapshot.autoName}
                 onName={nameDetected}
                 onMenu={detectedMenu}
+                onOpenTerminal={
+                  terminals ? (item, folder) => terminals.openIn(folder, item.port) : undefined
+                }
               />
             ) : null}
             {hasRoutes && hasDetected ? <h2 className={styles.sectionTitle}>Routes</h2> : null}
@@ -542,6 +557,9 @@ export function RoutesDashboard({
                   onToggleFavorite={toggleFavorite}
                   onMoveToGroup={setMoving}
                   onMenu={routeMenu}
+                  onCopyDirectUrl={(route) => void actions.copyDirectUrl(route.port)}
+                  onOpenTerminal={terminals ? openTerminal : undefined}
+                  canOpenTerminal={(route) => Boolean(route.project?.path)}
                   onRenameGroup={(groupId, name) =>
                     setNaming({ kind: "rename-group", groupId, name })
                   }
@@ -620,7 +638,7 @@ export function RoutesDashboard({
           apps={openWith.apps}
           onOpenWith={(app, path) => void openWith.open(app, path)}
           onCustomize={openSettings}
-          onOpenTerminal={terminals ? (path) => terminals.openIn(path) : undefined}
+          onOpenTerminal={terminals ? (path, port) => terminals.openIn(path, port) : undefined}
           onClose={() => setRowMenu(null)}
         />
       ) : null}
@@ -638,6 +656,7 @@ export function RoutesDashboard({
           onRename={requestRename}
           onToggleFavorite={toggleFavorite}
           onMoveToGroup={setMoving}
+          onNewTerminal={terminals ? terminals.pick : undefined}
           onStopServer={(route) => {
             selectRoute(route);
             setConfirming({ name: route.name, action: "stop" });
@@ -673,21 +692,33 @@ function projectFolders(
   for (const item of [...routes, ...detected]) {
     const path = item.project?.path;
     if (item.project && path && !folders.has(path)) {
-      const worktree = item.project.worktree ? ` (${item.project.worktree})` : "";
-      folders.set(path, { label: `${item.project.name}${worktree}`, path });
+      const worktree = item.project.worktree ? ` / ${item.project.worktree}` : "";
+      folders.set(path, {
+        label: `${item.project.name}${worktree}`,
+        path,
+        branch: item.project.branch ?? null,
+      });
     }
   }
   return [...folders.values()].sort((a, b) => a.label.localeCompare(b.label));
 }
 
 function routeMenuTarget(route: Route): RowMenuTarget {
-  return { label: route.name, url: route.url, path: route.project?.path ?? null };
+  return {
+    label: route.name,
+    url: route.url,
+    directUrl: directUrl(route.port),
+    port: route.port,
+    path: route.project?.path ?? null,
+  };
 }
 
 function detectedMenuTarget(item: DetectedPort): RowMenuTarget {
   return {
     label: `port ${item.port}`,
-    url: `http://localhost:${item.port}`,
+    url: directUrl(item.port),
+    directUrl: directUrl(item.port),
+    port: item.port,
     path: item.project?.path ?? item.cwd,
   };
 }

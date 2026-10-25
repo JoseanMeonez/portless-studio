@@ -62,9 +62,11 @@ import {
   probeHttpResponse,
 } from "./infrastructure/system/system-port-scanner.ts";
 import { SystemProcessControl } from "./infrastructure/system/system-process-control.ts";
+import { systemProcessTree } from "./infrastructure/terminal/process-tree.ts";
 import {
   createTerminalSpawner,
   detectTerminalMode,
+  interactiveShellName,
   nodeTerminalFolders,
 } from "./infrastructure/terminal/terminal-spawner.ts";
 import { createHttpServer } from "./interface/http/http-server.ts";
@@ -166,6 +168,8 @@ export function createStudioServices(options: StudioServicesOptions = {}): Studi
   const terminals = new TerminalManager({
     spawner: lazySpawner(),
     folders: nodeTerminalFolders(),
+    processTree: systemProcessTree(),
+    homeDir: os.homedir(),
     workspace: {
       openableFolders: () => runtime.openableFolders(),
       snapshot: () => runtime.readSnapshot(),
@@ -377,6 +381,7 @@ function lazySpawner(): TerminalSpawner {
     get mode() {
       return mode;
     },
+    shellName: interactiveShellName(),
     spawn: async (request) => {
       real ??= detectTerminalMode(process.platform).then((detected) =>
         createTerminalSpawner({ mode: detected }),

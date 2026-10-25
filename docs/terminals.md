@@ -116,3 +116,36 @@ page to the front:
 Browsers decide whether a page may raise its own window: Chrome, Firefox and Safari usually
 ignore `window.focus()` from a background tab, so the link in a new tab is the common outcome.
 On Linux, some window managers show a "ready" notice instead of raising the browser.
+
+## Opening terminals
+
+- **New terminal** (`Ctrl+\``, the panel's button, or the command menu) lists every project and
+  worktree folder Studio knows, with its branch and path, and you can search it. Pick one to open
+  your login shell there, or pick **Other folder…** and type any existing folder (`~` is your home
+  folder). While a terminal has focus, xterm may keep `Ctrl+\`` for itself; use the panel button.
+- The terminal button on a row shows the terminal whose processes serve that row, else a terminal
+  in its folder, else opens a shell there.
+- A terminal with no command starts your login shell (`$SHELL -l`). On Windows it starts `pwsh` or
+  Windows PowerShell, which shows no prompt over pipes, else `cmd.exe`.
+
+## The panel
+
+- Tabs are grouped by project and worktree (`acme-monorepo / falcon`) with the branch. A folder
+  Studio does not know is grouped under its own name.
+- Double-click a tab, press `F2`, or use Rename to name it. An empty name brings back the command
+  or the shell's name.
+- The toolbar lists the URLs of ports opened by processes started in that terminal. This works on
+  Linux and macOS through parent processes; on Windows nothing is listed.
+
+## Direct URLs
+
+Every route and detected port shows its direct URL (`http://localhost:<port>`); click it to copy.
+The row menu has Open direct URL and Copy direct URL, and the command menu has Copy direct URL of
+the selected route.
+
+## Folders the page can use
+
+The page's **New terminal** picker can start a terminal in any existing folder you type
+(`POST /api/terminals/in-folder`, which needs the token and refuses anything that is not a
+folder). Every other page request runs only in folders Studio shows. The CLI and MCP can use any
+existing folder, as before.

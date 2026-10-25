@@ -63,6 +63,8 @@ describe("row menu", () => {
     ).toEqual([
       "Open in browser",
       "Copy URL",
+      "Open direct URL",
+      "Copy direct URL",
       "Copy path",
       "Open terminal",
       "Reveal in File manager",
@@ -156,7 +158,7 @@ describe("row menu", () => {
       within(actions)
         .getAllByRole("menuitem")
         .map((item) => item.textContent),
-    ).toEqual(["Open in browser", "Copy URL"]);
+    ).toEqual(["Open in browser", "Copy URL", "Open direct URL", "Copy direct URL"]);
   });
 
   it("works on detected ports with their folder", async () => {

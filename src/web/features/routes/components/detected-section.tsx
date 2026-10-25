@@ -24,6 +24,9 @@ type DetectedSectionProps = {
   onConfirmStop: (detected: DetectedPort) => void;
   onCancelStop: () => void;
   onMenu: (detected: DetectedPort, point: MenuPoint) => void;
+  onCopyDirectUrl: (detected: DetectedPort) => void;
+  /** Absent hides the terminal button; so does `null` for one port. */
+  terminalFor?: ((detected: DetectedPort) => (() => void) | null) | undefined;
 };
 
 /** Dev servers found on this machine that portless does not know yet, ready to be named. */
@@ -42,6 +45,8 @@ export function DetectedSection({
   onConfirmStop,
   onCancelStop,
   onMenu,
+  onCopyDirectUrl,
+  terminalFor,
 }: DetectedSectionProps) {
   const suggested = detected.filter((item) => item.suggestedName !== null).length;
   const count =
@@ -87,6 +92,8 @@ export function DetectedSection({
             onRequestStop={() => onRequestStop(item)}
             onConfirmStop={() => onConfirmStop(item)}
             onMenu={(point) => onMenu(item, point)}
+            onCopyDirectUrl={() => onCopyDirectUrl(item)}
+            onOpenTerminal={terminalFor?.(item) ?? undefined}
             onCancelStop={onCancelStop}
           />
         ))}

@@ -24,6 +24,8 @@ type KeyboardNavigationOptions = {
   /** Opens a terminal in the selected row's project folder. */
   onTerminal: (index: number) => void;
   onCreate: () => void;
+  /** Ctrl+`: the New terminal picker. */
+  onNewTerminal: () => void;
   onFocusFilter: () => void;
   onToggleCommandMenu: () => void;
   onOpenSettings: () => void;
@@ -52,9 +54,13 @@ export function useKeyboardNavigation(options: KeyboardNavigationOptions) {
     const handleKeyDown = (event: KeyboardEvent) => {
       const current = latest.current;
       if (hasModifier(event)) {
-        if (findShortcut(event.key, true)?.id === "command-menu") {
+        const shortcut = findShortcut(event.key, true)?.id;
+        if (shortcut === "command-menu") {
           event.preventDefault();
           current.onToggleCommandMenu();
+        } else if (shortcut === "new-terminal" && event.ctrlKey && current.enabled) {
+          event.preventDefault();
+          current.onNewTerminal();
         }
         return;
       }
@@ -82,7 +88,10 @@ export function useKeyboardNavigation(options: KeyboardNavigationOptions) {
         if (current.itemCount === 0) return;
         setSelected(Math.max(0, Math.min(to, current.itemCount - 1)));
       };
-      const actions: Record<Exclude<ShortcutId, "close" | "command-menu">, () => void> = {
+      const actions: Record<
+        Exclude<ShortcutId, "close" | "command-menu" | "new-terminal">,
+        () => void
+      > = {
         "move-down": () => move(index + 1),
         "move-up": () => move(index - 1),
         first: () => move(0),
@@ -104,7 +113,9 @@ export function useKeyboardNavigation(options: KeyboardNavigationOptions) {
         settings: current.onOpenSettings,
         help: current.onShowShortcuts,
       };
-      if (shortcut.id !== "command-menu") actions[shortcut.id]();
+      if (shortcut.id !== "command-menu" && shortcut.id !== "new-terminal") {
+        actions[shortcut.id]();
+      }
     };
 
     window.addEventListener("keydown", handleKeyDown);

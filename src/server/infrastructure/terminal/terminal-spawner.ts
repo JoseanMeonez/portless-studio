@@ -8,7 +8,12 @@ import type {
   TerminalProcess,
   TerminalSpawner,
 } from "../../application/terminals.ts";
-import { runProcess, stopProcessTree } from "../system/process-runner.ts";
+import {
+  nodeWindowsLookup,
+  resolveWindowsCommand,
+  runProcess,
+  stopProcessTree,
+} from "../system/process-runner.ts";
 
 /** How one terminal command is started. Pure, so every platform's shape is tested anywhere. */
 export type TerminalPlan = {
@@ -27,6 +32,8 @@ export type PlanContext = {
   shell: string;
   /** cmd.exe on Windows. */
   comSpec: string;
+  /** PowerShell (`pwsh`, else Windows PowerShell) for interactive shells on Windows; null for cmd.exe. */
+  windowsShell?: string | null;
 };
 
 /** Output still in the pipes when a process exits arrives right after; a child holding them does not. */
@@ -43,6 +50,16 @@ export function planTerminal(request: SpawnRequest, context: PlanContext): Termi
   const env: Record<string, string> = { ...request.env };
   if (context.platform === "win32") {
     env.FORCE_COLOR = "1";
+    if (request.command === null && context.windowsShell) {
+      // With pipes PowerShell shows no prompt, but reads and runs each line it is given.
+      return {
+        file: context.windowsShell,
+        args: ["-NoLogo", "-Command", "-"],
+        env,
+        detached: false,
+        windowsVerbatimArguments: false,
+      };
+    }
     const args = request.command === null ? ["/d"] : ["/d", "/s", "/c", `"${request.command}"`];
     return {
       file: context.comSpec,
@@ -56,11 +73,12 @@ export function planTerminal(request: SpawnRequest, context: PlanContext): Termi
     env.FORCE_COLOR = "1";
     const args =
       request.command === null
-        ? ["-c", `exec ${quote(context.shell)} -i`]
+        ? ["-c", `exec ${quote(context.shell)} -l -i`]
         : ["-c", request.command];
     return { file: "/bin/sh", args, env, detached: true, windowsVerbatimArguments: false };
   }
-  const run = request.command ?? `exec ${quote(context.shell)}`;
+  // A login shell reads the profile the person's own terminal reads (PATH, nvm and the like).
+  const run = request.command ?? `exec ${quote(context.shell)} -l`;
   const inner = `stty cols ${request.cols} rows ${request.rows} 2>/dev/null; ${run}`;
   // util-linux script runs `$SHELL -c`; /bin/sh keeps the command's meaning the same everywhere.
   env.SHELL = "/bin/sh";
@@ -69,6 +87,15 @@ export function planTerminal(request: SpawnRequest, context: PlanContext): Termi
       ? ["-q", "/dev/null", "/bin/sh", "-c", inner]
       : ["-q", "-f", "-e", "-c", inner, "/dev/null"];
   return { file: "script", args, env, detached: true, windowsVerbatimArguments: false };
+}
+
+/** The interactive shell's short name, e.g. `zsh` or `pwsh`: the default title of a shell terminal. */
+export function shellName(context: PlanContext): string {
+  if (context.platform === "win32") {
+    if (!context.windowsShell) return "cmd";
+    return path.win32.basename(context.windowsShell).replace(/\.exe$/i, "");
+  }
+  return path.posix.basename(context.shell) || "shell";
 }
 
 /**
@@ -87,6 +114,8 @@ export type SpawnerOptions = {
   mode: TerminalMode;
   /** Studio's own environment, which every command inherits. */
   baseEnv?: NodeJS.ProcessEnv;
+  /** PowerShell's path on Windows, null for cmd.exe; looked up on PATH when omitted. */
+  windowsShell?: string | null;
 };
 
 /** Starts terminal commands on this machine. */
@@ -99,9 +128,16 @@ export function createTerminalSpawner(options: SpawnerOptions): TerminalSpawner 
     mode,
     shell: baseEnv.SHELL || "/bin/sh",
     comSpec: baseEnv.ComSpec ?? "cmd.exe",
+    windowsShell:
+      platform === "win32"
+        ? options.windowsShell === undefined
+          ? findWindowsShell()
+          : options.windowsShell
+        : null,
   };
   return {
     mode,
+    shellName: shellName(context),
     spawn: async (request) => {
       const plan = planTerminal(request, context);
       const child = spawn(plan.file, plan.args, {
@@ -202,6 +238,26 @@ export function nodeTerminalFolders(platform: NodeJS.Platform = process.platform
       return relative === "" || (!relative.startsWith("..") && !paths.isAbsolute(relative));
     },
   };
+}
+
+/** The short name of the shell a terminal with no command starts on this machine. */
+export function interactiveShellName(
+  platform: NodeJS.Platform = process.platform,
+  env: NodeJS.ProcessEnv = process.env,
+): string {
+  return shellName({
+    platform,
+    mode: "pipes",
+    shell: env.SHELL || "/bin/sh",
+    comSpec: env.ComSpec ?? "cmd.exe",
+    windowsShell: platform === "win32" ? findWindowsShell() : null,
+  });
+}
+
+/** `pwsh` when installed, else Windows PowerShell, else null for cmd.exe. */
+function findWindowsShell(): string | null {
+  const lookup = nodeWindowsLookup();
+  return resolveWindowsCommand("pwsh", lookup) ?? resolveWindowsCommand("powershell", lookup);
 }
 
 /** Single quotes for sh, with any single quote inside closed, escaped and reopened. */

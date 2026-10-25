@@ -4,7 +4,7 @@ import { TextField } from "../../../shared/ui/text-field.tsx";
 import styles from "./new-terminal-form.module.css";
 
 /** A folder a new terminal can run in. */
-export type TerminalFolder = { label: string; path: string };
+export type TerminalFolder = { label: string; path: string; branch?: string | null };
 
 type NewTerminalFormProps = {
   folders: readonly TerminalFolder[];

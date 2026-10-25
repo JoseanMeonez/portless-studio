@@ -7,6 +7,9 @@ export type RowMenuTarget = {
   /** Shown in the menu's accessible name, e.g. `web.acme` or `port 5173`. */
   label: string;
   url: string;
+  /** `http://localhost:<port>`; the direct entries are left out when it equals `url`. */
+  directUrl: string;
+  port: number;
   /** Project folder; null hides the folder actions. */
   path: string | null;
 };
@@ -18,8 +21,8 @@ type RowMenuContainerProps = {
   apps: readonly OpenWithApp[];
   onOpenWith: (app: OpenWithApp, path: string) => void;
   onCustomize: () => void;
-  /** Opens a terminal in the folder; the entry is hidden without it. */
-  onOpenTerminal?: ((path: string) => void) | undefined;
+  /** Opens a terminal for the item in the folder; the entry is hidden without it. */
+  onOpenTerminal?: ((path: string, port: number) => void) | undefined;
   onClose: () => void;
 };
 
@@ -40,12 +43,14 @@ export function RowMenuContainer({
       x={request.x}
       y={request.y}
       entries={rowMenuEntries(target, apps, {
-        openUrl: () => window.open(target.url, "_blank", "noopener,noreferrer"),
+        openUrl: () => actions.openLink(target.url),
         copyUrl: () => void actions.copyLink(target.url),
+        openDirectUrl: () => actions.openLink(target.directUrl),
+        copyDirectUrl: () => void actions.copyLink(target.directUrl),
         copyPath: (path) => void actions.copyPath(path),
         openWith: onOpenWith,
         customize: onCustomize,
-        openTerminal: onOpenTerminal,
+        openTerminal: onOpenTerminal ? (path) => onOpenTerminal(path, target.port) : undefined,
       })}
       onClose={onClose}
     />
@@ -55,6 +60,8 @@ export function RowMenuContainer({
 type RowMenuActions = {
   openUrl: () => void;
   copyUrl: () => void;
+  openDirectUrl: () => void;
+  copyDirectUrl: () => void;
   copyPath: (path: string) => void;
   openWith: (app: OpenWithApp, path: string) => void;
   customize: () => void;
@@ -76,6 +83,24 @@ function rowMenuEntries(
     },
     { kind: "item", id: "copy-url", label: "Copy URL", icon: "copy", onSelect: run.copyUrl },
   ];
+  if (target.directUrl !== target.url) {
+    entries.push(
+      {
+        kind: "item",
+        id: "open-direct",
+        label: "Open direct URL",
+        icon: "arrowUpRight",
+        onSelect: run.openDirectUrl,
+      },
+      {
+        kind: "item",
+        id: "copy-direct",
+        label: "Copy direct URL",
+        icon: "copy",
+        onSelect: run.copyDirectUrl,
+      },
+    );
+  }
   const { path } = target;
   if (path === null) return entries;
 

@@ -13,6 +13,7 @@ import { err, ok, type Result } from "../../core/result.ts";
 import type { ProxyStatus } from "../../core/routes/route.ts";
 import { type AppError, appError } from "./app-error.ts";
 import type { ProcessOwner } from "./process-control.ts";
+import type { ShortUrlStatus } from "./short-urls.ts";
 import type { LoginServiceState } from "./studio-service.ts";
 
 /** A `portless proxy start` process found in the process list. */
@@ -87,8 +88,10 @@ export type DoctorFacts = {
   routesFile?: RoutesFileFacts;
   /** Absent when not checked. */
   docker?: DockerFacts;
-  /** Port 80 for the proxy; absent when not checked. */
+  /** Whether this user may listen on port 80, for short URLs; absent when not checked. */
   port80?: LowPortFacts;
+  /** Studio's port-80 forwarder (`shortUrls`); absent when not known. */
+  shortUrls?: ShortUrlStatus;
 };
 
 /** The checks, in the order people should read them. Pure, so every rule is easy to test. */
@@ -127,6 +130,8 @@ export type DoctorFixDeps = {
   collect: () => Promise<DoctorFacts>;
   controlProxy: (action: ProxyAction) => Promise<Result<string, AppError>>;
   updateConfig: (config: StudioConfig) => Promise<Result<unknown, AppError>>;
+  /** Brings the short-URL forwarder in line with this config and says whether it listens. */
+  syncShortUrls: (config: StudioConfig) => Promise<ShortUrlStatus>;
 };
 
 /**
@@ -152,14 +157,48 @@ async function runAction(
 ): Promise<Result<string, AppError>> {
   if (action === "start-proxy") return deps.controlProxy("start");
   if (action === "restart-proxy") return deps.controlProxy("restart");
-  if (action === "use-port-80") {
-    return applyProxyConfig({ ...facts.config, proxyPort: 80 }, "port 80", facts, deps);
-  }
+  if (action === "use-short-urls") return turnOnShortUrls(facts, deps);
   const http = { ...facts.config, proxyPort: 1355, proxyHttps: false };
   return applyProxyConfig(http, "HTTP on port 1355", facts, deps);
 }
 
-/** Saves the proxy settings, then starts or restarts the proxy with them when Studio may. */
+/**
+ * Turns `shortUrls` on and checks that Studio really listens on port 80. The proxy keeps its
+ * port and keeps running; when the listen fails, the previous config comes back.
+ */
+async function turnOnShortUrls(
+  facts: DoctorFacts,
+  deps: DoctorFixDeps,
+): Promise<Result<string, AppError>> {
+  const config = { ...facts.config, shortUrls: true };
+  const saved = await deps.updateConfig(config);
+  if (!saved.ok) return saved;
+  const status = await deps.syncShortUrls(config);
+  if (status.state === "listening") {
+    return ok(
+      "Names now open as http://name.localhost: Studio forwards port " +
+        `${status.port} to the proxy on port ${status.target}.`,
+    );
+  }
+  await deps.updateConfig(facts.config);
+  await deps.syncShortUrls(facts.config);
+  const why = status.state === "failed" ? `${status.message} ` : "";
+  const code =
+    status.state === "failed" && status.reason === "in-use" ? "port_in_use" : "command_failed";
+  return err(
+    appError(
+      code,
+      `${why}Studio kept the previous settings, so names still open with ` +
+        `:${facts.config.proxyPort}.`,
+    ),
+  );
+}
+
+/**
+ * Saves the proxy settings, then starts or restarts the proxy with them when Studio may. When
+ * that start fails, the previous settings come back and a proxy that was running starts again on
+ * them, so names keep working.
+ */
 async function applyProxyConfig(
   config: StudioConfig,
   what: string,
@@ -168,12 +207,25 @@ async function applyProxyConfig(
 ): Promise<Result<string, AppError>> {
   const saved = await deps.updateConfig(config);
   if (!saved.ok) return saved;
-  if (!facts.proxy.running) return deps.controlProxy("start");
-  if (facts.proxyOwner === "you") return deps.controlProxy("restart");
-  return ok(
-    `Saved ${what}. Stop the current proxy with \`${stopProxyAsAdminCommand(facts.platform)}\` ` +
-      `${adminWords(facts.platform)}, then start the new one from the proxy menu.`,
-  );
+  if (facts.proxy.running && facts.proxyOwner !== "you") {
+    return ok(
+      `Saved ${what}. Stop the current proxy with \`${stopProxyAsAdminCommand(facts.platform)}\` ` +
+        `${adminWords(facts.platform)}, then start the new one from the proxy menu.`,
+    );
+  }
+  const started = await deps.controlProxy(facts.proxy.running ? "restart" : "start");
+  if (started.ok) return started;
+  await deps.updateConfig(facts.config);
+  let back = "Studio went back to the previous settings.";
+  if (facts.proxy.running) {
+    const again = await deps.controlProxy("start");
+    if (again.ok) {
+      back =
+        "Studio went back to the previous settings and started the proxy on port " +
+        `${facts.config.proxyPort} again.`;
+    }
+  }
+  return err({ ...started.error, message: `${started.error.message} ${back}` });
 }
 
 function portlessCheck({ portless }: DoctorFacts): DoctorCheck {
@@ -226,16 +278,15 @@ function proxyRunningCheck(facts: DoctorFacts): DoctorCheck {
       detail: `It serves ${proxy.https ? "HTTPS" : "HTTP"}${where}${pid}.`,
     };
   }
-  // On Linux a lowered `ip_unprivileged_port_start` lets this user bind port 80 after all.
-  const allowed = config.proxyPort === 80 && facts.port80 === "free";
-  const needsSudo = portNeedsRoot(platform, config.proxyPort) && !allowed;
+  const needsSudo = portNeedsRoot(platform, config.proxyPort);
   return {
     id: "proxy-running",
     status: "warn",
     title: "The proxy is not running",
     detail: needsSudo
-      ? `Names do not open until it runs. Port ${config.proxyPort} needs sudo, so Studio cannot ` +
-        "start it; HTTP on port 1355 needs nothing."
+      ? `Names do not open until it runs. portless asks for sudo below port 1024, so Studio ` +
+        `cannot start it on port ${config.proxyPort}; HTTP on port 1355 needs nothing, and short ` +
+        "URLs drop the port from names."
       : "Names do not open until it runs.",
     fix: needsSudo
       ? { label: "Use HTTP on port 1355", action: "use-http-1355" }
@@ -472,14 +523,25 @@ function notificationsCheck({ config, systemNotifier }: DoctorFacts): DoctorChec
 const UNPRIVILEGED_PORT_SETTING = "net.ipv4.ip_unprivileged_port_start=80";
 
 /**
- * Port 80 drops the port number from every name (`http://name.localhost`). Studio offers it only
- * when a test bind shows this user may listen there without sudo; it never changes the system.
+ * Short URLs drop the port number from every name (`http://name.localhost`). Studio itself listens
+ * on port 80 and forwards to the proxy, only when a test bind shows this user may listen there
+ * without sudo; it never changes the system.
  */
 function shorterUrlsCheck(facts: DoctorFacts): DoctorCheck | null {
-  const { proxy, config, platform, port80 } = facts;
+  const { proxy, config, platform, port80, shortUrls } = facts;
   const https = proxy.running ? proxy.https : config.proxyHttps;
-  if (https) return null;
-  const port = proxy.running ? proxy.port : config.proxyPort;
+  if (https) {
+    if (!config.shortUrls) return null;
+    return {
+      id: "shorter-urls",
+      status: "ok",
+      title: "Short URLs work over HTTP only",
+      detail:
+        "The proxy serves HTTPS, so names keep their port. Switch the proxy to HTTP to open " +
+        "them as http://name.localhost.",
+    };
+  }
+  const port = (proxy.running ? proxy.port : null) ?? config.proxyPort;
   if (port === 80) {
     return {
       id: "shorter-urls",
@@ -488,17 +550,29 @@ function shorterUrlsCheck(facts: DoctorFacts): DoctorCheck | null {
       detail: "The proxy uses port 80, so names open as http://name.localhost.",
     };
   }
+  if (shortUrls?.state === "listening") {
+    return {
+      id: "shorter-urls",
+      status: "ok",
+      title: "Names open without a port number",
+      detail:
+        `Studio listens on port ${shortUrls.port} and forwards to the proxy on port ` +
+        `${shortUrls.target}, so names open as http://name.localhost.`,
+    };
+  }
+  const now = `Names open as http://name.localhost:${port}`;
+  if (config.shortUrls) return failedShortUrlsCheck(facts, now);
   if (port80 === undefined) return null;
-  const now = `Names open as http://name.localhost:${port ?? config.proxyPort}`;
   if (port80 === "free") {
     return {
       id: "shorter-urls",
       status: "ok",
       title: "Shorter URLs: port 80 is available",
       detail:
-        `${now}. This user can listen on port 80 without sudo, so the proxy can move there ` +
-        "and names open as http://name.localhost.",
-      fix: { label: "Use port 80", action: "use-port-80" },
+        `${now}. This user can listen on port 80 without sudo, so Studio can listen there and ` +
+        `forward to the proxy, and names open as http://name.localhost. The proxy stays on ` +
+        `port ${port}.`,
+      fix: { label: "Use short URLs", action: "use-short-urls" },
     };
   }
   if (port80 === "in-use") {
@@ -506,7 +580,7 @@ function shorterUrlsCheck(facts: DoctorFacts): DoctorCheck | null {
       id: "shorter-urls",
       status: "ok",
       title: "Port 80 is taken by another program",
-      detail: `${now}. Stop the program on port 80 to let the proxy use it and drop the port number.`,
+      detail: `${now}. Stop the program on port 80 to drop the port number from names.`,
     };
   }
   if (platform !== "linux") {
@@ -514,24 +588,66 @@ function shorterUrlsCheck(facts: DoctorFacts): DoctorCheck | null {
       id: "shorter-urls",
       status: "ok",
       title: "Shorter URLs: this system does not allow port 80",
-      detail: `${now}. This user cannot listen on port 80 here, so the proxy stays on its port.`,
+      detail: `${now}. This user cannot listen on port 80 here, so names keep the port.`,
     };
   }
   return {
     id: "shorter-urls",
     status: "ok",
     title: "Shorter URLs need a one-time system setting",
-    detail:
-      `${now}. Linux lets only root listen on ports below 1024. The command lets every user ` +
-      "on this machine listen on port 80 and up until the next restart; Studio never runs it. " +
-      `To keep it after a restart, also run \`echo '${UNPRIVILEGED_PORT_SETTING}' | sudo tee ` +
-      "/etc/sysctl.d/99-portless-studio.conf`. Then run the checks again and choose Use port 80.",
-    fix: {
-      label: "Allow port 80 until the next restart",
-      command: `sudo sysctl -w ${UNPRIVILEGED_PORT_SETTING}`,
-    },
+    detail: `${now}. ${SYSCTL_ADVICE} Then run the checks again and choose Use short URLs.`,
+    fix: SYSCTL_FIX,
   };
 }
+
+/** `shortUrls` is on and Studio does not listen: names still work, with the port. */
+function failedShortUrlsCheck(facts: DoctorFacts, now: string): DoctorCheck {
+  const { platform, port80, shortUrls } = facts;
+  const reason = shortUrls?.state === "failed" ? shortUrls.reason : port80;
+  const retry =
+    port80 === "free"
+      ? { fix: { label: "Try port 80 again", action: "use-short-urls" as const } }
+      : {};
+  if (reason === "in-use") {
+    return {
+      id: "shorter-urls",
+      status: "warn",
+      title: "Short URLs are on, but port 80 is taken by another program",
+      detail: `${now}. Stop the program on port 80, then run the checks again.`,
+      ...retry,
+    };
+  }
+  if (reason === "denied" && platform === "linux" && port80 !== "free") {
+    return {
+      id: "shorter-urls",
+      status: "warn",
+      title: "Short URLs are on, but Linux does not let this user listen on port 80",
+      detail: `${now}. ${SYSCTL_ADVICE} Then run the checks again and choose Try port 80 again.`,
+      fix: SYSCTL_FIX,
+    };
+  }
+  return {
+    id: "shorter-urls",
+    status: "warn",
+    title: "Short URLs are on, but Studio does not listen on port 80",
+    detail:
+      shortUrls?.state === "failed"
+        ? `${now}. Studio could not listen there: ${shortUrls.message}`
+        : `${now}. Studio is not running, or has not tried port 80 yet.`,
+    ...retry,
+  };
+}
+
+const SYSCTL_ADVICE =
+  "Linux lets only root listen on ports below 1024. The command lets every user on this machine " +
+  "listen on port 80 and up until the next restart; Studio never runs it. To keep it after a " +
+  `restart, also run \`echo '${UNPRIVILEGED_PORT_SETTING}' | sudo tee ` +
+  "/etc/sysctl.d/99-portless-studio.conf`.";
+
+const SYSCTL_FIX = {
+  label: "Allow port 80 until the next restart",
+  command: `sudo sysctl -w ${UNPRIVILEGED_PORT_SETTING}`,
+};
 
 /** Information only: without Docker, container ports simply do not show. */
 function dockerCheck({ docker }: DoctorFacts): DoctorCheck | null {

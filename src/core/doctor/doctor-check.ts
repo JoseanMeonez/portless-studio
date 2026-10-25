@@ -3,10 +3,10 @@ export type DoctorStatus = "ok" | "warn" | "fail";
 
 /**
  * Fixes Studio can run by itself, without sudo: start the proxy with the config's port, restart a
- * proxy the current user owns, move the config to plain HTTP on port 1355, or move the proxy to
- * port 80 once this user may listen there, and apply it.
+ * proxy the current user owns, move the config to plain HTTP on port 1355, or turn on short URLs
+ * (Studio listens on port 80 and forwards to the proxy) once this user may listen there.
  */
-export type DoctorAction = "start-proxy" | "restart-proxy" | "use-http-1355" | "use-port-80";
+export type DoctorAction = "start-proxy" | "restart-proxy" | "use-http-1355" | "use-short-urls";
 
 export type DoctorFix = {
   /** What the button says, or what the command does. */

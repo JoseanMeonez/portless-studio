@@ -25,8 +25,10 @@ is enough:
 | `autoRemoveAfterMinutes` | `10` | Minutes a name auto mode gave survives after its port closes. `0` keeps them. |
 | `openBrowser` | `true` | Opens the browser when Studio starts. |
 | `registerStudioAlias` | `true` | Registers Studio itself in portless as `studio`. |
+| `showStudioRoute` | `false` | Lists that `studio` route with the other routes. Hidden by default because the page is already open. |
 | `startProxy` | `true` | Starts the portless proxy when Studio starts and it is not running. |
-| `proxyPort` | `1355` | Port of that proxy. 1355 needs no administrator rights; 80 removes the port from URLs when the system lets you listen there (see [troubleshooting.md](troubleshooting.md#names-have-1355-and-i-want-port-80)). |
+| `proxyPort` | `1355` | Port of that proxy. 1355 needs no administrator rights. portless asks for sudo below 1024 on Linux and macOS, so use `shortUrls` to drop the port instead. |
+| `shortUrls` | `false` | Names open as `http://name.localhost`: Studio listens on port 80 and forwards to the proxy, only where this user may listen there without sudo. HTTP only. See [troubleshooting.md](troubleshooting.md#names-have-1355-and-i-want-port-80). |
 | `proxyHttps` | `false` | Serves the names over HTTPS. Browsers then need to trust the portless certificate (see [troubleshooting.md](troubleshooting.md#certificate-warnings)). |
 | `scanIntervalMs` | `3000` | How often Studio looks for new listening ports, in milliseconds (at least 1000). |
 | `ignoredPorts` | `[]` | Ports never shown as detected and never named automatically. |
@@ -40,7 +42,9 @@ is enough:
 | `projectIcons` | `{}` | Icon per project: an emoji, an http(s) image URL or a `data:image` URL. |
 | `checkForUpdates` | `true` | Once a day, asks npm whether a newer portless-studio exists. See below. |
 
-The `--port`, `--no-open` and `--no-register` flags win over the file for one run. Apps you add to
+The `--port`, `--no-open` and `--no-register` flags win over the file for one run.
+`PORTLESS_STUDIO_SHORT_URL_PORT` makes short URLs listen on another port than 80, for tests that
+must not bind port 80; URLs then carry that port. Apps you add to
 the Open with menu live in `open-with.json` next to the config file.
 
 ## Update notice

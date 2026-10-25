@@ -24,6 +24,7 @@ import { type IconFetcher, IconResolver, type IconSubject } from "./icon-resolve
 import { discoverPorts, type ProjectInfoSource } from "./port-discovery.ts";
 import type { ListeningPort, PortScanner, ProbePort } from "./port-scanner.ts";
 import type { PortlessState, RouteRegistry } from "./route-registry.ts";
+import type { ShortUrls } from "./short-urls.ts";
 import { EventLog, eventsBetween, type Observation } from "./studio-events.ts";
 import { SYSTEM_NOTIFICATION_KINDS, type SystemNotifier } from "./system-notifier.ts";
 
@@ -71,6 +72,13 @@ export type StudioRuntimeOptions = {
   routeProjectStore?: RouteProjectStore;
   /** Running Docker containers, whose published ports show as detected; none when omitted. */
   containers?: ContainerSource;
+  /** Studio's port-80 forwarder for URLs without a port; follows `shortUrls` in the config. */
+  shortUrls?: ShortUrls;
+};
+
+export type SnapshotOptions = {
+  /** Keep Studio's own route even when `showStudioRoute` is off, e.g. MCP `include_studio`. */
+  includeStudio?: boolean;
 };
 
 type ScanResult = {
@@ -105,6 +113,8 @@ export class StudioRuntime {
   readonly #icons: IconResolver;
   readonly #routeProjectStore: RouteProjectStore;
   readonly #containers: ContainerSource | null;
+  readonly #shortUrls: ShortUrls | null;
+  #ready: Promise<void> = Promise.resolve();
   /** Last project seen per route name; null until read from the store. */
   #routeProjects: Map<string, ItemProject> | null = null;
   /** What the store last got, so an unchanged map is not written again. */
@@ -146,6 +156,8 @@ export class StudioRuntime {
     this.#notifier = options.notifier ?? null;
     this.#routeProjectStore = options.routeProjectStore ?? memoryRouteProjectStore();
     this.#containers = options.containers ?? null;
+    this.#shortUrls = options.shortUrls ?? null;
+    this.#shortUrls?.onChange(() => this.#notify());
     const noIcons: IconFetcher = {
       served: async () => null,
       remote: async () => null,
@@ -163,10 +175,16 @@ export class StudioRuntime {
     if (this.#started) return;
     this.#started = true;
     this.#stopConfigWatch = this.#store.watch(() => void this.#reloadConfig());
-    void Promise.all([this.#reloadConfig(), this.#loadAutoNamed()]).then(() => {
+    this.#ready = Promise.all([this.#reloadConfig(), this.#loadAutoNamed()]).then(async () => {
       this.#reschedule();
       void this.ensureProxy();
+      await this.#shortUrls?.sync(this.#config);
     });
+  }
+
+  /** Resolves once `start` read the config and the short-URL forwarder settled. */
+  ready(): Promise<void> {
+    return this.#ready;
   }
 
   /**
@@ -195,13 +213,14 @@ export class StudioRuntime {
     this.#stopRegistryWatch?.();
     this.#stopRegistryWatch = undefined;
     this.#watchers.clear();
+    void this.#shortUrls?.close();
   }
 
   setStudioPort(port: number): void {
     this.#studioPort = port;
   }
 
-  async readSnapshot(): Promise<Snapshot> {
+  async readSnapshot(options: SnapshotOptions = {}): Promise<Snapshot> {
     const state = await this.#registry.readSnapshot();
     const config = await this.#currentConfig();
     const detected = await this.#detect(state, config, false);
@@ -216,7 +235,18 @@ export class StudioRuntime {
       readAt: state.readAt,
     };
     this.#observe(snapshot, config);
-    return this.#withIcons(snapshot, config);
+    const shown = options.includeStudio ? routes : this.#listedRoutes(routes, config);
+    return this.#withIcons({ ...snapshot, routes: shown }, config);
+  }
+
+  /**
+   * The routes people see: without Studio's own (`studio`, on Studio's port or its short-URL
+   * port) unless `showStudioRoute` is on. It only takes room, and the page is already open.
+   */
+  #listedRoutes(routes: Route[], config: StudioConfig): Route[] {
+    if (config.showStudioRoute) return routes;
+    const own = new Set([this.#studioPort, this.#shortUrls?.publicPort() ?? null]);
+    return routes.filter((route) => !own.has(route.port));
   }
 
   /** The last notable changes of this run, oldest first, for a page that connects later. */
@@ -327,9 +357,13 @@ export class StudioRuntime {
       scan: async () => scan.ports,
       answersHttp: (port) => this.#scanner.answersHttp(port),
     };
-    const excludedPorts = [this.#studioPort, state.proxy.port, ...scan.proxyPorts].filter(
-      (port) => port !== null,
-    );
+    const forwarderPort = this.#shortUrls?.publicPort() ?? null;
+    const excludedPorts = [
+      this.#studioPort,
+      forwarderPort,
+      state.proxy.port,
+      ...scan.proxyPorts,
+    ].filter((port) => port !== null);
     const found = await discoverPorts(cached, this.#projects, {
       config,
       routes: state.routes,
@@ -526,7 +560,7 @@ export class StudioRuntime {
   /** Turns what changed since the last look into events, and tells the OS when nobody watches. */
   #observe(snapshot: Pick<Snapshot, "routes" | "detected" | "proxy">, config: StudioConfig): void {
     const next: Observation = {
-      routes: snapshot.routes,
+      routes: this.#listedRoutes(snapshot.routes, config),
       detected: snapshot.detected,
       proxy: snapshot.proxy,
     };
@@ -657,6 +691,7 @@ export class StudioRuntime {
     this.#config = config;
     this.#reschedule();
     this.#notify();
+    if (this.#started) void this.#shortUrls?.sync(config);
   }
 
   #notify(): void {

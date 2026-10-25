@@ -51,6 +51,8 @@ const FIELDS = new Set<string>([
   "projectIcons",
   "nameTemplate",
   "checkForUpdates",
+  "shortUrls",
+  "showStudioRoute",
 ]);
 
 /** A made-up project the name template preview renders. */

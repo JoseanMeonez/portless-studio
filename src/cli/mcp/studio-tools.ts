@@ -5,6 +5,7 @@ import {
   type CreateTerminalRequest,
   type DoctorReport,
   type FocusResponse,
+  INCLUDE_STUDIO_PARAM,
   type ProxyAction,
   type ProxyActionResponse,
   type Snapshot,
@@ -58,10 +59,20 @@ export function createStudioTools(client: StudioClient): McpTool[] {
       description:
         "Lists every portless route Studio knows: name, browser URL, local port, kind (app or alias), " +
         "health (up, error, down), project and git worktree it runs from, and pid. Use it to find the " +
-        "URL of a running app or which ports a worktree uses.",
-      inputSchema: NO_INPUT,
-      call: async () => {
-        const snapshot = await readSnapshot(client);
+        "URL of a running app or which ports a worktree uses. Studio's own route is left out unless " +
+        "include_studio is true.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          include_studio: {
+            type: "boolean",
+            description: "Also list Studio's own route (studio), hidden by default.",
+          },
+        },
+        additionalProperties: false,
+      },
+      call: async (args) => {
+        const snapshot = await readSnapshot(client, args.include_studio === true);
         if (!snapshot.ok) return snapshot.error;
         const { routes, proxy } = snapshot.value;
         const up = routes.filter((route) => route.health?.state === "up").length;
@@ -567,8 +578,14 @@ function terminalItem(terminal: TerminalInfo) {
   };
 }
 
-async function readSnapshot(client: StudioClient): Promise<Result<Snapshot, ToolResult>> {
-  const result = await client.read(API_PATHS.snapshot);
+async function readSnapshot(
+  client: StudioClient,
+  includeStudio = false,
+): Promise<Result<Snapshot, ToolResult>> {
+  const path = includeStudio
+    ? `${API_PATHS.snapshot}?${INCLUDE_STUDIO_PARAM}=1`
+    : API_PATHS.snapshot;
+  const result = await client.read(path);
   if (!result.ok) return err(failure(result.error));
   return ok(result.value as Snapshot);
 }

@@ -73,7 +73,7 @@ prints as the command.
 
 | Tool                  | What it does                                                           |
 | --------------------- | ---------------------------------------------------------------------- |
-| `list_routes`         | Named routes: name, URL, port, kind, health, project, worktree, pid     |
+| `list_routes`         | Named routes: name, URL, port, kind, health, project, worktree, pid. Studio's own `studio` route only with `include_studio: true` |
 | `list_detected_ports` | Ports that answer HTTP and have no name: process, folder, suggestion   |
 | `name_port`           | Names a port (`port`, `name`, optional `replace`)                       |
 | `rename_route`        | Renames a route named by hand (`name`, `new_name`)                     |

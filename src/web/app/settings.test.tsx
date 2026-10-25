@@ -52,6 +52,25 @@ describe("settings", () => {
     expect(updateConfig).toHaveBeenCalledWith(expect.objectContaining({ checkForUpdates: false }));
   });
 
+  it("turns on short URLs and Studio's own route in the list", async () => {
+    const { user, gateway } = setup();
+    const updateConfig = vi.spyOn(gateway, "updateConfig");
+    const dialog = await openSettings(user);
+
+    const short = within(dialog).getByRole("switch", { name: "Short URLs (port 80)" });
+    expect(short.getAttribute("aria-checked")).toBe("false");
+    expect(within(dialog).getByText(/sysctl/)).toBeTruthy();
+    await user.click(short);
+    const own = within(dialog).getByRole("switch", { name: "Show Studio in the routes" });
+    expect(own.getAttribute("aria-checked")).toBe("false");
+    await user.click(own);
+    await user.click(within(dialog).getByRole("button", { name: "Save" }));
+
+    expect(updateConfig).toHaveBeenCalledWith(
+      expect.objectContaining({ shortUrls: true, showStudioRoute: true }),
+    );
+  });
+
   it("saves edited values, confirms and closes", async () => {
     const { user, gateway } = setup();
     const updateConfig = vi.spyOn(gateway, "updateConfig");

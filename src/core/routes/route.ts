@@ -71,6 +71,11 @@ export type ProxyStatus = {
   https: boolean;
   /** TLDs the proxy serves, the first one is the default (usually `localhost`). */
   tlds: string[];
+  /**
+   * Port names open on in the browser when it is not `port`: 80 while Studio forwards port 80 to
+   * the proxy (`shortUrls`). Absent or null means `port`.
+   */
+  publicPort?: number | null;
 };
 
 /** Maps one HTTP probe to a health state; `null` means nothing answered. */
@@ -98,10 +103,28 @@ export function nameFromHostname(hostname: string, tlds: readonly string[]): str
   return hostname;
 }
 
-/** Builds the browser URL; omits the port when it is the protocol default. */
-export function routeUrl(hostname: string, proxy: Pick<ProxyStatus, "port" | "https">): string {
+/**
+ * Builds the browser URL on the port names open on: the public port when there is one, else the
+ * proxy's. Omits the port when it is the protocol default.
+ */
+export function routeUrl(
+  hostname: string,
+  proxy: Pick<ProxyStatus, "port" | "https" | "publicPort">,
+): string {
   const scheme = proxy.https ? "https" : "http";
   const defaultPort = proxy.https ? 443 : 80;
-  const port = proxy.port === null || proxy.port === defaultPort ? "" : `:${proxy.port}`;
+  const open = proxy.publicPort ?? proxy.port;
+  const port = open === null || open === defaultPort ? "" : `:${open}`;
   return `${scheme}://${hostname}${port}`;
+}
+
+/** Points every route URL at `publicPort`, the port Studio forwards to the proxy; null keeps them. */
+export function withPublicPort<T extends { proxy: ProxyStatus; routes: Route[] }>(
+  state: T,
+  publicPort: number | null,
+): T {
+  if (publicPort === null) return state;
+  const proxy = { ...state.proxy, publicPort };
+  const routes = state.routes.map((route) => ({ ...route, url: routeUrl(route.hostname, proxy) }));
+  return { ...state, proxy, routes };
 }

@@ -270,8 +270,39 @@ port and belongs to the current user. `stopContainer` (`application/container-so
 
 The doctor also reports whether Studio reads Docker containers (`docker` check, counts only), and
 whether this user may listen on port 80 (`shorter-urls` check, from `testBind` in
-`infrastructure/system/doctor-facts.ts`). Its `use-port-80` action saves `proxyPort: 80` and starts
-or restarts the proxy; the Linux `sysctl` command is only shown.
+`infrastructure/system/doctor-facts.ts`). Its `use-short-urls` action saves `shortUrls: true`, then
+checks that Studio listens on port 80 and saves the previous config back when it does not; it never
+touches `proxyPort` or the running proxy. The Linux `sysctl` command is only shown. Every fix that
+changes the proxy port (`use-http-1355`) checks the start and, when it fails, saves the previous
+config back and starts the proxy again on its old port, so names keep working.
+
+### Short URLs
+
+portless asks for sudo to start its proxy below port 1024 on Linux and macOS, even where the system
+allows the bind, so the proxy stays on `proxyPort`. With `shortUrls` on, `ShortUrls`
+(`application/short-urls.ts`) listens on port 80 through the `ForwardingPort` port, whose adapter
+`startForwarder` (`infrastructure/system/port-forwarder.ts`) listens on `127.0.0.1` and `::1` and
+pipes each TCP connection to the proxy on `127.0.0.1:<proxyPort>`. Piping the bytes keeps the Host
+header, streamed bodies, keep-alive and WebSocket upgrades as the browser sent them, and portless
+builds `X-Forwarded-*` from that Host. A refused or taken port is logged and leaves the forwarder
+off; the next config change or doctor fix tries again. `StudioRuntime` syncs it with every config
+it applies, and `startServer` waits for the first sync before the CLI prints or registers a URL.
+`PORTLESS_STUDIO_SHORT_URL_PORT` changes port 80 for tests.
+
+URLs follow one rule: `routeUrl` (`core/routes/route.ts`) uses `proxy.publicPort` when it is set,
+else `proxy.port`. `publicUrls` wraps the registry so every snapshot carries `publicPort` and
+rewritten route URLs only while the forwarder listens; the page, `list`, MCP, notifications and the
+`studio` alias all read through it. The forwarder's port is never offered as a dev server. In a
+separate process such as `portless-studio doctor`, `ShortUrls.inspect` asks port 80 whether it
+reaches a portless proxy (`X-Portless` header) instead.
+
+### Studio's own route
+
+The snapshot leaves out routes on Studio's own port or on its short-URL port unless
+`showStudioRoute` is on, and events are computed from that same list, so the page's counts,
+filters and notifications never mention Studio. `GET /api/snapshot?includeStudio=1` (MCP
+`list_routes` with `include_studio`) keeps it. Notification links still go through the `studio`
+route.
 
 On the web side, `RoutesGateway` also has `getConfig()`, `updateConfig(config)`,
 `ignoreDetected(port)`, `getDoctor()`, `runDoctorFix(id)`, `controlProxy(action)`,

@@ -57,7 +57,9 @@ To remove it, run `portless-studio uninstall`, then `npm rm -g portless-studio`.
 Then `portless-studio` starts Studio at `http://127.0.0.1:4949`, registers it in portless as
 `studio` and opens your browser. Your apps open at names like `http://web.myapp.localhost:1355`:
 Chrome, Edge and Firefox send every `*.localhost` name to your own machine, with no hosts file and
-no DNS setup.
+no DNS setup. Turn on Short URLs in Settings to drop the `:1355` (`http://web.myapp.localhost`)
+where your system lets you listen on port 80; see
+[troubleshooting](docs/troubleshooting.md#names-have-1355-and-i-want-port-80).
 
 [Getting started](docs/getting-started.md) walks through the first five minutes: naming a dev
 server, naming a port by hand, running a command in a Studio terminal and turning on auto mode.

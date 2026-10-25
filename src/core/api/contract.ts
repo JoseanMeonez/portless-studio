@@ -90,6 +90,12 @@ export const API_PATHS = {
  */
 export const TOKEN_PARAM = "token";
 
+/**
+ * `GET /api/snapshot?includeStudio=1` keeps Studio's own route in `routes`, which the snapshot
+ * leaves out unless `showStudioRoute` is on.
+ */
+export const INCLUDE_STUDIO_PARAM = "includeStudio";
+
 export type ProxyAction = "start" | "stop" | "restart";
 export type StudioAction = "restart" | "stop";
 

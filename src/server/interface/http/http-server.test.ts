@@ -91,6 +91,7 @@ let fake: ReturnType<typeof fakeRegistry>;
 let configDir: string;
 let configFile: string;
 let ops: ReturnType<typeof fakeOperations>;
+let runtime: StudioRuntime;
 
 const CHECK: DoctorCheck = {
   id: "proxy-running",
@@ -175,6 +176,7 @@ async function start(withWeb = true) {
     },
     log: () => {},
   });
+  runtime = studio;
   let customApps: CustomApp[] = [];
   const openWith = new OpenWith({
     catalog: {
@@ -267,6 +269,14 @@ describe("API reads", () => {
       portless: { installed: false, version: null },
     });
     expect(reply.headers["access-control-allow-origin"]).toBeUndefined();
+  });
+
+  it("hides Studio's own route unless the request asks for it with includeStudio", async () => {
+    runtime.setStudioPort(alias.port);
+    expect(json(await send("GET", API_PATHS.snapshot))).toMatchObject({ routes: [] });
+    expect(json(await send("GET", `${API_PATHS.snapshot}?includeStudio=1`))).toMatchObject({
+      routes: [{ name: "db" }],
+    });
   });
 
   it("returns the session token to a same-origin request", async () => {

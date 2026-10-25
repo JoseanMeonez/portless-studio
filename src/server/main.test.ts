@@ -1,4 +1,6 @@
 import * as fs from "node:fs";
+import * as http from "node:http";
+import type { AddressInfo } from "node:net";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { ConfigResponse, OpenWithAppsResponse, Snapshot } from "../core/api/contract.ts";
@@ -132,6 +134,47 @@ describe("startServer", () => {
     expect(snapshot.routes.map((r) => r.name)).toEqual(["db"]);
   });
 
+  it("forwards the short-URL port to the proxy and drops the port from route URLs", async () => {
+    const proxy = http.createServer((req, res) => {
+      res.setHeader("x-portless", "1");
+      res.end(`host=${req.headers.host}`);
+    });
+    const proxyPort = await listenOn(proxy, 0);
+    const shortPort = await freePort();
+    fs.writeFileSync(path.join(dir, "proxy.port"), String(proxyPort));
+    fs.writeFileSync(
+      path.join(dir, "routes.json"),
+      JSON.stringify([{ hostname: "db.localhost", port: 5432, pid: 0 }]),
+    );
+    fs.writeFileSync(
+      path.join(dir, "config.json"),
+      JSON.stringify({ shortUrls: true, proxyPort, startProxy: false }),
+    );
+    const services: StudioServices = {
+      ...createStudioServices({ stateDir: dir, portlessBin: "portless", shortUrlPort: shortPort }),
+      scanner,
+    };
+    try {
+      running = await startServer({ port: 0, services });
+      const snapshot = (await (await fetch(`${running.url}${API_PATHS.snapshot}`)).json()) as {
+        proxy: { publicPort?: number };
+        routes: { url: string }[];
+      };
+      expect(snapshot.proxy.publicPort).toBe(shortPort);
+      expect(snapshot.routes.map((route) => route.url)).toEqual([
+        `http://db.localhost:${shortPort}`,
+      ]);
+      const reply = await getWithHost(shortPort, "db.localhost");
+      expect(reply).toBe("host=db.localhost");
+    } finally {
+      await running?.close();
+      running = undefined;
+      proxy.closeAllConnections();
+      await new Promise((resolve) => proxy.close(resolve));
+    }
+    expect(services.shortUrls?.publicPort()).toBe(null);
+  });
+
   it("creates a different token on every run", async () => {
     const first = await startServer({ port: 0, stateDir: dir });
     const second = await startServer({ port: 0, stateDir: dir });
@@ -150,3 +193,35 @@ describe("startServer", () => {
     expect(snapshot.portless).toEqual({ installed: false, version: null });
   });
 });
+
+function listenOn(server: http.Server, port: number): Promise<number> {
+  return new Promise((resolve) =>
+    server.listen({ port, host: "127.0.0.1" }, () =>
+      resolve((server.address() as AddressInfo).port),
+    ),
+  );
+}
+
+async function freePort(): Promise<number> {
+  const probe = http.createServer();
+  const port = await listenOn(probe, 0);
+  await new Promise((resolve) => probe.close(resolve));
+  return port;
+}
+
+function getWithHost(port: number, host: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const req = http.request(
+      { host: "127.0.0.1", port, path: "/", headers: { host }, agent: false },
+      (res) => {
+        let body = "";
+        res.on("data", (chunk: Buffer) => {
+          body += chunk.toString();
+        });
+        res.on("end", () => resolve(body));
+      },
+    );
+    req.on("error", reject);
+    req.end();
+  });
+}

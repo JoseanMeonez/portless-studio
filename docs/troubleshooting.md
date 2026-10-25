@@ -72,10 +72,16 @@ free port above 1023 and restart the proxy from the page.
 
 ## Names have `:1355` and I want port 80
 
-Port 1355 needs no administrator rights on any system, so Studio uses it by default. To get
-`http://web.myapp.localhost` with no port, the proxy has to listen on port 80. The "Shorter URLs"
-check in the Health panel and the doctor test, without sudo, whether you may listen on port 80
-and whether it is free:
+Port 1355 needs no administrator rights on any system, so the proxy uses it. portless itself asks
+for sudo to start its proxy on any port below 1024 on Linux and macOS, even when the system would
+let you listen there, so Studio never moves the proxy to port 80. Turn on **Short URLs (port 80)**
+in Settings, or the doctor's **Use short URLs** button, instead: Studio listens on port 80 as your
+user and forwards every connection to the proxy on 1355, unchanged, WebSockets included. Names
+then open as `http://web.myapp.localhost`, and the page, `portless-studio list`, the MCP tools and
+notifications show them that way. Studio never runs sudo for it.
+
+It works only where your user may listen on port 80. The "Shorter URLs" check in the Health panel
+and the doctor test that without sudo:
 
 - **Windows** usually lets any user listen on port 80, unless a program such as IIS holds it.
 - **macOS** 10.14 and later usually allows it too.
@@ -92,9 +98,12 @@ and whether it is free:
   echo 'net.ipv4.ip_unprivileged_port_start=80' | sudo tee /etc/sysctl.d/99-portless-studio.conf
   ```
 
-When the check passes, the **Use port 80** button sets `proxyPort` to `80` and restarts the
-proxy. Studio never runs sudo itself. HTTPS without a port needs `proxyPort` `443`, which on Linux
-needs the same setting lowered to 443 or less.
+  Then choose **Try port 80 again** in the Health panel, or save the settings again.
+
+When Studio cannot listen on port 80 (another program holds it, or the system refuses), it logs
+why, names keep `:1355`, and the doctor says which of the two it is. The Use short URLs button
+checks that Studio really listens and puts the previous settings back when it does not. Short URLs
+work over HTTP only; with `proxyHttps` on, names keep their port.
 
 ## A dev server does not show under Detected
 

@@ -34,9 +34,12 @@ export function adminWords(platform: Platform): string {
   return platform === "win32" ? "from a terminal opened with Run as Administrator" : "with sudo";
 }
 
-/** Whether binding this port needs root. Windows and macOS (10.14 and later) let anyone bind it. */
+/**
+ * Whether portless asks for sudo to start its proxy on this port. It does on Linux and macOS for
+ * every port below 1024, even where the system would let this user bind it; Windows never asks.
+ */
 export function portNeedsRoot(platform: Platform, port: number): boolean {
-  return port < 1024 && platform !== "win32" && platform !== "darwin";
+  return port < 1024 && platform !== "win32";
 }
 
 /** Trusts the portless certificate authority in the store this system's browsers read. */

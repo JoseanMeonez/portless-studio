@@ -272,6 +272,7 @@ describe("runDoctorFix", () => {
         calls.push(`config ${config.proxyPort} ${config.proxyHttps}`);
         return ok(undefined);
       },
+      syncShortUrls: async () => ({ state: "off" }),
     };
     return { calls, deps: fixDeps };
   }
@@ -319,6 +320,59 @@ describe("runDoctorFix", () => {
     const result = await runDoctorFix("proxy-running", d);
     expect(result).toMatchObject({ ok: false, error: { message: "port in use" } });
   });
+
+  it("goes back to the previous ports and restarts the proxy on them when the restart fails", async () => {
+    const https = facts({
+      config: { ...DEFAULT_CONFIG, proxyPort: 1443, proxyHttps: true },
+      proxy: { running: true, port: 1443, https: true, tlds: ["localhost"] },
+      browserTrust: "not-trusted",
+    });
+    const { calls, deps: d } = deps(https);
+    let attempts = 0;
+    d.controlProxy = async (action) => {
+      calls.push(`proxy ${action}`);
+      attempts += 1;
+      return attempts === 1
+        ? err({ code: "port_in_use", message: "port 1355 is in use by another process." })
+        : ok("started");
+    };
+    const result = await runDoctorFix("https-trust", d);
+    expect(calls).toEqual([
+      "config 1355 false",
+      "proxy restart",
+      "config 1443 true",
+      "proxy start",
+    ]);
+    expect(result).toMatchObject({
+      ok: false,
+      error: {
+        code: "port_in_use",
+        message:
+          "port 1355 is in use by another process. Studio went back to the previous settings " +
+          "and started the proxy on port 1443 again.",
+      },
+    });
+  });
+
+  it("goes back to the previous config when a stopped proxy does not start on the new port", async () => {
+    const stoppedOn443 = facts({
+      config: { ...DEFAULT_CONFIG, proxyPort: 443, proxyHttps: true },
+      proxy: { running: false, port: null, https: true, tlds: ["localhost"] },
+      proxyOwner: "unknown",
+      proxyProcesses: [],
+    });
+    const { calls, deps: d } = deps(stoppedOn443);
+    d.controlProxy = async (action) => {
+      calls.push(`proxy ${action}`);
+      return err({ code: "command_failed", message: "the proxy did not start." });
+    };
+    const result = await runDoctorFix("proxy-running", d);
+    expect(calls).toEqual(["config 1355 false", "proxy start", "config 443 true"]);
+    expect(result).toMatchObject({
+      ok: false,
+      error: { message: "the proxy did not start. Studio went back to the previous settings." },
+    });
+  });
 });
 
 describe("diagnose on macOS and Windows", () => {
@@ -353,10 +407,24 @@ describe("diagnose on macOS and Windows", () => {
     expect(JSON.stringify(checks)).not.toContain("sudo");
   });
 
-  it("starts a stopped proxy on port 443 on macOS, which needs no root there", () => {
+  it("offers HTTP on 1355 for a stopped proxy on 443 on macOS, where portless asks for sudo", () => {
     const checks = diagnose(
       facts({
         platform: "darwin",
+        proxy: stopped,
+        proxyPid: null,
+        proxyOwner: "unknown",
+        proxyProcesses: [],
+        config: { ...DEFAULT_CONFIG, proxyPort: 443, proxyHttps: true },
+      }),
+    );
+    expect(byId(checks, "proxy-running")?.fix?.action).toBe("use-http-1355");
+  });
+
+  it("starts a stopped proxy on port 443 on Windows, where portless needs no Administrator", () => {
+    const checks = diagnose(
+      facts({
+        platform: "win32",
         proxy: stopped,
         proxyPid: null,
         proxyOwner: "unknown",
@@ -421,6 +489,7 @@ describe("runDoctorFix on Windows", () => {
       collect: async () => current,
       controlProxy: async () => ok("done"),
       updateConfig: async () => ok(undefined),
+      syncShortUrls: async () => ({ state: "off" }),
     });
     expect(result.ok && result.value.message).toContain("Administrator");
     expect(result.ok && result.value.message).not.toContain("sudo");
@@ -449,13 +518,17 @@ describe("diagnose Docker", () => {
 });
 
 describe("diagnose shorter URLs", () => {
-  it("offers port 80 when this user can listen on it", () => {
+  const shortOn = { ...DEFAULT_CONFIG, shortUrls: true };
+
+  it("offers short URLs when this user can listen on port 80, keeping the proxy on 1355", () => {
     const check = byId(diagnose(facts({ port80: "free" })), "shorter-urls");
     expect(check).toMatchObject({
       status: "ok",
-      fix: { label: "Use port 80", action: "use-port-80" },
+      title: "Shorter URLs: port 80 is available",
+      fix: { label: "Use short URLs", action: "use-short-urls" },
     });
     expect(check?.detail).toContain("http://name.localhost");
+    expect(check?.detail).toContain("The proxy stays on port 1355");
   });
 
   it("gives Linux the one-time sysctl command and how to keep it, never running it", () => {
@@ -464,7 +537,6 @@ describe("diagnose shorter URLs", () => {
       label: "Allow port 80 until the next restart",
       command: "sudo sysctl -w net.ipv4.ip_unprivileged_port_start=80",
     });
-    expect(check?.fix?.action).toBe(undefined);
     expect(check?.detail).toContain(
       "echo 'net.ipv4.ip_unprivileged_port_start=80' | sudo tee /etc/sysctl.d/99-portless-studio.conf",
     );
@@ -481,30 +553,104 @@ describe("diagnose shorter URLs", () => {
     expect(check?.fix).toBe(undefined);
   });
 
-  it("says the URLs are already short on port 80, and skips HTTPS and unchecked machines", () => {
-    const on80 = { ...DEFAULT_CONFIG, proxyPort: 80 };
-    const proxy = { running: true, port: 80, https: false, tlds: ["localhost"] };
-    const check = byId(diagnose(facts({ config: on80, proxy, port80: "in-use" })), "shorter-urls");
-    expect(check?.title).toBe("Names open without a port number");
-    const https = { running: true, port: 443, https: true, tlds: ["localhost"] };
+  it("says names open without a port while Studio forwards port 80", () => {
+    const check = byId(
+      diagnose(
+        facts({
+          config: shortOn,
+          port80: "in-use",
+          shortUrls: { state: "listening", port: 80, target: 1355 },
+        }),
+      ),
+      "shorter-urls",
+    );
+    expect(check).toMatchObject({ status: "ok", title: "Names open without a port number" });
+    expect(check?.detail).toBe(
+      "Studio listens on port 80 and forwards to the proxy on port 1355, so names open as " +
+        "http://name.localhost.",
+    );
+  });
+
+  it("warns when short URLs are on and port 80 is taken, and keeps the port in names", () => {
+    const check = byId(
+      diagnose(
+        facts({
+          config: shortOn,
+          port80: "in-use",
+          shortUrls: {
+            state: "failed",
+            port: 80,
+            reason: "in-use",
+            message: "port 80 is in use by another program.",
+          },
+        }),
+      ),
+      "shorter-urls",
+    );
+    expect(check).toMatchObject({
+      status: "warn",
+      title: "Short URLs are on, but port 80 is taken by another program",
+    });
+    expect(check?.detail).toContain("Names open as http://name.localhost:1355");
+  });
+
+  it("gives the sysctl command when short URLs are on and Linux refuses port 80", () => {
+    const check = byId(
+      diagnose(
+        facts({
+          config: shortOn,
+          port80: "denied",
+          shortUrls: { state: "failed", port: 80, reason: "denied", message: "refused." },
+        }),
+      ),
+      "shorter-urls",
+    );
+    expect(check?.status).toBe("warn");
+    expect(check?.fix?.command).toBe("sudo sysctl -w net.ipv4.ip_unprivileged_port_start=80");
+  });
+
+  it("offers to try again once port 80 became free", () => {
+    const check = byId(
+      diagnose(
+        facts({
+          config: shortOn,
+          port80: "free",
+          shortUrls: { state: "failed", port: 80, reason: "denied", message: "refused." },
+        }),
+      ),
+      "shorter-urls",
+    );
+    expect(check?.fix).toEqual({ label: "Try port 80 again", action: "use-short-urls" });
+  });
+
+  it("says short URLs need HTTP when they are on over HTTPS, and skips HTTPS otherwise", () => {
+    const https = { running: true, port: 1355, https: true, tlds: ["localhost"] };
+    const on = byId(diagnose(facts({ config: shortOn, proxy: https })), "shorter-urls");
+    expect(on?.title).toBe("Short URLs work over HTTP only");
     expect(byId(diagnose(facts({ proxy: https, port80: "free" })), "shorter-urls")).toBe(undefined);
+  });
+
+  it("says the URLs are already short when the proxy itself runs on port 80", () => {
+    const proxy = { running: true, port: 80, https: false, tlds: ["localhost"] };
+    const check = byId(diagnose(facts({ proxy, port80: "in-use" })), "shorter-urls");
+    expect(check?.title).toBe("Names open without a port number");
     expect(byId(diagnose(facts()), "shorter-urls")).toBe(undefined);
   });
 
-  it("starts a stopped proxy on port 80 on Linux once the system allows it", () => {
+  it("never offers to start the proxy on port 80 as a normal user on Linux or macOS", () => {
     const on80 = { ...DEFAULT_CONFIG, proxyPort: 80 };
     const proxy = { running: false, port: null, https: false, tlds: ["localhost"] };
-    const allowed = diagnose(facts({ config: on80, proxy, proxyOwner: "unknown", port80: "free" }));
-    expect(byId(allowed, "proxy-running")?.fix?.action).toBe("start-proxy");
-    const refused = diagnose(
-      facts({ config: on80, proxy, proxyOwner: "unknown", port80: "denied" }),
-    );
-    expect(byId(refused, "proxy-running")?.fix?.action).toBe("use-http-1355");
+    for (const platform of ["linux", "darwin"] as const) {
+      const checks = diagnose(
+        facts({ platform, config: on80, proxy, proxyOwner: "unknown", port80: "free" }),
+      );
+      expect(byId(checks, "proxy-running")?.fix?.action).toBe("use-http-1355");
+    }
   });
 });
 
-describe("runDoctorFix use-port-80", () => {
-  function fixDeps(current: DoctorFacts) {
+describe("runDoctorFix use-short-urls", () => {
+  function fixDeps(current: DoctorFacts, listens: boolean) {
     const calls: string[] = [];
     const deps: DoctorFixDeps = {
       collect: async () => current,
@@ -513,33 +659,61 @@ describe("runDoctorFix use-port-80", () => {
         return ok(`proxy ${action}ed`);
       },
       updateConfig: async (config) => {
-        calls.push(`config ${config.proxyPort} ${config.proxyHttps}`);
+        calls.push(`config shortUrls=${config.shortUrls} proxyPort=${config.proxyPort}`);
         return ok(undefined);
+      },
+      syncShortUrls: async (config) => {
+        calls.push(`sync ${config.shortUrls}`);
+        if (!config.shortUrls) return { state: "off" };
+        return listens
+          ? { state: "listening", port: 80, target: config.proxyPort }
+          : {
+              state: "failed",
+              port: 80,
+              reason: "in-use",
+              message: "port 80 is in use by another program.",
+            };
       },
     };
     return { calls, deps };
   }
 
-  it("saves proxyPort 80 and restarts the proxy the user owns", async () => {
-    const { calls, deps } = fixDeps(facts({ port80: "free" }));
+  it("turns short URLs on and checks Studio listens, leaving the proxy alone", async () => {
+    const { calls, deps } = fixDeps(facts({ port80: "free" }), true);
     const result = await runDoctorFix("shorter-urls", deps);
-    expect(result.ok).toBe(true);
-    expect(calls).toEqual(["config 80 false", "proxy restart"]);
+    expect(result).toMatchObject({
+      ok: true,
+      value: {
+        message:
+          "Names now open as http://name.localhost: Studio forwards port 80 to the proxy on " +
+          "port 1355.",
+      },
+    });
+    expect(calls).toEqual(["config shortUrls=true proxyPort=1355", "sync true"]);
   });
 
-  it("starts the proxy when it is not running", async () => {
-    const stopped = facts({
-      port80: "free",
-      proxy: { running: false, port: null, https: false, tlds: ["localhost"] },
-      proxyOwner: "unknown",
+  it("goes back to the previous config when Studio cannot listen", async () => {
+    const { calls, deps } = fixDeps(facts({ port80: "free" }), false);
+    const result = await runDoctorFix("shorter-urls", deps);
+    expect(result).toMatchObject({
+      ok: false,
+      error: {
+        code: "port_in_use",
+        message:
+          "port 80 is in use by another program. Studio kept the previous settings, so names " +
+          "still open with :1355.",
+      },
     });
-    const { calls, deps } = fixDeps(stopped);
-    await runDoctorFix("shorter-urls", deps);
-    expect(calls).toEqual(["config 80 false", "proxy start"]);
+    expect(calls).toEqual([
+      "config shortUrls=true proxyPort=1355",
+      "sync true",
+      "config shortUrls=false proxyPort=1355",
+      "sync false",
+    ]);
   });
 
   it("runs nothing when the system does not allow port 80", async () => {
-    const { calls, deps } = fixDeps(facts({ port80: "denied" }));
+    const { calls, deps } = fixDeps(facts({ port80: "denied" }), true);
     const result = await runDoctorFix("shorter-urls", deps);
     expect(result.ok).toBe(false);
     expect(calls).toEqual([]);

@@ -65,6 +65,14 @@ export type StudioConfig = {
    * and in the page. `PORTLESS_STUDIO_NO_UPDATE_CHECK=1` also turns it off.
    */
   checkForUpdates: boolean;
+  /**
+   * Drop the port from names (`http://name.localhost`): Studio listens on port 80 itself and
+   * forwards to the proxy on `proxyPort`, only when the system lets this user bind port 80
+   * without sudo. Names keep `:<proxyPort>` while it cannot. HTTP only.
+   */
+  shortUrls: boolean;
+  /** List Studio's own `studio` route among the routes; hidden by default. */
+  showStudioRoute: boolean;
 };
 
 export const DEFAULT_CONFIG: StudioConfig = {
@@ -101,6 +109,8 @@ export const DEFAULT_CONFIG: StudioConfig = {
   projectIcons: {},
   nameTemplate: DEFAULT_NAME_TEMPLATE,
   checkForUpdates: true,
+  shortUrls: false,
+  showStudioRoute: false,
 };
 
 const MIN_SCAN_INTERVAL_MS = 1000;
@@ -125,6 +135,8 @@ export function parseConfig(input: unknown): Result<StudioConfig, string> {
     "desktopNotifications",
     "systemNotifications",
     "checkForUpdates",
+    "shortUrls",
+    "showStudioRoute",
   ] as const) {
     const value = raw[key];
     if (value === undefined) continue;

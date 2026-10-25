@@ -110,6 +110,28 @@ describe("parseConfig update checks", () => {
   });
 });
 
+describe("parseConfig short URLs and Studio's own route", () => {
+  it("keeps both off by default", () => {
+    expect(DEFAULT_CONFIG.shortUrls).toBe(false);
+    expect(DEFAULT_CONFIG.showStudioRoute).toBe(false);
+  });
+
+  it("accepts true and rejects anything but a boolean", () => {
+    expect(parseConfig({ shortUrls: true, showStudioRoute: true })).toMatchObject({
+      ok: true,
+      value: { shortUrls: true, showStudioRoute: true },
+    });
+    expect(parseConfig({ shortUrls: "yes" })).toEqual({
+      ok: false,
+      error: '"shortUrls" must be true or false.',
+    });
+    expect(parseConfig({ showStudioRoute: 1 })).toEqual({
+      ok: false,
+      error: '"showStudioRoute" must be true or false.',
+    });
+  });
+});
+
 describe("parseConfig views and favorites", () => {
   const view = {
     id: "backends",

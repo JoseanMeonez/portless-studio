@@ -94,4 +94,18 @@ describe("runListCommand", () => {
     expect(text).toMatch(/3000\s+node\s+\/code\/shop\s+suggested: shop/);
     expect(text).toContain("Studio is not running");
   });
+
+  it("says names open without a port while Studio forwards port 80", async () => {
+    const lines: string[] = [];
+    const proxy = { ...SNAPSHOT.proxy, publicPort: 80 };
+    await runListCommand({
+      json: false,
+      print: (line) => lines.push(line),
+      readFromStudio: async () => ok({ ...SNAPSHOT, proxy }),
+      readLocally: async () => ({ proxy, routes: [], detected: [] }),
+    });
+    expect(lines.join("\n")).toContain(
+      "Routes (1), proxy running on port 1355, names open on port 80",
+    );
+  });
 });

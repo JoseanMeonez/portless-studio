@@ -5,6 +5,7 @@ import {
   type CreateTerminalRequest,
   type DoctorFixResponse,
   type DoctorReport,
+  INCLUDE_STUDIO_PARAM,
   type OpenWithAppsResponse,
   type ProxyAction,
   type RenameAliasRequest,
@@ -174,7 +175,8 @@ export function createHttpServer(options: HttpServerOptions): HttpServer {
       return;
     }
     if (pathname === API_PATHS.snapshot && method === "GET") {
-      sendJson(res, 200, await options.studio.readSnapshot());
+      const includeStudio = query.get(INCLUDE_STUDIO_PARAM) === "1";
+      sendJson(res, 200, await options.studio.readSnapshot({ includeStudio }));
       return;
     }
     if (pathname === API_PATHS.update && method === "GET") {

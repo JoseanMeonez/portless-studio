@@ -1,6 +1,7 @@
+import { request } from "node:http";
 import { createServer } from "node:net";
 import * as path from "node:path";
-import { DEFAULT_CONFIG } from "../../../core/config/studio-config.ts";
+import { DEFAULT_CONFIG, type StudioConfig } from "../../../core/config/studio-config.ts";
 import type { ConfigStore } from "../../application/config-store.ts";
 import type { ContainerReading } from "../../application/container-source.ts";
 import type {
@@ -15,6 +16,7 @@ import type {
 import type { ListeningPort, ProbePort } from "../../application/port-scanner.ts";
 import type { ProcessControl, ProcessOwner } from "../../application/process-control.ts";
 import type { RouteRegistry } from "../../application/route-registry.ts";
+import type { ShortUrlStatus } from "../../application/short-urls.ts";
 import type { LoginServiceState } from "../../application/studio-service.ts";
 import type { SystemIo } from "./system-io.ts";
 import { ownerFromUid, parseProcStatusUid } from "./system-process-control.ts";
@@ -47,6 +49,8 @@ export type DoctorFactsOptions = {
   docker?: () => Promise<ContainerReading>;
   /** Whether this user may listen on a low port; `testBind` in production, omitted to skip. */
   lowPort?: (port: number) => Promise<LowPortFacts>;
+  /** Whether Studio's port-80 forwarder listens for this config; omitted when not checked. */
+  shortUrls?: (config: StudioConfig) => Promise<ShortUrlStatus | undefined>;
 };
 
 /** A process from /proc (exact `args`) or from ps (`args` split on spaces, plus the raw `line`). */
@@ -185,6 +189,7 @@ export async function collectDoctorFacts(options: DoctorFactsOptions): Promise<D
       ? await options.processes.ownerOf(proxyPid)
       : "unknown";
   const https = state.proxy.running ? state.proxy.https : config.proxyHttps;
+  const shortUrls = await options.shortUrls?.(config).catch(() => undefined);
 
   return {
     platform,
@@ -204,6 +209,7 @@ export async function collectDoctorFacts(options: DoctorFactsOptions): Promise<D
     ...(options.routesFile ? { routesFile: options.routesFile() } : {}),
     ...(docker === undefined ? {} : { docker }),
     ...(port80 === undefined ? {} : { port80 }),
+    ...(shortUrls === undefined ? {} : { shortUrls }),
   };
 }
 
@@ -228,6 +234,27 @@ export function testBind(port: number): Promise<LowPortFacts> {
     server.listen({ port, host: "127.0.0.1", exclusive: true }, () =>
       server.close(() => resolve("free")),
     );
+  });
+}
+
+/**
+ * Whether a request to this loopback port reaches a portless proxy (it sends `X-Portless`), as it
+ * does through Studio's short-URL forwarder.
+ */
+export function reachesPortless(port: number, timeoutMs = 1000): Promise<boolean> {
+  return new Promise((resolve) => {
+    const req = request(
+      { host: "127.0.0.1", port, method: "HEAD", path: "/", timeout: timeoutMs, agent: false },
+      (res) => {
+        res.resume();
+        req.destroy();
+        resolve(res.headers["x-portless"] !== undefined);
+      },
+    );
+    req.on("timeout", () => req.destroy());
+    req.on("error", () => resolve(false));
+    req.on("close", () => resolve(false));
+    req.end();
   });
 }
 

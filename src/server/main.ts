@@ -18,6 +18,7 @@ import { controlProxy } from "./application/proxy-control.ts";
 import { confirmProxyStarts } from "./application/proxy-start-check.ts";
 import type { RouteRegistry } from "./application/route-registry.ts";
 import { createAlias, renameAlias } from "./application/route-use-cases.ts";
+import { publicUrls, SHORT_URL_PORT, ShortUrls } from "./application/short-urls.ts";
 import { stopProcess } from "./application/stop-process.ts";
 import { StudioRuntime } from "./application/studio-runtime.ts";
 import type { StudioServiceControl } from "./application/studio-service.ts";
@@ -49,11 +50,13 @@ import { DockerContainers } from "./infrastructure/system/docker-containers.ts";
 import {
   collectDoctorFacts,
   proxyPidsAmong,
+  reachesPortless,
   testBind,
 } from "./infrastructure/system/doctor-facts.ts";
 import { FaviconFetcher } from "./infrastructure/system/favicon-fetcher.ts";
 import { fetchLatestVersion } from "./infrastructure/system/npm-registry.ts";
 import { OsNotifier } from "./infrastructure/system/os-notifier.ts";
+import { startForwarder } from "./infrastructure/system/port-forwarder.ts";
 import { ProjectInfoReader } from "./infrastructure/system/project-info.ts";
 import { nodeSystemIo } from "./infrastructure/system/system-io.ts";
 import {
@@ -99,6 +102,8 @@ export type StudioServices = {
   openUrl?: ((url: string) => void) | undefined;
   /** Whether a newer release is on npm; only when the CLI passes the running version. */
   updates?: UpdateChecker | undefined;
+  /** Studio's port-80 forwarder; it listens only once the server runs. */
+  shortUrls?: ShortUrls | undefined;
 };
 
 export type StudioServicesOptions = {
@@ -121,7 +126,19 @@ export type StudioServicesOptions = {
    * config, `PORTLESS_STUDIO_NO_UPDATE_CHECK=1`, CI or a test run turns that off.
    */
   version?: string | undefined;
+  /**
+   * Port short URLs listen on; 80 unless `PORTLESS_STUDIO_SHORT_URL_PORT` says otherwise, which
+   * lets a test run without binding port 80.
+   */
+  shortUrlPort?: number | undefined;
 };
+
+/** `PORTLESS_STUDIO_SHORT_URL_PORT`, when it is a valid port; port 80 otherwise. */
+export function shortUrlPortFrom(env: NodeJS.ProcessEnv): number {
+  const raw = env.PORTLESS_STUDIO_SHORT_URL_PORT;
+  const port = raw === undefined ? Number.NaN : Number(raw);
+  return Number.isInteger(port) && port >= 1 && port <= 65535 ? port : SHORT_URL_PORT;
+}
 
 // Lets startServer reuse the runtime behind services built here, so both share one scan cache.
 const runtimes = new WeakMap<StudioServices, StudioRuntime>();
@@ -136,11 +153,20 @@ export function createStudioServices(options: StudioServicesOptions = {}): Studi
   });
   const scanner = createPortScanner();
   const proxyPids = (pids: number[]) => proxyPidsAmong(process.platform, nodeSystemIo, pids);
+  const shortUrls = new ShortUrls({
+    forwarding: { listen: (port, target) => startForwarder({ port, targetPort: target }) },
+    port: options.shortUrlPort ?? shortUrlPortFrom(process.env),
+    log: (line) => console.log(line),
+    reachesProxy: (port) => reachesPortless(port),
+  });
   // A start counts only once the proxy listens, and every proxy Studio starts is written down,
-  // so `uninstall` stops only Studio's own.
-  const registry = recordProxyStarts(
-    confirmProxyStarts(portless, { scan: () => scanner.scan(), proxyPids }),
-    proxyStartRecordPathFor(configPath),
+  // so `uninstall` stops only Studio's own. Route URLs drop the port while Studio forwards it.
+  const registry = publicUrls(
+    recordProxyStarts(
+      confirmProxyStarts(portless, { scan: () => scanner.scan(), proxyPids }),
+      proxyStartRecordPathFor(configPath),
+    ),
+    () => shortUrls.publicPort(),
   );
   const configStore = new JsonConfigStore(configPath);
   const notifier = new OsNotifier({ platform: process.platform });
@@ -158,6 +184,7 @@ export function createStudioServices(options: StudioServicesOptions = {}): Studi
     icons: new FaviconFetcher(),
     routeProjectStore: new JsonRouteProjectStore(routeProjectsPathFor(configPath)),
     containers,
+    shortUrls,
   });
   const openWith = new OpenWith({
     catalog: systemAppCatalog(),
@@ -206,9 +233,11 @@ export function createStudioServices(options: StudioServicesOptions = {}): Studi
         routesFile: () => inspectRoutesFile(stateDir),
         docker: () => containers.read(),
         lowPort: testBind,
+        shortUrls: (config) => shortUrls.inspect(config),
       }),
     controlProxy: proxy,
     updateConfig: (config) => runtime.updateConfig(config),
+    syncShortUrls: (config) => shortUrls.sync(config),
   });
   const version = options.version;
   const updates =
@@ -240,6 +269,7 @@ export function createStudioServices(options: StudioServicesOptions = {}): Studi
     terminals,
     openUrl: options.openUrl,
     updates,
+    shortUrls,
   };
   runtimes.set(services, runtime);
   return services;
@@ -324,6 +354,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       scanner: services.scanner,
       configStore: services.configStore,
       projects: new ProjectInfoReader(),
+      ...(services.shortUrls ? { shortUrls: services.shortUrls } : {}),
     });
   const token = randomBytes(32).toString("base64url");
   const http = createHttpServer({
@@ -352,6 +383,8 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   const { port } = http.server.address() as AddressInfo;
   studio.setStudioPort(port);
   studio.start();
+  // The short-URL forwarder settles before anyone prints or registers a URL.
+  await studio.ready();
 
   return {
     url: `http://${LOOPBACK}:${port}`,
@@ -364,8 +397,10 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
         studio.stop();
         services.terminals?.closeAll();
         http.closeStreams();
-        http.server.close(() => resolve());
-        http.server.closeAllConnections();
+        void (services.shortUrls?.close() ?? Promise.resolve()).finally(() => {
+          http.server.close(() => resolve());
+          http.server.closeAllConnections();
+        });
       }),
   };
 }

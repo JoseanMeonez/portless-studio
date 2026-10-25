@@ -140,6 +140,12 @@ export function SettingsDialog({
               checked={draft.registerStudioAlias}
               onChange={(value) => form.change("registerStudioAlias", value)}
             />
+            <Switch
+              label="Show Studio in the routes"
+              description="List Studio's own studio route with the others. Off keeps the list for your apps."
+              checked={draft.showStudioRoute}
+              onChange={(value) => form.change("showStudioRoute", value)}
+            />
           </fieldset>
 
           <fieldset className={styles.group}>
@@ -177,9 +183,24 @@ export function SettingsDialog({
               inputMode="numeric"
               value={draft.proxyPort}
               error={errors.proxyPort ?? null}
-              hint="1355 works on every system without a password. 80 drops the port from URLs; the Health panel says whether this machine allows it."
+              hint="1355 works on every system without a password. portless asks for sudo below 1024 on Linux and macOS; turn on Short URLs instead to drop the port."
               className={styles.short}
               onChange={(event) => form.change("proxyPort", event.target.value)}
+            />
+            <Switch
+              label="Short URLs (port 80)"
+              description={
+                <>
+                  Names open as <code>http://name.localhost</code>: Studio listens on port 80 and
+                  forwards to the proxy, which stays on its port. Studio never asks for a password,
+                  so this works only where your user may listen on port 80. Windows: usually yes,
+                  unless a program such as IIS holds it. macOS: usually yes. Linux: run{" "}
+                  <code>sudo sysctl -w net.ipv4.ip_unprivileged_port_start=80</code> once. HTTP
+                  only; the Health panel says whether it works.
+                </>
+              }
+              checked={draft.shortUrls}
+              onChange={(value) => form.change("shortUrls", value)}
             />
             <Switch
               label="Use HTTPS"

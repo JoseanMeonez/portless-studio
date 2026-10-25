@@ -1,3 +1,4 @@
+import { createServer as createHttpServer } from "node:http";
 import { createServer, type Server } from "node:net";
 import { DEFAULT_CONFIG } from "../../../core/config/studio-config.ts";
 import { err, ok } from "../../../core/result.ts";
@@ -13,6 +14,7 @@ import {
   parsePortlessProxyLine,
   parsePsProcesses,
   proxyPidsAmong,
+  reachesPortless,
   testBind,
 } from "./doctor-facts.ts";
 import type { SystemIo } from "./system-io.ts";
@@ -235,6 +237,21 @@ describe("collectDoctorFacts", () => {
     expect(facts.port80).toBe("denied");
   });
 
+  it("asks for the short-URL status with the config in effect", async () => {
+    const seen: boolean[] = [];
+    const facts = await collectDoctorFacts(
+      options({
+        shortUrls: async (config) => {
+          seen.push(config.shortUrls);
+          return { state: "listening", port: 80, target: 1355 };
+        },
+      }),
+    );
+    expect(seen).toEqual([false]);
+    expect(facts.shortUrls).toEqual({ state: "listening", port: 80, target: 1355 });
+    expect("shortUrls" in (await collectDoctorFacts(options()))).toBe(false);
+  });
+
   it("leaves Docker and port 80 out when not asked, and when Docker fails", async () => {
     const facts = await collectDoctorFacts(
       options({ docker: async () => Promise.reject(new Error("boom")) }),
@@ -375,5 +392,27 @@ describe("testBind", () => {
     held.close();
     held = null;
     expect(await testBind(port)).toBe("free");
+  });
+});
+
+describe("reachesPortless", () => {
+  it("is true only when the answer carries the portless header", async () => {
+    let portless = true;
+    const server = createHttpServer((_req, res) => {
+      if (portless) res.setHeader("x-portless", "1");
+      res.end();
+    });
+    const port = await new Promise<number>((resolve) => {
+      server.listen({ port: 0, host: "127.0.0.1" }, () => {
+        const address = server.address();
+        resolve(typeof address === "object" && address ? address.port : 0);
+      });
+    });
+    expect(await reachesPortless(port)).toBe(true);
+    portless = false;
+    expect(await reachesPortless(port)).toBe(false);
+    server.closeAllConnections();
+    await new Promise((resolve) => server.close(resolve));
+    expect(await reachesPortless(port)).toBe(false);
   });
 });

@@ -10,6 +10,7 @@ import type { IconFetcher } from "./icon-resolver.ts";
 import type { ProjectInfoSource } from "./port-discovery.ts";
 import type { HttpProbe, ListeningPort, PortScanner, ProbePort } from "./port-scanner.ts";
 import type { PortlessState, RouteRegistry } from "./route-registry.ts";
+import { type ForwardingPort, ShortUrls } from "./short-urls.ts";
 import { memoryRouteProjectStore, StudioRuntime } from "./studio-runtime.ts";
 import type { SystemNotifier } from "./system-notifier.ts";
 
@@ -118,7 +119,7 @@ function aliasRoute(name: string, port: number): Route {
     kind: "alias",
     pid: null,
     registeredAt: null,
-    url: "",
+    url: `http://${name}.localhost:1355`,
     tunnels: [],
   };
 }
@@ -160,6 +161,7 @@ function build(
     icons?: IconFetcher;
     routeProjects?: ReturnType<typeof memoryRouteProjectStore>;
     containers?: ContainerSource;
+    shortUrls?: ShortUrls;
   } = {},
 ) {
   const store = options.store ?? memoryStore();
@@ -182,6 +184,7 @@ function build(
     ...(options.notifier ? { notifier: options.notifier } : {}),
     ...(options.icons ? { icons: options.icons } : {}),
     ...(options.routeProjects ? { routeProjectStore: options.routeProjects } : {}),
+    ...(options.shortUrls ? { shortUrls: options.shortUrls } : {}),
   });
   return { runtime, store, scanner, fake, lines, autoNamed };
 }
@@ -259,6 +262,88 @@ describe("StudioRuntime snapshot", () => {
     const { runtime, fake } = build({ ports: [node(1355, "proxy"), node(5173, "app")] });
     await fake.registry.createAlias("app", 5173, false);
     expect((await runtime.readSnapshot()).detected).toEqual([]);
+  });
+});
+
+describe("StudioRuntime Studio's own route", () => {
+  it("hides the route on Studio's port by default", async () => {
+    const { runtime, fake } = build();
+    await fake.registry.createAlias("studio", 4949, false);
+    await fake.registry.createAlias("app", 5173, false);
+    expect((await runtime.readSnapshot()).routes.map((route) => route.name)).toEqual(["app"]);
+  });
+
+  it("shows it with showStudioRoute, or when a caller asks for it", async () => {
+    const shown = build({ store: memoryStore({ ...FAST, showStudioRoute: true }) });
+    await shown.fake.registry.createAlias("studio", 4949, false);
+    expect((await shown.runtime.readSnapshot()).routes.map((route) => route.name)).toEqual([
+      "studio",
+    ]);
+    shown.runtime.stop();
+
+    const asked = build();
+    await asked.fake.registry.createAlias("studio", 4949, false);
+    const snapshot = await asked.runtime.readSnapshot({ includeStudio: true });
+    expect(snapshot.routes.map((route) => route.name)).toEqual(["studio"]);
+  });
+
+  it("raises no event for its own route", async () => {
+    const { runtime, fake } = build();
+    await runtime.readSnapshot();
+    await fake.registry.createAlias("studio", 4949, false);
+    await runtime.readSnapshot();
+    expect(runtime.recentEvents()).toEqual([]);
+  });
+
+  it("still links notifications through the hidden studio route", async () => {
+    const { runtime, fake } = build();
+    await fake.registry.createAlias("studio", 4949, false);
+    expect(await runtime.pageUrl({ focus: "app" })).toBe("http://studio.localhost:1355/?focus=app");
+  });
+});
+
+describe("StudioRuntime short URLs", () => {
+  function forwarding() {
+    const calls: string[] = [];
+    const port: ForwardingPort = {
+      listen: async (listenPort, target) => {
+        calls.push(`listen ${listenPort} -> ${target}`);
+        return ok({ port: listenPort, close: async () => void calls.push("close") });
+      },
+    };
+    return { calls, port };
+  }
+
+  it("starts the forwarder with the config and stops it when the setting goes off", async () => {
+    const { calls, port } = forwarding();
+    const shortUrls = new ShortUrls({ forwarding: port, port: 8080, log: () => {} });
+    const { runtime, store } = build({
+      store: memoryStore({ ...FAST, shortUrls: true }),
+      shortUrls,
+    });
+    runtime.start();
+    await runtime.ready();
+    expect(calls).toEqual(["listen 8080 -> 1355"]);
+    store.set({ ...FAST, shortUrls: false });
+    await vi.waitFor(() => expect(calls).toEqual(["listen 8080 -> 1355", "close"]));
+  });
+
+  it("never lists the forwarder's port as a dev server, and tells watchers when it listens", async () => {
+    const { port } = forwarding();
+    const shortUrls = new ShortUrls({ forwarding: port, port: 8080, log: () => {} });
+    const { runtime } = build({
+      store: memoryStore({ ...FAST, shortUrls: true }),
+      ports: [node(8080, "studio"), node(5173, "app")],
+      shortUrls,
+    });
+    let notified = 0;
+    runtime.watch(() => {
+      notified += 1;
+    });
+    runtime.start();
+    await runtime.ready();
+    expect(notified).toBeGreaterThan(0);
+    expect((await runtime.readSnapshot()).detected.map((item) => item.port)).toEqual([5173]);
   });
 });
 

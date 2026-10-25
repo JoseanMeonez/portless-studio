@@ -9,10 +9,20 @@ All notable changes are listed here. Versions follow [Semantic Versioning](https
   port that answers HTTP, with a Docker badge, the image and a suggested name from the compose
   service and project (`api.acme`) or the container name. Stop runs `docker stop` after a
   confirmation, only for containers `docker ps` listed. The doctor says whether it reads containers.
-- The "Shorter URLs" doctor check tests, without sudo, whether the proxy can listen on port 80.
-  When it can, Use port 80 sets `proxyPort` to `80` and restarts the proxy, so names open as
-  `http://name.localhost`. On Linux it shows the one-time `sysctl` command and how to keep it.
-  The default stays 1355.
+- Short URLs: with `shortUrls: true` (Settings, "Short URLs (port 80)"), names open as
+  `http://name.localhost`. Studio listens on port 80 itself and forwards every connection to the
+  proxy, which stays on `proxyPort` (1355), so nothing asks for sudo. It works only where this
+  user may listen on port 80 without sudo; otherwise Studio logs why, names keep `:1355` and the
+  doctor says so. URLs in the page, `list`, MCP and notifications drop the port only while Studio
+  listens. The doctor's "Shorter URLs" check tests port 80 without sudo, offers Use short URLs,
+  and on Linux shows the one-time `sysctl` command and how to keep it. The default stays off.
+- Doctor fixes that change the proxy port (Use HTTP on port 1355, Use short URLs) check the result
+  and go back to the previous settings when it fails, starting the proxy again on its old port.
+  The doctor no longer offers to start the proxy below port 1024 on Linux or macOS, where portless
+  always asks for sudo.
+- Studio's own `studio` route no longer shows in the routes list, its counts, filters or
+  notifications. `showStudioRoute: true` (Settings, "Show Studio in the routes") brings it back,
+  and MCP `list_routes` takes `include_studio`.
 
 ## 0.1.1 (2026-10-25)
 

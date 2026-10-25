@@ -117,7 +117,9 @@ export function RoutesDashboard({
   const now = useNow();
   const proxy = snapshot?.proxy ?? null;
   // Run the checks again whenever the proxy changes: most problems are about it.
-  const doctor = useDoctor(proxy ? `${proxy.running}:${proxy.port}:${proxy.https}` : "");
+  const doctor = useDoctor(
+    proxy ? `${proxy.running}:${proxy.port}:${proxy.https}:${proxy.publicPort ?? ""}` : "",
+  );
   const services = useServiceControl();
   const stopProcess = useStopProcess();
 

@@ -19,7 +19,8 @@ same everywhere.
 | Restart or stop Studio from the page | Through systemd | Through launchd | Stop only: Windows has no service manager Studio can ask |
 | System notifications | `notify-send`; a click opens the item | `terminal-notifier`, or `osascript` without click | PowerShell toast; a click opens the item |
 | HTTPS trust check | Chrome's store, `~/.pki/nssdb` | `security find-certificate` | `certutil -verifystore Root` |
-| Proxy on a port below 1024 | Needs sudo, or `ip_unprivileged_port_start` lowered once | Usually no root needed; Studio tests it | Usually no Administrator needed; Studio tests it |
+| Proxy on a port below 1024 | portless asks for sudo | portless asks for sudo | No Administrator needed |
+| Short URLs (Studio on port 80) | `ip_unprivileged_port_start` lowered once | Usually allowed; Studio tests it | Usually allowed; Studio tests it |
 | Docker containers in Detected | `docker ps` (Docker Engine) | `docker ps` (Docker Desktop, OrbStack, Colima) | `docker ps` (Docker Desktop) |
 | Stop a container | `docker stop <name>` | `docker stop <name>` | `docker stop <name>` |
 
@@ -118,11 +119,14 @@ says, as information, whether it reads containers.
 Stop on a container row runs `docker stop <name>`, and only for a container the last `docker ps`
 listed. The same works on every system because only the `docker` command is used.
 
-### Port 80 for shorter URLs
+### Port 80 for short URLs
 
-The proxy listens on 1355 by default because no system asks for administrator rights there. The
-"Shorter URLs" check binds `127.0.0.1:80` and closes it at once, without sudo, to learn whether
-this user may listen there and whether another program holds it:
+The proxy listens on 1355 by default because no system asks for administrator rights there.
+portless asks for sudo to start its proxy below port 1024 on Linux and macOS whatever the system
+allows, so Studio keeps the proxy on its port and, with `shortUrls` on, listens on port 80 itself
+(`127.0.0.1` and `::1`) and pipes each connection to the proxy. The "Shorter URLs" check binds
+`127.0.0.1:80` and closes it at once, without sudo, to learn whether this user may listen there and
+whether another program holds it:
 
 - **Windows** lets any user listen on port 80, unless a program such as IIS holds it.
 - **macOS** 10.14 and later usually allows it; Studio tests it rather than assuming.
@@ -132,8 +136,9 @@ this user may listen there and whether another program holds it:
   /etc/sysctl.d/99-portless-studio.conf` to keep it. The setting lets every user on the machine
   listen on port 80 and up. Studio shows the commands and never runs them.
 
-When the bind works, the doctor's Use port 80 button sets `proxyPort` to `80` and starts or
-restarts the proxy, so names open as `http://name.localhost`.
+When the bind works, the doctor's Use short URLs button sets `shortUrls` to `true`, checks that
+Studio listens, and goes back to the previous settings when it does not. The proxy keeps running
+on its port throughout, so names never stop opening.
 
 ### Commands that need more rights
 

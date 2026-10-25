@@ -51,7 +51,7 @@ let respond: (request: Recorded) => Reply;
 
 function defaultReply(request: Recorded): Reply {
   if (request.url === "/api/session") return { status: 200, body: { token: TOKEN } };
-  if (request.url === "/api/snapshot") return { status: 200, body: SNAPSHOT };
+  if (request.url.startsWith("/api/snapshot")) return { status: 200, body: SNAPSHOT };
   if (request.url === "/api/config" && request.method === "GET") {
     return { status: 200, body: { config: DEFAULT_CONFIG, path: "/c/config.json" } };
   }
@@ -154,6 +154,13 @@ describe("studio tools", () => {
       expect(description).toMatch(/PR/);
       expect(description).toMatch(/worktree/i);
     }
+  });
+
+  it("list_routes asks for Studio's own route only with include_studio", async () => {
+    await call("list_routes", { include_studio: true });
+    expect(requests.map((request) => `${request.method} ${request.url}`)).toEqual([
+      "GET /api/snapshot?includeStudio=1",
+    ]);
   });
 
   it("list_routes returns each route with health, project, worktree and pid", async () => {

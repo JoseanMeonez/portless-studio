@@ -51,11 +51,18 @@ export function detectedItem(port: DetectedPort): DetectedItem {
   };
 }
 
-export function proxyItem(proxy: ProxyStatus): { running: boolean; port: number | null } {
-  return { running: proxy.running, port: proxy.port };
+export function proxyItem(proxy: ProxyStatus): {
+  running: boolean;
+  port: number | null;
+  publicPort?: number;
+} {
+  const item = { running: proxy.running, port: proxy.port };
+  return proxy.publicPort == null ? item : { ...item, publicPort: proxy.publicPort };
 }
 
+/** `publicPort` is set while Studio forwards it to the proxy, for URLs without a port. */
 export function describeProxy(proxy: ProxyStatus): string {
   if (!proxy.running) return "proxy stopped";
-  return proxy.port === null ? "proxy running" : `proxy running on port ${proxy.port}`;
+  const running = proxy.port === null ? "proxy running" : `proxy running on port ${proxy.port}`;
+  return proxy.publicPort == null ? running : `${running}, names open on port ${proxy.publicPort}`;
 }

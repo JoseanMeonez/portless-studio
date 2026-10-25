@@ -169,4 +169,77 @@ describe("discoverPorts", () => {
     });
     expect(detected.map((port) => port.port)).toEqual([7006]);
   });
+
+  it("adds published ports of Docker containers, named after the compose service and project", async () => {
+    // docker-proxy holds 3000 as root, so the scan sees it without a pid.
+    const { scanner } = fakeScanner(
+      [
+        { port: 3000, pid: null, processName: "", cwd: null },
+        listening(5173, "node", "/code/demo"),
+      ],
+      [3000, 5173, 8080],
+    );
+    const detected = await discoverPorts(scanner, projects, {
+      config: DEFAULT_CONFIG,
+      routes: [],
+      excludedPorts: [],
+      containers: [
+        {
+          name: "acme-api-1",
+          image: "acme/api:dev",
+          composeProject: "acme",
+          composeService: "api",
+          ports: [3000],
+        },
+        { name: "blog", image: "nginx", composeProject: null, composeService: null, ports: [8080] },
+      ],
+    });
+    expect(detected).toEqual([
+      {
+        port: 3000,
+        pid: null,
+        processName: "docker",
+        cwd: null,
+        suggestedName: "api.acme",
+        project: { name: "acme", worktree: null },
+        container: { name: "acme-api-1", image: "acme/api:dev", composeProject: "acme" },
+      },
+      { port: 5173, pid: 51730, processName: "node", cwd: "/code/demo", suggestedName: "demo" },
+      {
+        port: 8080,
+        pid: null,
+        processName: "docker",
+        cwd: null,
+        suggestedName: "blog",
+        container: { name: "blog", image: "nginx", composeProject: null },
+      },
+    ]);
+  });
+
+  it("filters container ports like any other port", async () => {
+    const { scanner, probed } = fakeScanner([], [3000, 4000, 1355, 6000, 7000]);
+    const container = (name: string, ports: number[]) => ({
+      name,
+      image: "img",
+      composeProject: null,
+      composeService: null,
+      ports,
+    });
+    const detected = await discoverPorts(scanner, projects, {
+      config: { ...DEFAULT_CONFIG, ignoredPorts: [6000] },
+      routes: [route(3000)],
+      excludedPorts: [1355],
+      containers: [container("a", [3000, 4000, 1355, 6000]), container("b", [7000, 9000])],
+    });
+    expect(detected.map((item) => item.port)).toEqual([4000, 7000]);
+    expect(probed.sort()).toEqual([4000, 7000, 9000]);
+
+    const ignored = await discoverPorts(scanner, projects, {
+      config: { ...DEFAULT_CONFIG, ignoredProcesses: ["docker"] },
+      routes: [],
+      excludedPorts: [],
+      containers: [container("b", [7000])],
+    });
+    expect(ignored).toEqual([]);
+  });
 });

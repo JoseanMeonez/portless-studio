@@ -33,7 +33,7 @@ describe("detected ports", () => {
   it("lists ports that answer HTTP with their process, folder and suggested name", async () => {
     setup();
 
-    expect(await detectedPorts()).toEqual(["4209", "4321", "5173", "8000"]);
+    expect(await detectedPorts()).toEqual(["4209", "4321", "5173", "8000", "8090"]);
     expect(screen.getByRole("heading", { name: /Detected on this machine/ })).toBeTruthy();
     const row = within(await detectedList()).getAllByRole("listitem")[2];
     expect(row?.textContent).toContain("app.acme");
@@ -41,6 +41,28 @@ describe("detected ports", () => {
     expect(row?.querySelector("[title='/home/dev/code/acme/apps/app']")?.textContent).toBe(
       "~/code/acme/apps/app",
     );
+  });
+
+  it("shows a Docker container with a badge and its image, and stops it after confirmation", async () => {
+    const { user, gateway } = setup();
+    const stopContainer = vi.spyOn(gateway, "stopContainer");
+    const stopProcess = vi.spyOn(gateway, "stopProcess");
+    const row = within(await detectedList())
+      .getAllByRole("listitem")
+      .find((item) => item.getAttribute("data-port") === "8090");
+
+    expect(row?.textContent).toContain("worker.acme");
+    expect(within(row as HTMLElement).getByText("Docker")).toBeTruthy();
+    expect(row?.textContent).toContain("acme/worker:dev");
+
+    await user.click(screen.getByRole("button", { name: "Stop the container on port 8090" }));
+    expect(screen.getByText("Stop container acme-worker-1 on :8090?")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Stop" }));
+
+    expect(stopContainer).toHaveBeenCalledWith("acme-worker-1");
+    expect(stopProcess).not.toHaveBeenCalled();
+    expect(await screen.findByText("Stopped container acme-worker-1")).toBeTruthy();
+    await waitFor(async () => expect(await detectedPorts()).not.toContain("8090"));
   });
 
   it("shows the icon the server found for a detected port", async () => {
@@ -88,10 +110,10 @@ describe("detected ports", () => {
 
     await user.click(await screen.findByRole("button", { name: "Name all" }));
 
-    expect(await screen.findByText("Named 3 ports")).toBeTruthy();
-    expect(createAlias).toHaveBeenCalledTimes(3);
+    expect(await screen.findByText("Named 4 ports")).toBeTruthy();
+    expect(createAlias).toHaveBeenCalledTimes(4);
     expect(await routeNames()).toEqual(
-      expect.arrayContaining(["app.acme", "blog.acme", "otter.shop-admin"]),
+      expect.arrayContaining(["app.acme", "blog.acme", "otter.shop-admin", "worker.acme"]),
     );
     expect(await detectedPorts()).toEqual(["8000"]);
   });
@@ -124,7 +146,7 @@ describe("detected ports", () => {
   it("makes the detected ports the main content when there are no routes", async () => {
     setup({ ...createSampleSnapshot(NOW), routes: [] });
 
-    expect(await detectedPorts()).toHaveLength(4);
+    expect(await detectedPorts()).toHaveLength(5);
     expect(screen.queryByText("No routes yet")).toBeNull();
   });
 });

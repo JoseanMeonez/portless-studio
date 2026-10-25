@@ -1,5 +1,6 @@
 import type { DetectedPort } from "../../../../core/ports/detected-port.ts";
 import { shortenPath } from "../../../shared/lib/shorten-path.ts";
+import { Badge } from "../../../shared/ui/badge.tsx";
 import { Button } from "../../../shared/ui/button.tsx";
 import { Icon } from "../../../shared/ui/icons/icon.tsx";
 import { ItemIcon } from "../../../shared/ui/item-icon.tsx";
@@ -13,7 +14,7 @@ type DetectedRowProps = {
   confirmingStop: boolean;
   onName: () => void;
   onIgnore: () => void;
-  /** Shown only when the pid is known. */
+  /** Shown only when the pid or the container is known. */
   onRequestStop: () => void;
   onConfirmStop: () => void;
   onCancelStop: () => void;
@@ -32,7 +33,8 @@ export function DetectedRow({
   onCancelStop,
   onMenu,
 }: DetectedRowProps) {
-  const { port, pid, processName, cwd, suggestedName } = detected;
+  const { port, pid, processName, cwd, suggestedName, container } = detected;
+  const stopTarget = container ? `container ${container.name}` : processName || "the server";
   return (
     <li className={styles.row} data-port={port} {...rowMenuTrigger(onMenu)}>
       <span className={styles.port}>:{port}</span>
@@ -52,7 +54,18 @@ export function DetectedRow({
           )}
         </span>
         <span className={styles.process}>
-          <span className={styles.processName}>{processName}</span>
+          {container ? (
+            <>
+              <Badge tone="accent" className={styles.docker}>
+                Docker
+              </Badge>
+              <span className={styles.folder} title={`Container ${container.name}`}>
+                {container.image}
+              </span>
+            </>
+          ) : (
+            <span className={styles.processName}>{processName}</span>
+          )}
           {cwd ? (
             <>
               <span aria-hidden="true" className={styles.separator}>
@@ -70,7 +83,7 @@ export function DetectedRow({
       {confirmingStop ? (
         <div className={styles.actions}>
           <span className={styles.confirmText}>
-            Stop {processName || "the server"} on :{port}?
+            Stop {stopTarget} on :{port}?
           </span>
           <Button size="xs" variant="ghost" onClick={onCancelStop}>
             Cancel
@@ -81,13 +94,13 @@ export function DetectedRow({
         </div>
       ) : (
         <div className={styles.actions}>
-          {pid !== null ? (
+          {pid !== null || container ? (
             <Button
               size="xs"
               variant="ghost"
               iconOnly
-              aria-label={`Stop the server on port ${port}`}
-              title={`Stop ${processName || "the server"} (pid ${pid})`}
+              aria-label={`Stop the ${container ? "container" : "server"} on port ${port}`}
+              title={container ? `Stop ${stopTarget}` : `Stop ${stopTarget} (pid ${pid})`}
               onClick={onRequestStop}
             >
               <Icon name="power" size={14} />

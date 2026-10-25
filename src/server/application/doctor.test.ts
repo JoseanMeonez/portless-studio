@@ -426,3 +426,122 @@ describe("runDoctorFix on Windows", () => {
     expect(result.ok && result.value.message).not.toContain("sudo");
   });
 });
+
+describe("diagnose Docker", () => {
+  it("says how many containers Studio reads", () => {
+    const check = byId(diagnose(facts({ docker: { state: "ok", containers: 2 } })), "docker");
+    expect(check).toMatchObject({ status: "ok", title: "Studio reads Docker containers" });
+    expect(check?.detail).toContain("2 running containers");
+  });
+
+  it("says, as information, when Docker is installed but cannot be read", () => {
+    const check = byId(diagnose(facts({ docker: { state: "unavailable" } })), "docker");
+    expect(check).toMatchObject({
+      status: "ok",
+      title: "Studio cannot read Docker containers",
+    });
+  });
+
+  it("says nothing without Docker", () => {
+    expect(byId(diagnose(facts({ docker: { state: "missing" } })), "docker")).toBe(undefined);
+    expect(byId(diagnose(facts()), "docker")).toBe(undefined);
+  });
+});
+
+describe("diagnose shorter URLs", () => {
+  it("offers port 80 when this user can listen on it", () => {
+    const check = byId(diagnose(facts({ port80: "free" })), "shorter-urls");
+    expect(check).toMatchObject({
+      status: "ok",
+      fix: { label: "Use port 80", action: "use-port-80" },
+    });
+    expect(check?.detail).toContain("http://name.localhost");
+  });
+
+  it("gives Linux the one-time sysctl command and how to keep it, never running it", () => {
+    const check = byId(diagnose(facts({ port80: "denied" })), "shorter-urls");
+    expect(check?.fix).toEqual({
+      label: "Allow port 80 until the next restart",
+      command: "sudo sysctl -w net.ipv4.ip_unprivileged_port_start=80",
+    });
+    expect(check?.fix?.action).toBe(undefined);
+    expect(check?.detail).toContain(
+      "echo 'net.ipv4.ip_unprivileged_port_start=80' | sudo tee /etc/sysctl.d/99-portless-studio.conf",
+    );
+  });
+
+  it("offers no command on macOS or Windows when the bind is refused", () => {
+    const check = byId(diagnose(facts({ platform: "darwin", port80: "denied" })), "shorter-urls");
+    expect(check?.fix).toBe(undefined);
+  });
+
+  it("says port 80 is taken by another program", () => {
+    const check = byId(diagnose(facts({ port80: "in-use" })), "shorter-urls");
+    expect(check?.title).toBe("Port 80 is taken by another program");
+    expect(check?.fix).toBe(undefined);
+  });
+
+  it("says the URLs are already short on port 80, and skips HTTPS and unchecked machines", () => {
+    const on80 = { ...DEFAULT_CONFIG, proxyPort: 80 };
+    const proxy = { running: true, port: 80, https: false, tlds: ["localhost"] };
+    const check = byId(diagnose(facts({ config: on80, proxy, port80: "in-use" })), "shorter-urls");
+    expect(check?.title).toBe("Names open without a port number");
+    const https = { running: true, port: 443, https: true, tlds: ["localhost"] };
+    expect(byId(diagnose(facts({ proxy: https, port80: "free" })), "shorter-urls")).toBe(undefined);
+    expect(byId(diagnose(facts()), "shorter-urls")).toBe(undefined);
+  });
+
+  it("starts a stopped proxy on port 80 on Linux once the system allows it", () => {
+    const on80 = { ...DEFAULT_CONFIG, proxyPort: 80 };
+    const proxy = { running: false, port: null, https: false, tlds: ["localhost"] };
+    const allowed = diagnose(facts({ config: on80, proxy, proxyOwner: "unknown", port80: "free" }));
+    expect(byId(allowed, "proxy-running")?.fix?.action).toBe("start-proxy");
+    const refused = diagnose(
+      facts({ config: on80, proxy, proxyOwner: "unknown", port80: "denied" }),
+    );
+    expect(byId(refused, "proxy-running")?.fix?.action).toBe("use-http-1355");
+  });
+});
+
+describe("runDoctorFix use-port-80", () => {
+  function fixDeps(current: DoctorFacts) {
+    const calls: string[] = [];
+    const deps: DoctorFixDeps = {
+      collect: async () => current,
+      controlProxy: async (action) => {
+        calls.push(`proxy ${action}`);
+        return ok(`proxy ${action}ed`);
+      },
+      updateConfig: async (config) => {
+        calls.push(`config ${config.proxyPort} ${config.proxyHttps}`);
+        return ok(undefined);
+      },
+    };
+    return { calls, deps };
+  }
+
+  it("saves proxyPort 80 and restarts the proxy the user owns", async () => {
+    const { calls, deps } = fixDeps(facts({ port80: "free" }));
+    const result = await runDoctorFix("shorter-urls", deps);
+    expect(result.ok).toBe(true);
+    expect(calls).toEqual(["config 80 false", "proxy restart"]);
+  });
+
+  it("starts the proxy when it is not running", async () => {
+    const stopped = facts({
+      port80: "free",
+      proxy: { running: false, port: null, https: false, tlds: ["localhost"] },
+      proxyOwner: "unknown",
+    });
+    const { calls, deps } = fixDeps(stopped);
+    await runDoctorFix("shorter-urls", deps);
+    expect(calls).toEqual(["config 80 false", "proxy start"]);
+  });
+
+  it("runs nothing when the system does not allow port 80", async () => {
+    const { calls, deps } = fixDeps(facts({ port80: "denied" }));
+    const result = await runDoctorFix("shorter-urls", deps);
+    expect(result.ok).toBe(false);
+    expect(calls).toEqual([]);
+  });
+});

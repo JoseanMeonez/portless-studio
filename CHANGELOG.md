@@ -2,6 +2,18 @@
 
 All notable changes are listed here. Versions follow [Semantic Versioning](https://semver.org).
 
+## Unreleased
+
+- Docker containers show under Detected: Studio reads `docker ps` once per scan (2-second limit,
+  silently skipped when Docker is missing, stopped or refuses the user) and lists each published
+  port that answers HTTP, with a Docker badge, the image and a suggested name from the compose
+  service and project (`api.acme`) or the container name. Stop runs `docker stop` after a
+  confirmation, only for containers `docker ps` listed. The doctor says whether it reads containers.
+- The "Shorter URLs" doctor check tests, without sudo, whether the proxy can listen on port 80.
+  When it can, Use port 80 sets `proxyPort` to `80` and restarts the proxy, so names open as
+  `http://name.localhost`. On Linux it shows the one-time `sysctl` command and how to keep it.
+  The default stays 1355.
+
 ## 0.1.1 (2026-10-25)
 
 - The proxy start is confirmed: Studio checks the port is free before starting it and that it

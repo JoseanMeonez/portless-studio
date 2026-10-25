@@ -1,5 +1,6 @@
 import type { ItemProject } from "../routes/route.ts";
 import { parseRouteName } from "../routes/route-name.ts";
+import type { ContainerSummary } from "./docker-container.ts";
 import {
   DEFAULT_NAME_TEMPLATE,
   dnsLabel,
@@ -21,6 +22,8 @@ export type DetectedPort = {
   project?: ItemProject | null;
   /** Emoji or `data:image` URL; absent when unknown, so the page draws a monogram. */
   icon?: string;
+  /** The Docker container publishing the port; absent for ordinary processes. */
+  container?: ContainerSummary;
 };
 
 /** What we know about the project a process runs in, read from its folder. */

@@ -76,6 +76,8 @@ export interface RoutesGateway {
   controlStudio(action: StudioAction): Promise<Result<StudioActionResponse, ApiError>>;
   /** Stops the dev server with this pid, if it is the user's and serves a shown port. */
   stopProcess(pid: number): Promise<Result<null, ApiError>>;
+  /** Stops a Docker container a detected row shows, by its name. */
+  stopContainer(name: string): Promise<Result<null, ApiError>>;
   /** Editors and the file manager found on the server's machine, then the custom apps. */
   listOpenWithApps(): Promise<Result<OpenWithApp[], ApiError>>;
   /** Opens a project folder Studio shows; `path_not_allowed` for any other folder. */

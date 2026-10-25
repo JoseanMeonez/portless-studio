@@ -5,6 +5,7 @@ import {
   projectOf,
   suggestName,
 } from "../../core/ports/detected-port.ts";
+import { containerProjectInfo, type DockerContainer } from "../../core/ports/docker-container.ts";
 import type { Route } from "../../core/routes/route.ts";
 import type { ListeningPort, PortScanner } from "./port-scanner.ts";
 
@@ -19,6 +20,8 @@ export type DiscoveryContext = {
   routes: readonly Route[];
   /** Studio's own port and the portless proxy port. */
   excludedPorts: readonly number[];
+  /** Running Docker containers; their published ports count as dev servers. */
+  containers?: readonly DockerContainer[];
 };
 
 /**
@@ -36,20 +39,71 @@ export async function discoverPorts(
     ...context.config.ignoredPorts,
   ]);
   const ignored = context.config.ignoredProcesses.map((name) => name.toLowerCase());
+  const published = containerPorts(context.containers ?? [], skippedPorts, ignored);
   // A port whose process we cannot read belongs to another user or the system (printing, DNS),
-  // never to a dev server this person started.
+  // never to a dev server this person started. A container's port is shown as the container.
   const candidates = (await scanner.scan()).filter(
     (port) =>
       port.pid !== null &&
       !skippedPorts.has(port.port) &&
+      !published.has(port.port) &&
       !isIgnoredProcess(port.processName, ignored),
   );
+  const fromContainers = [...published];
   // Probes run in parallel; a port that never answers costs its timeout once, not per port.
-  const answers = await Promise.all(candidates.map((port) => scanner.answersHttp(port.port)));
-  return candidates
-    .filter((port, index) => answers[index] && isDevServer(port, projects))
-    .map((port) => toDetected(port, projects, context.config.nameTemplate))
-    .sort((a, b) => a.port - b.port);
+  const [answers, containerAnswers] = await Promise.all([
+    Promise.all(candidates.map((port) => scanner.answersHttp(port.port))),
+    Promise.all(fromContainers.map(([port]) => scanner.answersHttp(port))),
+  ]);
+  const template = context.config.nameTemplate;
+  return [
+    ...candidates
+      .filter((port, index) => answers[index] && isDevServer(port, projects))
+      .map((port) => toDetected(port, projects, template)),
+    ...fromContainers
+      .filter((_, index) => containerAnswers[index])
+      .map(([port, container]) => containerDetected(port, container, template)),
+  ].sort((a, b) => a.port - b.port);
+}
+
+/** Published port -> container, without the ports the filters skip. */
+function containerPorts(
+  containers: readonly DockerContainer[],
+  skippedPorts: ReadonlySet<number>,
+  ignored: readonly string[],
+): Map<number, DockerContainer> {
+  const ports = new Map<number, DockerContainer>();
+  if (isIgnoredProcess(CONTAINER_PROCESS, ignored)) return ports;
+  for (const container of containers) {
+    for (const port of container.ports) {
+      if (!skippedPorts.has(port) && !ports.has(port)) ports.set(port, container);
+    }
+  }
+  return ports;
+}
+
+/** What a container's row shows as its process, and what `ignoredProcesses` matches. */
+const CONTAINER_PROCESS = "docker";
+
+function containerDetected(
+  port: number,
+  container: DockerContainer,
+  nameTemplate: string,
+): DetectedPort {
+  const project = container.composeProject;
+  return {
+    port,
+    pid: null,
+    processName: CONTAINER_PROCESS,
+    cwd: null,
+    suggestedName: suggestName(containerProjectInfo(container), nameTemplate, port),
+    ...(project === null ? {} : { project: { name: project, worktree: null } }),
+    container: {
+      name: container.name,
+      image: container.image,
+      composeProject: project,
+    },
+  };
 }
 
 // Interpreters dev servers run on. Anything else counts only when it was built inside the

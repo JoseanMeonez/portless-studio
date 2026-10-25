@@ -19,7 +19,9 @@ same everywhere.
 | Restart or stop Studio from the page | Through systemd | Through launchd | Stop only: Windows has no service manager Studio can ask |
 | System notifications | `notify-send`; a click opens the item | `terminal-notifier`, or `osascript` without click | PowerShell toast; a click opens the item |
 | HTTPS trust check | Chrome's store, `~/.pki/nssdb` | `security find-certificate` | `certutil -verifystore Root` |
-| Proxy on a port below 1024 | Needs sudo | No root needed | No Administrator needed |
+| Proxy on a port below 1024 | Needs sudo, or `ip_unprivileged_port_start` lowered once | Usually no root needed; Studio tests it | Usually no Administrator needed; Studio tests it |
+| Docker containers in Detected | `docker ps` (Docker Engine) | `docker ps` (Docker Desktop, OrbStack, Colima) | `docker ps` (Docker Desktop) |
+| Stop a container | `docker stop <name>` | `docker stop <name>` | `docker stop <name>` |
 
 Every check only reads; Studio never changes a certificate store or a system setting on its
 own.
@@ -95,6 +97,43 @@ Studio removes its `studio` alias when it stops on SIGINT, SIGTERM or SIGHUP (a 
 and on Windows also on SIGBREAK (Ctrl+Break) and when its console window closes. If Studio was
 killed without a chance to clean up, the next start replaces a `studio` alias whose port no longer
 answers as a Studio.
+
+### Docker containers
+
+A port a container publishes is held by a root-owned `docker-proxy` on Linux, by
+`com.docker.backend` or `vpnkit` on macOS and Windows, or by nothing visible at all, so the port
+scan cannot tell it is a dev server. Studio asks Docker instead: once per scan it runs
+`docker ps --format '{{json .}}'` with a 2-second limit and keeps the answer for 3 seconds. It
+reads each container's name, image, the `com.docker.compose.project` and
+`com.docker.compose.service` labels and the host ports in the Ports column (IPv4 and IPv6, and
+ranges such as `8000-8002`; UDP ports are skipped). Each published port then goes through the same
+HTTP probe and the same filters as any other port: routed ports, `ignoredPorts`, the proxy and
+Studio's own port. `ignoredProcesses` matches containers as `docker`.
+
+When `docker` is not installed, Docker is not running, or the user may not use it (on Linux, not in
+the `docker` group), the command fails and Studio shows ordinary processes only, without an error.
+It asks a stopped Docker again after 15 seconds and a missing `docker` after a minute. The doctor
+says, as information, whether it reads containers.
+
+Stop on a container row runs `docker stop <name>`, and only for a container the last `docker ps`
+listed. The same works on every system because only the `docker` command is used.
+
+### Port 80 for shorter URLs
+
+The proxy listens on 1355 by default because no system asks for administrator rights there. The
+"Shorter URLs" check binds `127.0.0.1:80` and closes it at once, without sudo, to learn whether
+this user may listen there and whether another program holds it:
+
+- **Windows** lets any user listen on port 80, unless a program such as IIS holds it.
+- **macOS** 10.14 and later usually allows it; Studio tests it rather than assuming.
+- **Linux** allows it only below `net.ipv4.ip_unprivileged_port_start`, 1024 by default. The
+  doctor shows `sudo sysctl -w net.ipv4.ip_unprivileged_port_start=80`, which lasts until the next
+  restart, and `echo 'net.ipv4.ip_unprivileged_port_start=80' | sudo tee
+  /etc/sysctl.d/99-portless-studio.conf` to keep it. The setting lets every user on the machine
+  listen on port 80 and up. Studio shows the commands and never runs them.
+
+When the bind works, the doctor's Use port 80 button sets `proxyPort` to `80` and starts or
+restarts the proxy, so names open as `http://name.localhost`.
 
 ### Commands that need more rights
 

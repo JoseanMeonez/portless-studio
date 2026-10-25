@@ -36,6 +36,8 @@ export const API_PATHS = {
   studio: (action: StudioAction) => `/api/studio/${action}`,
   /** POST: stops a dev server listening on a detected or routed port. */
   stopProcess: (pid: number) => `/api/processes/${pid}/stop`,
+  /** POST: runs `docker stop` for a container the last `docker ps` listed. */
+  stopContainer: (name: string) => `/api/containers/${encodeURIComponent(name)}/stop`,
   /** GET: the editors found on this machine, the file manager and the custom apps. */
   openWithApps: "/api/open-with/apps",
   /** POST `OpenWithRequest`: opens a folder Studio knows with one of those apps. */

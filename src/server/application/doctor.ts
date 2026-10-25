@@ -46,6 +46,18 @@ export type RoutesFileFacts = {
   unreadable: number;
 };
 
+/** Whether `docker ps` answered: how many containers it listed, no `docker`, or no answer. */
+export type DockerFacts =
+  | { state: "ok"; containers: number }
+  | { state: "missing" }
+  | { state: "unavailable" };
+
+/**
+ * Whether this user can listen on 127.0.0.1:80 without sudo, tested with a bind that is closed at
+ * once: `free`, `denied` by the system, or `in-use` by another program.
+ */
+export type LowPortFacts = "free" | "denied" | "in-use";
+
 /** Everything the checks look at, gathered from the machine by an infrastructure collector. */
 export type DoctorFacts = {
   platform: NodeJS.Platform;
@@ -73,6 +85,10 @@ export type DoctorFacts = {
   systemNotifier?: "available" | "limited" | "missing" | "unsupported";
   /** Absent when not checked. */
   routesFile?: RoutesFileFacts;
+  /** Absent when not checked. */
+  docker?: DockerFacts;
+  /** Port 80 for the proxy; absent when not checked. */
+  port80?: LowPortFacts;
 };
 
 /** The checks, in the order people should read them. Pure, so every rule is easy to test. */
@@ -84,11 +100,13 @@ export function diagnose(facts: DoctorFacts): DoctorCheck[] {
     pushIf(checks, proxyCountCheck(facts));
     pushIf(checks, httpsTrustCheck(facts));
     pushIf(checks, routesFileCheck(facts));
+    pushIf(checks, shorterUrlsCheck(facts));
   }
   checks.push(studioPortCheck(facts));
   pushIf(checks, loginServiceCheck(facts));
   pushIf(checks, safariCheck(facts));
   pushIf(checks, notificationsCheck(facts));
+  pushIf(checks, dockerCheck(facts));
   return checks;
 }
 
@@ -134,13 +152,26 @@ async function runAction(
 ): Promise<Result<string, AppError>> {
   if (action === "start-proxy") return deps.controlProxy("start");
   if (action === "restart-proxy") return deps.controlProxy("restart");
+  if (action === "use-port-80") {
+    return applyProxyConfig({ ...facts.config, proxyPort: 80 }, "port 80", facts, deps);
+  }
+  const http = { ...facts.config, proxyPort: 1355, proxyHttps: false };
+  return applyProxyConfig(http, "HTTP on port 1355", facts, deps);
+}
 
-  const saved = await deps.updateConfig({ ...facts.config, proxyPort: 1355, proxyHttps: false });
+/** Saves the proxy settings, then starts or restarts the proxy with them when Studio may. */
+async function applyProxyConfig(
+  config: StudioConfig,
+  what: string,
+  facts: DoctorFacts,
+  deps: DoctorFixDeps,
+): Promise<Result<string, AppError>> {
+  const saved = await deps.updateConfig(config);
   if (!saved.ok) return saved;
   if (!facts.proxy.running) return deps.controlProxy("start");
   if (facts.proxyOwner === "you") return deps.controlProxy("restart");
   return ok(
-    `Saved HTTP on port 1355. Stop the current proxy with \`${stopProxyAsAdminCommand(facts.platform)}\` ` +
+    `Saved ${what}. Stop the current proxy with \`${stopProxyAsAdminCommand(facts.platform)}\` ` +
       `${adminWords(facts.platform)}, then start the new one from the proxy menu.`,
   );
 }
@@ -195,7 +226,9 @@ function proxyRunningCheck(facts: DoctorFacts): DoctorCheck {
       detail: `It serves ${proxy.https ? "HTTPS" : "HTTP"}${where}${pid}.`,
     };
   }
-  const needsSudo = portNeedsRoot(platform, config.proxyPort);
+  // On Linux a lowered `ip_unprivileged_port_start` lets this user bind port 80 after all.
+  const allowed = config.proxyPort === 80 && facts.port80 === "free";
+  const needsSudo = portNeedsRoot(platform, config.proxyPort) && !allowed;
   return {
     id: "proxy-running",
     status: "warn",
@@ -433,6 +466,94 @@ function notificationsCheck({ config, systemNotifier }: DoctorFacts): DoctorChec
       "Studio skips them on this machine. Notifications in an open Studio tab still work. " +
       "The package is libnotify-bin on Debian and Ubuntu, libnotify elsewhere.",
     fix: { label: "Install notify-send", command: "sudo apt install libnotify-bin" },
+  };
+}
+
+const UNPRIVILEGED_PORT_SETTING = "net.ipv4.ip_unprivileged_port_start=80";
+
+/**
+ * Port 80 drops the port number from every name (`http://name.localhost`). Studio offers it only
+ * when a test bind shows this user may listen there without sudo; it never changes the system.
+ */
+function shorterUrlsCheck(facts: DoctorFacts): DoctorCheck | null {
+  const { proxy, config, platform, port80 } = facts;
+  const https = proxy.running ? proxy.https : config.proxyHttps;
+  if (https) return null;
+  const port = proxy.running ? proxy.port : config.proxyPort;
+  if (port === 80) {
+    return {
+      id: "shorter-urls",
+      status: "ok",
+      title: "Names open without a port number",
+      detail: "The proxy uses port 80, so names open as http://name.localhost.",
+    };
+  }
+  if (port80 === undefined) return null;
+  const now = `Names open as http://name.localhost:${port ?? config.proxyPort}`;
+  if (port80 === "free") {
+    return {
+      id: "shorter-urls",
+      status: "ok",
+      title: "Shorter URLs: port 80 is available",
+      detail:
+        `${now}. This user can listen on port 80 without sudo, so the proxy can move there ` +
+        "and names open as http://name.localhost.",
+      fix: { label: "Use port 80", action: "use-port-80" },
+    };
+  }
+  if (port80 === "in-use") {
+    return {
+      id: "shorter-urls",
+      status: "ok",
+      title: "Port 80 is taken by another program",
+      detail: `${now}. Stop the program on port 80 to let the proxy use it and drop the port number.`,
+    };
+  }
+  if (platform !== "linux") {
+    return {
+      id: "shorter-urls",
+      status: "ok",
+      title: "Shorter URLs: this system does not allow port 80",
+      detail: `${now}. This user cannot listen on port 80 here, so the proxy stays on its port.`,
+    };
+  }
+  return {
+    id: "shorter-urls",
+    status: "ok",
+    title: "Shorter URLs need a one-time system setting",
+    detail:
+      `${now}. Linux lets only root listen on ports below 1024. The command lets every user ` +
+      "on this machine listen on port 80 and up until the next restart; Studio never runs it. " +
+      `To keep it after a restart, also run \`echo '${UNPRIVILEGED_PORT_SETTING}' | sudo tee ` +
+      "/etc/sysctl.d/99-portless-studio.conf`. Then run the checks again and choose Use port 80.",
+    fix: {
+      label: "Allow port 80 until the next restart",
+      command: `sudo sysctl -w ${UNPRIVILEGED_PORT_SETTING}`,
+    },
+  };
+}
+
+/** Information only: without Docker, container ports simply do not show. */
+function dockerCheck({ docker }: DoctorFacts): DoctorCheck | null {
+  if (docker === undefined || docker.state === "missing") return null;
+  if (docker.state === "ok") {
+    const count =
+      docker.containers === 1 ? "1 running container" : `${docker.containers} running containers`;
+    return {
+      id: "docker",
+      status: "ok",
+      title: "Studio reads Docker containers",
+      detail: `docker ps lists ${count}; the ports they publish show under Detected.`,
+    };
+  }
+  return {
+    id: "docker",
+    status: "ok",
+    title: "Studio cannot read Docker containers",
+    detail:
+      "The docker command is installed, but docker ps did not answer: Docker is not running, " +
+      "or this user may not use it (on Linux, the docker group). Ports of containers do not " +
+      "show under Detected until it answers.",
   };
 }
 

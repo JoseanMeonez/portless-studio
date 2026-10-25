@@ -77,13 +77,19 @@ Two more ports feed port detection and settings:
 | --- | --- | --- |
 | `PortScanner` (`application/port-scanner.ts`) | `infrastructure/system`: `/proc` on Linux, `lsof` on macOS, `netstat` plus one PowerShell `Win32_Process` query (cached 30 s) on Windows | Lists listening ports with their process, executable and folder (on Windows the folder comes from the script path in the command line), and probes whether a port answers HTTP. See `docs/platforms.md`. |
 | `ConfigStore` (`application/config-store.ts`) | `infrastructure/config/json-config-store.ts` | Reads, writes and watches the JSON config file. |
+| `ContainerSource` (`application/container-source.ts`) | `infrastructure/system/docker-containers.ts` | Lists running Docker containers with `docker ps --format '{{json .}}'` (2-second limit, answer kept 3 seconds) and stops one with `docker stop`. Any failure reads as no containers. See `docs/platforms.md`. |
 
 `StudioRuntime` (`application/studio-runtime.ts`) ties them together. It scans every
 `scanIntervalMs` while a browser is watching or auto mode is on, builds the full `Snapshot`
 (portless state plus detected ports), and, in auto mode, names each new dev server through
 `RouteRegistry.createAlias` once it has shown up unnamed in two scans in a row. A detected port must answer HTTP, have no route, not be ignored, not be
 another Studio (they send `x-portless-studio`), not belong to a portless proxy, and run on a known
-runtime (`node`, `python`, `bun` and similar) or from a binary built inside the project. A port is
+runtime (`node`, `python`, `bun` and similar) or from a binary built inside the project. A port a
+Docker container publishes skips the runtime rule and replaces whatever the scan saw on it: it
+shows with `processName: "docker"`, no pid, and `container` (`name`, `image`, `composeProject`),
+and its suggested name comes from the template with the compose service as `{package}` and the
+compose project as `{repo}`, else the container name as `{folder}`
+(`containerProjectInfo`, `core/ports/docker-container.ts`). A port is
 the proxy's when portless recorded it in `proxy.port`, or when the process listening on it runs
 `portless proxy start` (`proxyPidsAmong` in `infrastructure/system/doctor-facts.ts` reads the
 command line of just the listening pids: `/proc` on Linux, `ps -p` on macOS; Windows relies on
@@ -259,11 +265,17 @@ that need sudo are commands to copy, never run.
 `needs_admin` and the `sudo` command when root or another user owns it. A start counts only once
 the proxy listens; see "Staying in sync with portless".
 `application/stop-process.ts` stops a dev server only when its pid listens on a detected or routed
-port and belongs to the current user.
+port and belongs to the current user. `stopContainer` (`application/container-source.ts`, `POST
+/api/containers/<name>/stop`) runs `docker stop` only for a container the last `docker ps` listed.
+
+The doctor also reports whether Studio reads Docker containers (`docker` check, counts only), and
+whether this user may listen on port 80 (`shorter-urls` check, from `testBind` in
+`infrastructure/system/doctor-facts.ts`). Its `use-port-80` action saves `proxyPort: 80` and starts
+or restarts the proxy; the Linux `sysctl` command is only shown.
 
 On the web side, `RoutesGateway` also has `getConfig()`, `updateConfig(config)`,
 `ignoreDetected(port)`, `getDoctor()`, `runDoctorFix(id)`, `controlProxy(action)`,
-`controlStudio(action)`, `stopProcess(pid)`, `listOpenWithApps()`, `openWith(request)`,
+`controlStudio(action)`, `stopProcess(pid)`, `stopContainer(name)`, `listOpenWithApps()`, `openWith(request)`,
 `getCustomApps()` and `updateCustomApps(apps)`.
 
 ## Terminals

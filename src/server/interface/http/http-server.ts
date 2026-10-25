@@ -53,6 +53,8 @@ export type HttpServerOptions = {
   studioService?: StudioServiceControl;
   /** Stops a dev server by pid, after checking it is the user's and listens on a shown port. */
   stopProcess?: (pid: string) => Promise<Result<unknown, AppError>>;
+  /** Stops a Docker container by name, only one the last `docker ps` listed. */
+  stopContainer?: (name: string) => Promise<Result<unknown, AppError>>;
   /** Opens project folders in editors; without it the open-with endpoints answer `unsupported`. */
   openWith?: OpenWith;
   /** Runs terminals; without it the terminal endpoints answer `unsupported`. */
@@ -75,6 +77,7 @@ const DOCTOR_FIX = /^\/api\/doctor\/fix\/([^/]+)$/;
 const PROXY_ACTION = /^\/api\/proxy\/(start|stop|restart)$/;
 const STUDIO_ACTION = /^\/api\/studio\/(restart|stop)$/;
 const STOP_PROCESS = /^\/api\/processes\/([^/]+)\/stop$/;
+const STOP_CONTAINER = /^\/api\/containers\/([^/]+)\/stop$/;
 const TERMINAL = /^\/api\/terminals\/([^/]+)(?:\/(output|stream|input|stop|restart))?$/;
 /** Lets the 202 reach the browser before Studio restarts or exits. */
 const STUDIO_ACTION_DELAY_MS = 200;
@@ -230,6 +233,14 @@ export function createHttpServer(options: HttpServerOptions): HttpServer {
     if (stop?.[1] && method === "POST") {
       if (!options.stopProcess) return sendAppError(res, unsupported);
       const result = await options.stopProcess(stop[1]);
+      if (!result.ok) return sendAppError(res, result.error);
+      res.writeHead(204, { "Cache-Control": "no-store" }).end();
+      return;
+    }
+    const stopBox = STOP_CONTAINER.exec(pathname);
+    if (stopBox?.[1] && method === "POST") {
+      if (!options.stopContainer) return sendAppError(res, unsupported);
+      const result = await options.stopContainer(decodeName(stopBox[1]) ?? "");
       if (!result.ok) return sendAppError(res, result.error);
       res.writeHead(204, { "Cache-Control": "no-store" }).end();
       return;

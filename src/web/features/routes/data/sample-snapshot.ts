@@ -134,6 +134,15 @@ export const SAMPLE_DETECTED: readonly DetectedPort[] = [
     project: ACME_MAIN,
   },
   { port: 8000, pid: 62_003, processName: "python3", cwd: null, suggestedName: null },
+  {
+    port: 8090,
+    pid: null,
+    processName: "docker",
+    cwd: null,
+    suggestedName: "worker.acme",
+    project: { name: ACME, worktree: null },
+    container: { name: "acme-worker-1", image: "acme/worker:dev", composeProject: ACME },
+  },
 ];
 
 /** A server the `?demo` mode starts a little after loading, so auto mode has something to name. */

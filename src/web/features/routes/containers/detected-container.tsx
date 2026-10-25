@@ -4,6 +4,7 @@ import { DetectedSection } from "../components/detected-section.tsx";
 import type { MenuPoint } from "../components/row-menu-trigger.ts";
 import { useAutoName } from "../hooks/use-auto-name.ts";
 import { useDetectedActions } from "../hooks/use-detected-actions.ts";
+import { useStopContainer } from "../hooks/use-stop-container.ts";
 import { useStopProcess } from "../hooks/use-stop-process.ts";
 
 type DetectedContainerProps = {
@@ -28,9 +29,11 @@ export function DetectedContainer({
   const [namingAll, setNamingAll] = useState(false);
   const [confirmingStop, setConfirmingStop] = useState<number | null>(null);
   const stopProcess = useStopProcess();
+  const stopContainer = useStopContainer();
 
   const stop = async (item: DetectedPort) => {
     setConfirmingStop(null);
+    if (item.container) return stopContainer(item.container.name);
     if (item.pid === null) return;
     await stopProcess({ pid: item.pid, port: item.port, processName: item.processName });
   };

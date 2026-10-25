@@ -2,9 +2,12 @@ import { createServer } from "node:net";
 import * as path from "node:path";
 import { DEFAULT_CONFIG } from "../../../core/config/studio-config.ts";
 import type { ConfigStore } from "../../application/config-store.ts";
+import type { ContainerReading } from "../../application/container-source.ts";
 import type {
   BrowserTrust,
+  DockerFacts,
   DoctorFacts,
+  LowPortFacts,
   PortHolder,
   ProxyProcess,
   RoutesFileFacts,
@@ -40,6 +43,10 @@ export type DoctorFactsOptions = {
   canBind?: (port: number) => Promise<boolean>;
   /** Whether portless's routes.json reads; omitted when not checked. */
   routesFile?: () => RoutesFileFacts;
+  /** Lists Docker containers; omitted when not checked. */
+  docker?: () => Promise<ContainerReading>;
+  /** Whether this user may listen on a low port; `testBind` in production, omitted to skip. */
+  lowPort?: (port: number) => Promise<LowPortFacts>;
 };
 
 /** A process from /proc (exact `args`) or from ps (`args` split on spaces, plus the raw `line`). */
@@ -161,16 +168,17 @@ export async function proxyPidsAmong(
 /** Gathers the facts the doctor checks. Each part is read once; nothing is changed. */
 export async function collectDoctorFacts(options: DoctorFactsOptions): Promise<DoctorFacts> {
   const { platform, registry, configStore } = options;
-  const [state, proxyPid, stored, proxyProcesses, loginService, systemNotifier] = await Promise.all(
-    [
+  const [state, proxyPid, stored, proxyProcesses, loginService, systemNotifier, docker, port80] =
+    await Promise.all([
       registry.readSnapshot(),
       registry.proxyPid(),
       configStore.read(),
       listProxyProcesses(platform, options.io, options.uid),
       options.loginService ? options.loginService() : Promise.resolve(null),
       options.systemNotifier ? options.systemNotifier() : Promise.resolve(undefined),
-    ],
-  );
+      options.docker ? dockerFacts(options.docker) : Promise.resolve(undefined),
+      options.lowPort ? options.lowPort(80) : Promise.resolve(undefined),
+    ]);
   const config = stored.ok ? stored.value : DEFAULT_CONFIG;
   const proxyOwner =
     state.proxy.running && proxyPid !== null
@@ -194,7 +202,33 @@ export async function collectDoctorFacts(options: DoctorFactsOptions): Promise<D
     loginService,
     ...(systemNotifier === undefined ? {} : { systemNotifier }),
     ...(options.routesFile ? { routesFile: options.routesFile() } : {}),
+    ...(docker === undefined ? {} : { docker }),
+    ...(port80 === undefined ? {} : { port80 }),
   };
+}
+
+/** Only how many containers run reaches the doctor, never their names. */
+async function dockerFacts(read: () => Promise<ContainerReading>): Promise<DockerFacts> {
+  const reading = await read().catch((): ContainerReading => ({ state: "unavailable" }));
+  return reading.state === "ok"
+    ? { state: "ok", containers: reading.containers.length }
+    : { state: reading.state };
+}
+
+/**
+ * Tries to listen on a loopback port and closes it at once, without sudo: `denied` when the system
+ * refuses this user (Linux below `ip_unprivileged_port_start`), `in-use` when a program holds it.
+ */
+export function testBind(port: number): Promise<LowPortFacts> {
+  return new Promise((resolve) => {
+    const server = createServer();
+    server.once("error", (error: NodeJS.ErrnoException) =>
+      resolve(error.code === "EADDRINUSE" ? "in-use" : "denied"),
+    );
+    server.listen({ port, host: "127.0.0.1", exclusive: true }, () =>
+      server.close(() => resolve("free")),
+    );
+  });
 }
 
 /** Paths are built for the platform the facts describe, not the one running the code. */

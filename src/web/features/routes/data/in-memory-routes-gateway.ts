@@ -358,6 +358,19 @@ export class InMemoryRoutesGateway implements RoutesGateway {
     return ok(null);
   }
 
+  /** Stops a fake container: its detected rows disappear. */
+  async stopContainer(name: string): Promise<Result<null, ApiError>> {
+    if (!this.#listening.some((item) => item.container?.name === name)) {
+      return err({
+        error: "process_not_allowed",
+        message: `Container ${name} is not one Studio shows; it may have stopped.`,
+      });
+    }
+    this.#listening = this.#listening.filter((item) => item.container?.name !== name);
+    this.#update(this.#snapshot.routes);
+    return ok(null);
+  }
+
   async listOpenWithApps(): Promise<Result<OpenWithApp[], ApiError>> {
     const custom = this.customApps.map((app, index) => ({
       id: customAppId(index),

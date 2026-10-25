@@ -1,6 +1,7 @@
 import type { ConfigResponse, Snapshot, StudioEvent } from "../../core/api/contract.ts";
 import { DEFAULT_CONFIG, parseConfig, type StudioConfig } from "../../core/config/studio-config.ts";
 import { type DetectedPort, projectOf } from "../../core/ports/detected-port.ts";
+import type { DockerContainer } from "../../core/ports/docker-container.ts";
 import { itemProjectAt } from "../../core/projects/item-project.ts";
 import { err, ok, type Result } from "../../core/result.ts";
 import {
@@ -18,6 +19,7 @@ import {
 } from "./auto-named-store.ts";
 import { AutoNamer } from "./auto-namer.ts";
 import type { ConfigStore } from "./config-store.ts";
+import type { ContainerSource } from "./container-source.ts";
 import { type IconFetcher, IconResolver, type IconSubject } from "./icon-resolver.ts";
 import { discoverPorts, type ProjectInfoSource } from "./port-discovery.ts";
 import type { ListeningPort, PortScanner, ProbePort } from "./port-scanner.ts";
@@ -67,12 +69,16 @@ export type StudioRuntimeOptions = {
   icons?: IconFetcher;
   /** Remembers each route's last project across restarts; in memory when omitted. */
   routeProjectStore?: RouteProjectStore;
+  /** Running Docker containers, whose published ports show as detected; none when omitted. */
+  containers?: ContainerSource;
 };
 
 type ScanResult = {
   ports: ListeningPort[];
   /** Ports a portless proxy process listens on, whatever the state files say. */
   proxyPorts: number[];
+  /** Running containers; empty when Docker is missing, stopped or refuses this user. */
+  containers: DockerContainer[];
   at: number;
 };
 
@@ -98,6 +104,7 @@ export class StudioRuntime {
   readonly #events = new EventLog();
   readonly #icons: IconResolver;
   readonly #routeProjectStore: RouteProjectStore;
+  readonly #containers: ContainerSource | null;
   /** Last project seen per route name; null until read from the store. */
   #routeProjects: Map<string, ItemProject> | null = null;
   /** What the store last got, so an unchanged map is not written again. */
@@ -138,6 +145,7 @@ export class StudioRuntime {
     this.#autoNamedStore = options.autoNamedStore ?? memoryAutoNamedStore();
     this.#notifier = options.notifier ?? null;
     this.#routeProjectStore = options.routeProjectStore ?? memoryRouteProjectStore();
+    this.#containers = options.containers ?? null;
     const noIcons: IconFetcher = {
       served: async () => null,
       remote: async () => null,
@@ -326,6 +334,7 @@ export class StudioRuntime {
       config,
       routes: state.routes,
       excludedPorts,
+      containers: scan.containers,
     });
     return found.map((item) => {
       if (item.cwd === null || !item.project) return item;
@@ -337,13 +346,22 @@ export class StudioRuntime {
   /** Reuses a scan younger than `maxAgeMs`, and shares one scan between concurrent callers. */
   #scanPorts(maxAgeMs: number): Promise<ScanResult> {
     if (this.#scan && Date.now() - this.#scan.at < maxAgeMs) return Promise.resolve(this.#scan);
-    this.#scanning ??= this.#scanner.scan().then(async (ports) => {
-      const proxyPorts = await this.#proxyPortsAmong(ports).catch(() => []);
-      this.#scan = { ports, proxyPorts, at: Date.now() };
-      this.#scanning = null;
-      return this.#scan;
-    });
+    this.#scanning ??= Promise.all([this.#scanner.scan(), this.#readContainers()]).then(
+      async ([ports, containers]) => {
+        const proxyPorts = await this.#proxyPortsAmong(ports).catch(() => []);
+        this.#scan = { ports, proxyPorts, containers, at: Date.now() };
+        this.#scanning = null;
+        return this.#scan;
+      },
+    );
     return this.#scanning;
+  }
+
+  /** Docker is optional: any failure to read it means no containers, never a failed scan. */
+  async #readContainers(): Promise<DockerContainer[]> {
+    if (!this.#containers) return [];
+    const reading = await this.#containers.read().catch(() => null);
+    return reading?.state === "ok" ? reading.containers : [];
   }
 
   #reschedule(): void {

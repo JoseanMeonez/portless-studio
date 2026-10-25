@@ -212,6 +212,10 @@ export class HttpRoutesGateway implements RoutesGateway {
     return this.#write(API_PATHS.stopProcess(pid), "POST");
   }
 
+  stopContainer(name: string): Promise<Result<null, ApiError>> {
+    return this.#write(API_PATHS.stopContainer(name), "POST");
+  }
+
   async listOpenWithApps(): Promise<Result<OpenWithApp[], ApiError>> {
     const response = await this.#request(API_PATHS.openWithApps, { method: "GET" });
     if (!response.ok) return response;

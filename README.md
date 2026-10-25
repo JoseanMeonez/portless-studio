@@ -77,6 +77,11 @@ data, or `?demo&noportless` to walk through the install flow with a fake install
   or Cloudflare tunnel. It updates as soon as a route appears or goes away.
 - **Detected ports:** listening ports that answer HTTP but have no name yet, with the process, the
   project folder and a suggested name. Name one, name them all, or ignore one.
+- **Docker containers:** ports a running container publishes show under Detected too, with a
+  Docker badge and the image. A Docker Compose container is named after its service and project
+  (`api.acme`), any other after the container. Stop runs `docker stop` after a confirmation. This
+  needs the `docker` command and a running Docker (Engine, Desktop, OrbStack or Colima); without
+  them Studio shows only ordinary processes.
 - **Auto mode** (off by default): every new dev server gets its suggested name by itself, once
   it has shown up unnamed in two scans in a row, so a server started with `portless <name>` keeps
   the name portless gives it. Names auto mode gave are removed 10 minutes after their port closes.
@@ -206,7 +211,7 @@ changes without a restart. Missing fields take their default.
 | `openBrowser` | `true` | Opens the browser when Studio starts. |
 | `registerStudioAlias` | `true` | Registers Studio itself in portless as `studio`. |
 | `startProxy` | `true` | Starts the portless proxy when Studio starts and it is not running. |
-| `proxyPort` | `1355` | Port of that proxy. 1355 needs no administrator rights; 443 removes the port from URLs. |
+| `proxyPort` | `1355` | Port of that proxy. 1355 needs no administrator rights; 80 removes the port from URLs when the system lets you listen there (see the FAQ). |
 | `proxyHttps` | `false` | Serves the names over HTTPS. See the FAQ. |
 | `scanIntervalMs` | `3000` | How often Studio looks for new listening ports, in milliseconds (at least 1000). |
 | `ignoredPorts` | `[]` | Ports never shown as detected and never named automatically. |
@@ -274,12 +279,26 @@ problem.
 your machine. Open Studio at `http://127.0.0.1:4949` and each app at `http://127.0.0.1:<its port>`,
 or use Chrome, Edge or Firefox.
 
-**Why HTTP on port 1355, and how do I get HTTPS or port 443?** Port 1355 needs no administrator
-rights on any system, and browsers treat plain HTTP on a `.localhost` name as a secure context, so
-most apps work as they would on HTTPS. For URLs without a port, set `proxyPort` to `443`; on Linux
-that needs sudo once to start the proxy. For HTTPS, set `proxyHttps` to `true` and trust the
-portless certificate: `portless-studio doctor` prints the exact command for your system, and the
-Health panel shows it too.
+**Why does the URL have `:1355`?** Port 1355 needs no administrator rights on any system, so
+Studio starts the proxy there by default and names open as `http://web.myapp.localhost:1355`.
+Browsers treat plain HTTP on a `.localhost` name as a secure context, so most apps work as they
+would on HTTPS. To drop the port, the proxy has to listen on port 80. The "Shorter URLs" check in
+the Health panel and `portless-studio doctor` tests, without sudo, whether you may listen on port
+80 and whether it is free:
+
+- **Windows** usually allows it, and macOS often does; Studio tests instead of assuming. When the
+  test passes, the Use port 80 button sets `proxyPort` to `80` and restarts the proxy, and names
+  open as `http://web.myapp.localhost`.
+- **Linux** lets only root listen below port 1024. Run
+  `sudo sysctl -w net.ipv4.ip_unprivileged_port_start=80` once; it lets every user on the machine
+  listen on port 80 and up, until the next restart. To keep it after a restart, also run
+  `echo 'net.ipv4.ip_unprivileged_port_start=80' | sudo tee /etc/sysctl.d/99-portless-studio.conf`.
+  Then run the checks again and choose Use port 80. Studio never runs sudo itself.
+
+**How do I get HTTPS?** Set `proxyHttps` to `true` and trust the portless certificate:
+`portless-studio doctor` prints the exact command for your system, and the Health panel shows it
+too. HTTPS without a port number needs `proxyPort` `443`, which on Linux needs sudo once to start
+the proxy.
 
 **Does it work on Windows?** Yes, with Node 22 or later and PowerShell 5 (included in Windows 10 and 11).
 Ports come from `netstat`, process details from PowerShell, and start at login uses a hidden

@@ -72,6 +72,11 @@
   font-family: var(--font-mono);
 }
 
+.docker {
+  flex-shrink: 0;
+  align-self: center;
+}
+
 .separator {
   flex-shrink: 0;
 }

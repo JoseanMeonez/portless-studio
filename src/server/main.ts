@@ -9,6 +9,7 @@ import type { Result } from "../core/result.ts";
 import type { AppError } from "./application/app-error.ts";
 import type { AutoNamedStore } from "./application/auto-named-store.ts";
 import type { ConfigStore } from "./application/config-store.ts";
+import { stopContainer } from "./application/container-source.ts";
 import { createDoctorService, type DoctorService } from "./application/doctor.ts";
 import { OpenWith } from "./application/open-with.ts";
 import type { PortScanner } from "./application/port-scanner.ts";
@@ -44,7 +45,12 @@ import {
 } from "./infrastructure/config/proxy-start-record.ts";
 import { PortlessRegistry } from "./infrastructure/portless/portless-registry.ts";
 import { inspectRoutesFile, resolveStateDir } from "./infrastructure/portless/state-files.ts";
-import { collectDoctorFacts, proxyPidsAmong } from "./infrastructure/system/doctor-facts.ts";
+import { DockerContainers } from "./infrastructure/system/docker-containers.ts";
+import {
+  collectDoctorFacts,
+  proxyPidsAmong,
+  testBind,
+} from "./infrastructure/system/doctor-facts.ts";
 import { FaviconFetcher } from "./infrastructure/system/favicon-fetcher.ts";
 import { fetchLatestVersion } from "./infrastructure/system/npm-registry.ts";
 import { OsNotifier } from "./infrastructure/system/os-notifier.ts";
@@ -79,6 +85,8 @@ export type StudioServices = {
   doctor: DoctorService;
   controlProxy(action: ProxyAction): Promise<Result<string, AppError>>;
   stopProcess(pid: string): Promise<Result<{ pid: number; port: number }, AppError>>;
+  /** Stops a Docker container the last `docker ps` listed. */
+  stopContainer(name: string): Promise<Result<{ name: string }, AppError>>;
   /** Restart and stop for Studio itself, when the CLI provides them. */
   studioService?: StudioServiceControl | undefined;
   /** Opens project folders in editors and the file manager. */
@@ -134,6 +142,7 @@ export function createStudioServices(options: StudioServicesOptions = {}): Studi
   );
   const configStore = new JsonConfigStore(configPath);
   const notifier = new OsNotifier({ platform: process.platform });
+  const containers = new DockerContainers();
   const runtime = new StudioRuntime({
     registry,
     scanner,
@@ -146,6 +155,7 @@ export function createStudioServices(options: StudioServicesOptions = {}): Studi
     notifier,
     icons: new FaviconFetcher(),
     routeProjectStore: new JsonRouteProjectStore(routeProjectsPathFor(configPath)),
+    containers,
   });
   const openWith = new OpenWith({
     catalog: systemAppCatalog(),
@@ -190,6 +200,8 @@ export function createStudioServices(options: StudioServicesOptions = {}): Studi
         ...(studioService ? { loginService: () => studioService.status() } : {}),
         systemNotifier: () => notifier.availability(),
         routesFile: () => inspectRoutesFile(stateDir),
+        docker: () => containers.read(),
+        lowPort: testBind,
       }),
     controlProxy: proxy,
     updateConfig: (config) => runtime.updateConfig(config),
@@ -218,6 +230,7 @@ export function createStudioServices(options: StudioServicesOptions = {}): Studi
         stoppablePids: () => runtime.stoppablePids(),
         selfPid: process.pid,
       }),
+    stopContainer: (name) => stopContainer(name, containers),
     studioService,
     openWith,
     terminals,
@@ -317,6 +330,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     doctor: services.doctor,
     controlProxy: services.controlProxy,
     stopProcess: services.stopProcess,
+    stopContainer: services.stopContainer,
     ...(services.studioService ? { studioService: services.studioService } : {}),
     ...(services.openWith ? { openWith: services.openWith } : {}),
     ...(services.terminals ? { terminals: services.terminals } : {}),

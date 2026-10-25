@@ -1,3 +1,4 @@
+import { createServer, type Server } from "node:net";
 import { DEFAULT_CONFIG } from "../../../core/config/studio-config.ts";
 import { err, ok } from "../../../core/result.ts";
 import type { ConfigStore } from "../../application/config-store.ts";
@@ -12,6 +13,7 @@ import {
   parsePortlessProxyLine,
   parsePsProcesses,
   proxyPidsAmong,
+  testBind,
 } from "./doctor-facts.ts";
 import type { SystemIo } from "./system-io.ts";
 
@@ -217,6 +219,31 @@ describe("collectDoctorFacts", () => {
     expect(facts.studioPort.holder).toEqual({ kind: "other", pid: 88, processName: "java" });
   });
 
+  it("reads Docker and port 80 when asked, as counts and a bind result only", async () => {
+    const facts = await collectDoctorFacts(
+      options({
+        docker: async () => ({
+          state: "ok",
+          containers: [
+            { name: "web", image: "nginx", composeProject: null, composeService: null, ports: [] },
+          ],
+        }),
+        lowPort: async (port) => (port === 80 ? "denied" : "free"),
+      }),
+    );
+    expect(facts.docker).toEqual({ state: "ok", containers: 1 });
+    expect(facts.port80).toBe("denied");
+  });
+
+  it("leaves Docker and port 80 out when not asked, and when Docker fails", async () => {
+    const facts = await collectDoctorFacts(
+      options({ docker: async () => Promise.reject(new Error("boom")) }),
+    );
+    expect(facts.docker).toEqual({ state: "unavailable" });
+    expect("port80" in facts).toBe(false);
+    expect("docker" in (await collectDoctorFacts(options()))).toBe(false);
+  });
+
   it("falls back to the defaults and keeps the error when the config is broken", async () => {
     const configStore: ConfigStore = {
       path: "/x/config.json",
@@ -326,5 +353,27 @@ describe("proxyPidsAmong", () => {
   it("finds none on Windows or with no pids", async () => {
     expect(await proxyPidsAmong("win32", linuxIo(), [3701892])).toEqual(new Set());
     expect(await proxyPidsAmong("darwin", linuxIo(), [])).toEqual(new Set());
+  });
+});
+
+describe("testBind", () => {
+  let held: Server | null = null;
+  afterEach(() => {
+    held?.close();
+    held = null;
+  });
+
+  it("tells a free loopback port from one another program holds", async () => {
+    held = createServer();
+    const port = await new Promise<number>((resolve) => {
+      held?.listen({ port: 0, host: "127.0.0.1" }, () => {
+        const address = held?.address();
+        resolve(typeof address === "object" && address ? address.port : 0);
+      });
+    });
+    expect(await testBind(port)).toBe("in-use");
+    held.close();
+    held = null;
+    expect(await testBind(port)).toBe("free");
   });
 });

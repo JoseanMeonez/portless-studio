@@ -143,6 +143,10 @@ function fakeOperations() {
         calls.push(`stop ${pid}`);
         return state.stopResult;
       },
+      stopContainer: async (name: string) => {
+        calls.push(`stop container ${name}`);
+        return state.stopResult;
+      },
       updates: {
         status: async () => ({
           current: "0.1.0",
@@ -452,6 +456,19 @@ describe("stopping a dev server", () => {
     const reply = await send("POST", API_PATHS.stopProcess(1), write);
     expect(reply.status).toBe(403);
     expect(json(reply)).toMatchObject({ error: "process_not_allowed", message: "Not yours." });
+  });
+});
+
+describe("stopping a container", () => {
+  it("needs the token", async () => {
+    expect((await send("POST", API_PATHS.stopContainer("acme-api-1"))).status).toBe(403);
+    expect(ops.state.calls).toEqual([]);
+  });
+
+  it("stops the container by name and answers 204", async () => {
+    const reply = await send("POST", API_PATHS.stopContainer("acme-api-1"), write);
+    expect(reply.status).toBe(204);
+    expect(ops.state.calls).toEqual(["stop container acme-api-1"]);
   });
 });
 

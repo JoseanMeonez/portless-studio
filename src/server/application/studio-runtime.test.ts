@@ -5,6 +5,7 @@ import type { Route } from "../../core/routes/route.ts";
 import { type AppError, appError } from "./app-error.ts";
 import type { AutoNamedEntry, AutoNamedStore } from "./auto-named-store.ts";
 import type { ConfigStore } from "./config-store.ts";
+import type { ContainerSource } from "./container-source.ts";
 import type { IconFetcher } from "./icon-resolver.ts";
 import type { ProjectInfoSource } from "./port-discovery.ts";
 import type { HttpProbe, ListeningPort, PortScanner, ProbePort } from "./port-scanner.ts";
@@ -158,6 +159,7 @@ function build(
     notifier?: SystemNotifier;
     icons?: IconFetcher;
     routeProjects?: ReturnType<typeof memoryRouteProjectStore>;
+    containers?: ContainerSource;
   } = {},
 ) {
   const store = options.store ?? memoryStore();
@@ -176,6 +178,7 @@ function build(
     ...(options.probe ? { probe: options.probe, now: () => 1000 } : {}),
     ...(options.now ? { now: options.now } : {}),
     ...(options.proxyPids ? { proxyPids: options.proxyPids } : {}),
+    ...(options.containers ? { containers: options.containers } : {}),
     ...(options.notifier ? { notifier: options.notifier } : {}),
     ...(options.icons ? { icons: options.icons } : {}),
     ...(options.routeProjects ? { routeProjectStore: options.routeProjects } : {}),
@@ -217,6 +220,39 @@ describe("StudioRuntime snapshot", () => {
     expect(snapshot.detected).toEqual([
       { port: 5173, pid: 5173, processName: "node", cwd: "/code/app", suggestedName: "app" },
     ]);
+  });
+
+  it("adds the published ports of running Docker containers", async () => {
+    const containers: ContainerSource = {
+      read: async () => ({
+        state: "ok",
+        containers: [
+          {
+            name: "web",
+            image: "nginx",
+            composeProject: null,
+            composeService: null,
+            ports: [8080],
+          },
+        ],
+      }),
+      stop: async () => ok(undefined),
+    };
+    const { runtime } = build({ containers });
+    expect(
+      (await runtime.readSnapshot()).detected.map((item) => item.container?.name ?? null),
+    ).toEqual([null, "web"]);
+  });
+
+  it("shows ordinary ports when Docker cannot be read", async () => {
+    const containers: ContainerSource = {
+      read: async () => {
+        throw new Error("boom");
+      },
+      stop: async () => ok(undefined),
+    };
+    const { runtime } = build({ containers });
+    expect((await runtime.readSnapshot()).detected.map((item) => item.port)).toEqual([5173]);
   });
 
   it("excludes the proxy port and ports with a route", async () => {

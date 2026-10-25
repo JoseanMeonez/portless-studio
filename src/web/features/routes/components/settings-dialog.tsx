@@ -177,7 +177,7 @@ export function SettingsDialog({
               inputMode="numeric"
               value={draft.proxyPort}
               error={errors.proxyPort ?? null}
-              hint="1355 works on every system without a password. 443 drops the port from URLs but needs sudo once."
+              hint="1355 works on every system without a password. 80 drops the port from URLs; the Health panel says whether this machine allows it."
               className={styles.short}
               onChange={(event) => form.change("proxyPort", event.target.value)}
             />

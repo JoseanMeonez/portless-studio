@@ -51,28 +51,62 @@ export function parsePsExecutables(text: string): Map<number, string> {
   return executables;
 }
 
+/**
+ * Reads `ps -o pid=,etime= -p ...` into pid -> start in epoch milliseconds. `etime` is the time
+ * since the process started as `[[dd-]hh:]mm:ss`, which unlike `lstart` reads the same in every
+ * locale.
+ */
+export function parsePsStartTimes(text: string, now: number): Map<number, number> {
+  const starts = new Map<number, number>();
+  for (const line of text.split("\n")) {
+    const match = /^\s*(\d+)\s+(?:(\d+)-)?(?:(\d{1,2}):)?(\d{1,2}):(\d{2})\s*$/.exec(line);
+    if (!match) continue;
+    const [, pid, days, hours, minutes, seconds] = match;
+    const elapsed =
+      ((Number(days ?? 0) * 24 + Number(hours ?? 0)) * 60 + Number(minutes)) * 60 + Number(seconds);
+    starts.set(Number(pid), now - elapsed * 1000);
+  }
+  return starts;
+}
+
+/** Start time per pid, kept between scans by `listPortsFor` so `ps` is asked once per process. */
+export type StartTimeCache = Map<number, number | null>;
+
 /** Lists listening ports with `lsof` and `ps`, which ship with macOS. */
-export async function listMacosPorts(io: SystemIo): Promise<ListeningPort[]> {
+export async function listMacosPorts(
+  io: SystemIo,
+  starts: StartTimeCache = new Map(),
+  now: () => number = Date.now,
+): Promise<ListeningPort[]> {
   const listen = await io.run("lsof", ["-nP", "-iTCP", "-sTCP:LISTEN", "-F", "pcn"]);
   const rows = parseLsofListen(listen.stdout);
   if (rows.length === 0) return [];
 
   const pids = [...new Set(rows.map((row) => row.pid))];
-  const [cwd, ps] = await Promise.all([
+  for (const pid of starts.keys()) if (!pids.includes(pid)) starts.delete(pid);
+  const unknownStarts = pids.filter((pid) => !starts.has(pid));
+  const [cwd, ps, elapsed] = await Promise.all([
     io.run("lsof", ["-a", "-d", "cwd", "-p", pids.join(","), "-F", "pn"]),
     // -ww: without it ps cuts long paths at the terminal width.
     io.run("ps", ["-ww", "-o", "pid=,comm=", "-p", pids.join(",")]),
+    unknownStarts.length === 0
+      ? null
+      : io.run("ps", ["-o", "pid=,etime=", "-p", unknownStarts.join(",")]),
   ]);
+  const read = parsePsStartTimes(elapsed?.stdout ?? "", now());
+  for (const pid of unknownStarts) starts.set(pid, read.get(pid) ?? null);
   const cwds = parseLsofCwds(cwd.stdout);
   const executables = parsePsExecutables(ps.stdout);
 
   const byPort = new Map<number, ListeningPort>();
   for (const row of rows) {
     if (byPort.has(row.port)) continue;
+    const startedAt = starts.get(row.pid) ?? null;
     byPort.set(row.port, {
       ...row,
       cwd: cwds.get(row.pid) ?? null,
       executable: executables.get(row.pid) ?? null,
+      ...(startedAt === null ? {} : { startedAt }),
     });
   }
   return [...byPort.values()].sort((a, b) => a.port - b.port);

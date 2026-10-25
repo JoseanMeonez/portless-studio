@@ -2,8 +2,8 @@ import { request } from "node:http";
 import { STUDIO_HEADER } from "../../../core/api/contract.ts";
 import { type DebuggerProbe, isDebuggerVersionInfo } from "../../../core/ports/helper-ports.ts";
 import type { HttpProbe, ListeningPort, PortScanner } from "../../application/port-scanner.ts";
-import { listLinuxPorts } from "./linux-ports.ts";
-import { listMacosPorts } from "./macos-ports.ts";
+import { listLinuxPorts, readClockTicks } from "./linux-ports.ts";
+import { listMacosPorts, type StartTimeCache } from "./macos-ports.ts";
 import { nodeSystemIo, type SystemIo } from "./system-io.ts";
 import { listWindowsPorts } from "./windows-ports.ts";
 
@@ -27,8 +27,12 @@ export function listPortsFor(platform: NodeJS.Platform, io: SystemIo): ListPorts
     const cache = new Map();
     return () => listWindowsPorts(io, cache);
   }
-  if (platform === "darwin") return () => listMacosPorts(io);
-  return () => listLinuxPorts(io);
+  if (platform === "darwin") {
+    const starts: StartTimeCache = new Map();
+    return () => listMacosPorts(io, starts);
+  }
+  let ticks: Promise<number> | null = null;
+  return () => listLinuxPorts(io, () => (ticks ??= readClockTicks(io)));
 }
 
 /**

@@ -3,6 +3,7 @@ import {
   parseLsofCwds,
   parseLsofListen,
   parsePsExecutables,
+  parsePsStartTimes,
 } from "./macos-ports.ts";
 import type { SystemIo } from "./system-io.ts";
 
@@ -41,6 +42,24 @@ const EXECUTABLES = `  812 /Users/dev/.nvm/versions/node/v24.1.0/bin/node
  1200 /Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Helper
  1300 node
 `;
+
+const NOW = Date.UTC(2026, 9, 24, 12, 0, 0);
+
+// `ps -o pid=,etime= -p 812,913,1004`: `[[dd-]hh:]mm:ss` since each process started.
+const ELAPSED = `  812    02:13:00
+  913 3-00:00:05
+ 1300       00:42
+`;
+
+describe("parsePsStartTimes", () => {
+  it("subtracts the elapsed time from now, with or without days and hours", () => {
+    const starts = parsePsStartTimes(ELAPSED, NOW);
+    expect(starts.get(812)).toBe(NOW - (2 * 3600 + 13 * 60) * 1000);
+    expect(starts.get(913)).toBe(NOW - 3 * 86_400_000 - 5000);
+    expect(starts.get(1300)).toBe(NOW - 42_000);
+    expect(parsePsStartTimes("garbage\n", NOW).size).toBe(0);
+  });
+});
 
 describe("parsePsExecutables", () => {
   it("keeps full paths, spaces included, and skips bare names", () => {
@@ -116,7 +135,33 @@ describe("listMacosPorts", () => {
       "lsof -nP -iTCP -sTCP:LISTEN -F pcn",
       "lsof -a -d cwd -p 812,913,1004 -F pn",
       "ps -ww -o pid=,comm= -p 812,913,1004",
+      "ps -o pid=,etime= -p 812,913,1004",
     ]);
+  });
+
+  it("adds start times from ps etime and asks ps again only about new processes", async () => {
+    const calls: string[] = [];
+    const io: SystemIo = {
+      readFile: () => null,
+      readDir: () => [],
+      readLink: () => null,
+      run: async (bin, args) => {
+        calls.push(`${bin} ${args.join(" ")}`);
+        if (bin === "ps" && args.includes("pid=,etime=")) return { exitCode: 0, stdout: ELAPSED };
+        if (bin === "ps") return { exitCode: 0, stdout: EXECUTABLES };
+        return { exitCode: 0, stdout: args.includes("cwd") ? CWDS : LISTEN };
+      },
+    };
+    const cache = new Map();
+    const ports = await listMacosPorts(io, cache, () => NOW);
+    expect(ports.find((port) => port.pid === 812)?.startedAt).toBe(
+      NOW - (2 * 3600 + 13 * 60) * 1000,
+    );
+    expect(ports.find((port) => port.pid === 913)?.startedAt).toBe(NOW - 3 * 86_400_000 - 5000);
+    // ps printed nothing for 1004, so its start stays unknown.
+    expect(ports.find((port) => port.pid === 1004)).not.toHaveProperty("startedAt");
+    await listMacosPorts(io, cache, () => NOW + 60_000);
+    expect(calls.filter((call) => call.includes("etime"))).toHaveLength(1);
   });
 
   it("returns nothing when lsof cannot run", async () => {

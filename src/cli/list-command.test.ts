@@ -36,6 +36,7 @@ const ROUTE_ITEM = {
   project: "acme-monorepo",
   worktree: null,
   pid: 4242,
+  startedAt: null,
 };
 const DETECTED_ITEM = {
   port: 3000,
@@ -45,6 +46,7 @@ const DETECTED_ITEM = {
   suggestedName: "shop",
   project: null,
   worktree: null,
+  startedAt: null,
 };
 
 function run(json: boolean, studioUp: boolean) {

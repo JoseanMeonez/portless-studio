@@ -104,6 +104,11 @@ export type StudioConfig = {
   terminal: TerminalAppearance;
   /** Terminals that were running when Studio stopped; see `RestoreTerminals`. */
   restoreTerminals: RestoreTerminals;
+  /**
+   * The app each row's editor button opens the project in: an id from the open-with list, like
+   * `vscode` or `custom-1`. Null uses the first editor found on this machine.
+   */
+  defaultEditor: string | null;
 };
 
 export const DEFAULT_TERMINAL_APPEARANCE: TerminalAppearance = {
@@ -154,6 +159,7 @@ export const DEFAULT_CONFIG: StudioConfig = {
   showEphemeralPorts: false,
   terminal: DEFAULT_TERMINAL_APPEARANCE,
   restoreTerminals: "ask",
+  defaultEditor: null,
 };
 
 const MIN_SCAN_INTERVAL_MS = 1000;
@@ -286,8 +292,19 @@ export function parseConfig(input: unknown): Result<StudioConfig, string> {
     config.restoreTerminals = value;
   }
 
+  if (raw.defaultEditor !== undefined) {
+    const value = raw.defaultEditor;
+    if (value !== null && (typeof value !== "string" || !APP_ID.test(value))) {
+      return err(`"defaultEditor" must be the id of an app in Open with, like "vscode", or null.`);
+    }
+    config.defaultEditor = value;
+  }
+
   return ok(config);
 }
+
+/** The shape of open-with app ids: `vscode`, `vscode-insiders`, `custom-1`. */
+const APP_ID = /^[a-z0-9][a-z0-9-]{0,39}$/;
 
 function parseTerminalAppearance(input: unknown): Result<TerminalAppearance, string> {
   if (typeof input !== "object" || input === null || Array.isArray(input)) {

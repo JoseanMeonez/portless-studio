@@ -27,6 +27,8 @@ type SampleRoute = {
   answer?: { status: number; latencyMs: number } | null;
   /** Project of the listening process; aliases to databases have none. */
   project?: ItemProject;
+  /** How long the listening process has run; absent when the system does not say. */
+  runningFor?: number;
 };
 
 const ACME = "acme-monorepo";
@@ -61,6 +63,7 @@ const SAMPLE_ROUTES: SampleRoute[] = [
     listenerPid: 48_219,
     answer: { status: 200, latencyMs: 12 },
     upFor: 2 * HOUR + 14 * MINUTE,
+    runningFor: 2 * HOUR + 14 * MINUTE,
     project: ACME_MAIN,
     tunnels: [
       { provider: "tailscale", url: "https://web-acme.tail2f9c.ts.net" },
@@ -75,6 +78,7 @@ const SAMPLE_ROUTES: SampleRoute[] = [
     listenerPid: 48_246,
     answer: { status: 200, latencyMs: 4 },
     upFor: 2 * HOUR + 13 * MINUTE,
+    runningFor: 41 * MINUTE,
     project: ACME_MAIN,
   },
   {
@@ -85,6 +89,7 @@ const SAMPLE_ROUTES: SampleRoute[] = [
     listenerPid: 51_009,
     answer: { status: 500, latencyMs: 31 },
     upFor: 26 * MINUTE,
+    runningFor: 26 * MINUTE,
     project: ACME_RESEARCH,
   },
   {
@@ -95,6 +100,7 @@ const SAMPLE_ROUTES: SampleRoute[] = [
     listenerPid: 50_121,
     answer: { status: 200, latencyMs: 8 },
     upFor: 3 * 24 * HOUR + 4 * HOUR,
+    runningFor: 5 * HOUR + 2 * MINUTE,
     project: ACME_FALCON,
     tunnels: [{ provider: "cloudflare", url: "https://storybook-demo.trycloudflare.com" }],
   },
@@ -145,6 +151,13 @@ export const SAMPLE_DETECTED: readonly DetectedPort[] = [
   },
 ];
 
+/** How long each sample detected server has run, by port; the others do not say. */
+const DETECTED_RUNNING_FOR: Readonly<Record<number, number>> = {
+  4209: 47 * MINUTE,
+  4321: 3 * HOUR + 5 * MINUTE,
+  5173: 12 * MINUTE,
+};
+
 /** A server the `?demo` mode starts a little after loading, so auto mode has something to name. */
 export const SAMPLE_LATE_SERVER: DetectedPort = {
   port: 8787,
@@ -174,6 +187,7 @@ export function createSampleSnapshot(now: number, portlessInstalled = true): Sna
       url: routeUrl(hostname, proxy),
       tunnels: sample.tunnels ?? [],
       ...(sample.listenerPid === undefined ? {} : { listenerPid: sample.listenerPid }),
+      ...(sample.runningFor === undefined ? {} : { startedAt: now - sample.runningFor }),
       ...(sample.answer === undefined ? {} : { health: healthFromProbe(sample.answer, now) }),
       project: sample.project ?? null,
     };
@@ -181,5 +195,9 @@ export function createSampleSnapshot(now: number, portlessInstalled = true): Sna
   const portless = portlessInstalled
     ? { installed: true, version: DEMO_PORTLESS_VERSION }
     : { installed: false, version: null };
-  return { proxy, portless, routes, detected: [...SAMPLE_DETECTED], autoName: false, readAt: now };
+  const detected = SAMPLE_DETECTED.map((item) => {
+    const runningFor = DETECTED_RUNNING_FOR[item.port];
+    return runningFor === undefined ? item : { ...item, startedAt: now - runningFor };
+  });
+  return { proxy, portless, routes, detected, autoName: false, readAt: now };
 }

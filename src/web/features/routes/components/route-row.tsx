@@ -1,5 +1,5 @@
 import type { Route } from "../../../../core/routes/route.ts";
-import { formatUptime } from "../../../shared/lib/format-uptime.ts";
+import { routeUptime } from "../../../shared/lib/uptime-label.ts";
 import { Badge } from "../../../shared/ui/badge.tsx";
 import { Button } from "../../../shared/ui/button.tsx";
 import { Icon } from "../../../shared/ui/icons/icon.tsx";
@@ -40,7 +40,12 @@ export type RouteRowProps = {
   onOpenTerminal?: (() => void) | undefined;
   /** The Studio terminal serving the route's port: a status chip and its actions. */
   terminal?: RowTerminal | null | undefined;
+  /** Opens the route's folder in the default editor; hidden without a folder or an editor. */
+  editor?: RowEditor | null | undefined;
 };
+
+/** The default editor from Settings and how to open the row's folder in it. */
+export type RowEditor = { name: string; onOpen: () => void };
 
 export type RowConfirmation = "remove" | "stop";
 
@@ -64,8 +69,9 @@ export function RouteRow({
   onCopyDirectUrl,
   onOpenTerminal,
   terminal,
+  editor,
 }: RouteRowProps) {
-  const uptime = formatUptime(route.registeredAt, now);
+  const uptime = routeUptime(route, now);
   const isAlias = route.kind === "alias";
 
   return (
@@ -77,9 +83,11 @@ export function RouteRow({
       onFocus={onSelect}
       {...rowMenuTrigger(onMenu)}
     >
-      <RouteHealthDot route={route} />
+      <span className={styles.status} data-cell="status">
+        <RouteHealthDot route={route} />
+      </span>
 
-      <div className={styles.identity}>
+      <div className={styles.identity} data-cell="identity">
         <span className={styles.nameLine}>
           <ItemIcon icon={route.icon} name={route.project?.name ?? route.name} />
           <a
@@ -103,130 +111,150 @@ export function RouteRow({
         <ProjectLocation project={route.project} />
       </div>
 
-      <div className={styles.meta}>
-        <div className={styles.tunnelCell}>
+      <div className={styles.meta} data-cell="meta">
+        <div className={styles.tunnelCell} data-cell="tunnels">
           <TunnelLinks tunnels={route.tunnels} />
         </div>
-        <Badge tone={isAlias ? "accent" : "neutral"} className={styles.kind}>
-          {isAlias ? "Alias" : "App"}
-        </Badge>
-        <span className={styles.port} title="Local port">
+        <span className={styles.kind} data-cell="kind">
+          <Badge tone={isAlias ? "accent" : "neutral"}>{isAlias ? "Alias" : "App"}</Badge>
+        </span>
+        <span className={styles.port} data-cell="port" title="Local port">
           :{route.port}
         </span>
-        <span className={styles.uptime} title={isAlias ? "Named" : "Up for"}>
-          {uptime ?? ""}
+        <span
+          className={styles.uptime}
+          data-cell="uptime"
+          data-state={uptime.state}
+          title={uptime.title || undefined}
+        >
+          {uptime.text}
         </span>
       </div>
 
-      {confirming ? (
-        <div className={styles.confirm}>
-          <span className={styles.confirmText}>
-            {confirming === "remove"
-              ? `Remove ${route.name}?`
-              : `Stop :${route.port} (pid ${route.listenerPid})?`}
-          </span>
-          <Button size="xs" variant="ghost" onClick={onCancelConfirm}>
-            Cancel
-          </Button>
-          <Button size="xs" variant="danger" onClick={onConfirm} autoFocus>
-            {confirming === "remove" ? "Remove" : "Stop"}
-          </Button>
-        </div>
-      ) : (
-        <div className={styles.actions}>
-          <Button
-            size="xs"
-            variant="ghost"
-            iconOnly
-            aria-label={favorite ? `Unpin ${route.name}` : `Pin ${route.name} to favorites`}
-            aria-pressed={favorite}
-            title={favorite ? "Unpin (F)" : "Pin to favorites (F)"}
-            onClick={onToggleFavorite}
-          >
-            <Icon name="star" size={14} className={favorite ? styles.starOn : undefined} />
-          </Button>
-          <Button
-            size="xs"
-            variant="ghost"
-            iconOnly
-            aria-label={`Move ${route.name} to a group`}
-            title="Move to group…"
-            onClick={onMoveToGroup}
-          >
-            <Icon name="folder" size={14} />
-          </Button>
-          <Button
-            size="xs"
-            variant="ghost"
-            iconOnly
-            aria-label={`Open ${route.name}`}
-            title="Open (Enter)"
-            onClick={onOpen}
-          >
-            <Icon name="arrowUpRight" size={14} />
-          </Button>
-          <Button
-            size="xs"
-            variant="ghost"
-            iconOnly
-            aria-label={`Copy URL of ${route.name}`}
-            title="Copy URL (C)"
-            onClick={onCopy}
-          >
-            <Icon name="copy" size={14} />
-          </Button>
-          {terminal ? (
-            <RowTerminalActions terminal={terminal} label={route.name} />
-          ) : onOpenTerminal ? (
+      {/* Fixed width on every row, so the columns before it line up; wider actions overlay. */}
+      <div className={styles.actionsCell} data-cell="actions">
+        {confirming ? (
+          <div className={styles.confirm}>
+            <span className={styles.confirmText}>
+              {confirming === "remove"
+                ? `Remove ${route.name}?`
+                : `Stop :${route.port} (pid ${route.listenerPid})?`}
+            </span>
+            <Button size="xs" variant="ghost" onClick={onCancelConfirm}>
+              Cancel
+            </Button>
+            <Button size="xs" variant="danger" onClick={onConfirm} autoFocus>
+              {confirming === "remove" ? "Remove" : "Stop"}
+            </Button>
+          </div>
+        ) : (
+          <div className={styles.actions}>
             <Button
               size="xs"
               variant="ghost"
               iconOnly
-              aria-label={`Open a terminal for ${route.name}`}
-              title="Terminal (T)"
-              onClick={onOpenTerminal}
+              aria-label={favorite ? `Unpin ${route.name}` : `Pin ${route.name} to favorites`}
+              aria-pressed={favorite}
+              title={favorite ? "Unpin (F)" : "Pin to favorites (F)"}
+              onClick={onToggleFavorite}
             >
-              <Icon name="terminal" size={14} />
+              <Icon name="star" size={14} className={favorite ? styles.starOn : undefined} />
             </Button>
-          ) : null}
-          {route.listenerPid !== undefined && !terminal?.running ? (
             <Button
               size="xs"
               variant="ghost"
               iconOnly
-              aria-label={`Stop the server of ${route.name}`}
-              title={`Stop the server (pid ${route.listenerPid})`}
-              onClick={onRequestStop}
+              aria-label={`Move ${route.name} to a group`}
+              title="Move to group…"
+              onClick={onMoveToGroup}
             >
-              <Icon name="power" size={14} />
+              <Icon name="folder" size={14} />
             </Button>
-          ) : null}
-          {isAlias ? (
-            <>
+            <Button
+              size="xs"
+              variant="ghost"
+              iconOnly
+              aria-label={`Open ${route.name}`}
+              title="Open (Enter)"
+              onClick={onOpen}
+            >
+              <Icon name="arrowUpRight" size={14} />
+            </Button>
+            <Button
+              size="xs"
+              variant="ghost"
+              iconOnly
+              aria-label={`Copy URL of ${route.name}`}
+              title="Copy URL (C)"
+              onClick={onCopy}
+            >
+              <Icon name="copy" size={14} />
+            </Button>
+            {editor && route.project?.path ? (
               <Button
                 size="xs"
                 variant="ghost"
                 iconOnly
-                aria-label={`Rename ${route.name}`}
-                title="Rename (R)"
-                onClick={onRename}
+                aria-label={`Open ${route.name} in ${editor.name}`}
+                title={`Open in ${editor.name}`}
+                onClick={editor.onOpen}
               >
-                <Icon name="pencil" size={14} />
+                <Icon name="code" size={14} />
               </Button>
+            ) : null}
+            {terminal ? (
+              <RowTerminalActions terminal={terminal} label={route.name} />
+            ) : onOpenTerminal ? (
               <Button
                 size="xs"
                 variant="ghost"
                 iconOnly
-                aria-label={`Remove ${route.name}`}
-                title="Remove (Delete)"
-                onClick={onRequestRemove}
+                aria-label={`Open a terminal for ${route.name}`}
+                title="Terminal (T)"
+                onClick={onOpenTerminal}
               >
-                <Icon name="trash" size={14} />
+                <Icon name="terminal" size={14} />
               </Button>
-            </>
-          ) : null}
-        </div>
-      )}
+            ) : null}
+            {route.listenerPid !== undefined && !terminal?.running ? (
+              <Button
+                size="xs"
+                variant="ghost"
+                iconOnly
+                aria-label={`Stop the server of ${route.name}`}
+                title={`Stop the server (pid ${route.listenerPid})`}
+                onClick={onRequestStop}
+              >
+                <Icon name="power" size={14} />
+              </Button>
+            ) : null}
+            {isAlias ? (
+              <>
+                <Button
+                  size="xs"
+                  variant="ghost"
+                  iconOnly
+                  aria-label={`Rename ${route.name}`}
+                  title="Rename (R)"
+                  onClick={onRename}
+                >
+                  <Icon name="pencil" size={14} />
+                </Button>
+                <Button
+                  size="xs"
+                  variant="ghost"
+                  iconOnly
+                  aria-label={`Remove ${route.name}`}
+                  title="Remove (Delete)"
+                  onClick={onRequestRemove}
+                >
+                  <Icon name="trash" size={14} />
+                </Button>
+              </>
+            ) : null}
+          </div>
+        )}
+      </div>
     </li>
   );
 }

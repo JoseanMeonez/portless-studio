@@ -320,3 +320,27 @@ describe("parseConfig terminal settings", () => {
     expect(parseConfig(input)).toEqual({ ok: false, error: message });
   });
 });
+
+describe("defaultEditor", () => {
+  it("defaults to null, which means the first editor found on this machine", () => {
+    expect(DEFAULT_CONFIG.defaultEditor).toBeNull();
+    const result = parseConfig({});
+    expect(result.ok && result.value.defaultEditor).toBeNull();
+  });
+
+  it("keeps an app id from the open-with list, a custom app included", () => {
+    for (const id of ["zed", "vscode-insiders", "custom-2"]) {
+      const result = parseConfig({ defaultEditor: id });
+      expect(result.ok && result.value.defaultEditor).toBe(id);
+    }
+    const cleared = parseConfig({ defaultEditor: null });
+    expect(cleared.ok && cleared.value.defaultEditor).toBeNull();
+  });
+
+  it.each([[42], [""], ["VS Code"], ["../x"]])("rejects %j", (value) => {
+    expect(parseConfig({ defaultEditor: value })).toEqual({
+      ok: false,
+      error: '"defaultEditor" must be the id of an app in Open with, like "vscode", or null.',
+    });
+  });
+});

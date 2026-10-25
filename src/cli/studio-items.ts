@@ -13,6 +13,8 @@ export type RouteItem = {
   worktree: string | null;
   /** The process listening on the port, or the one portless recorded. */
   pid: number | null;
+  /** When that process started, in epoch milliseconds; null when unknown or nothing listens. */
+  startedAt: number | null;
 };
 
 /** The flat shape `list --json` and the MCP tools print for a port without a name. */
@@ -24,6 +26,8 @@ export type DetectedItem = {
   suggestedName: string | null;
   project: string | null;
   worktree: string | null;
+  /** When the process started, in epoch milliseconds; null when unknown. */
+  startedAt: number | null;
 };
 
 export function routeItem(route: Route): RouteItem {
@@ -36,6 +40,7 @@ export function routeItem(route: Route): RouteItem {
     project: route.project?.name ?? null,
     worktree: route.project?.worktree ?? null,
     pid: route.listenerPid ?? route.pid,
+    startedAt: route.startedAt ?? null,
   };
 }
 
@@ -48,6 +53,7 @@ export function detectedItem(port: DetectedPort): DetectedItem {
     suggestedName: port.suggestedName,
     project: port.project?.name ?? null,
     worktree: port.project?.worktree ?? null,
+    startedAt: port.startedAt ?? null,
   };
 }
 

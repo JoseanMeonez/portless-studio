@@ -8,6 +8,8 @@ export type ListeningPort = {
   cwd: string | null;
   /** Full path of the executable: from `/proc` on Linux, `ps` on macOS, `Win32_Process` on Windows. */
   executable?: string | null;
+  /** When the listening process started, in epoch milliseconds; absent when unknown. */
+  startedAt?: number;
 };
 
 /**

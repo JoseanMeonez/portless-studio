@@ -70,6 +70,7 @@ const FIELDS = new Set<string>([
   "terminal.lineHeight",
   "terminal.scrollback",
   "restoreTerminals",
+  "defaultEditor",
 ]);
 
 const TERMINAL_LIMITS: Record<TerminalNumber, { min: number; max: number; whole: boolean }> = {

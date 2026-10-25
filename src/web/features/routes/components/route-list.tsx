@@ -2,7 +2,7 @@ import { useId } from "react";
 import type { Route } from "../../../../core/routes/route.ts";
 import { GroupHeader } from "./group-header.tsx";
 import styles from "./route-list.module.css";
-import { RouteRow, type RowConfirmation } from "./route-row.tsx";
+import { RouteRow, type RowConfirmation, type RowEditor } from "./route-row.tsx";
 import type { MenuPoint } from "./row-menu-trigger.ts";
 import type { RowTerminal } from "./row-terminal.ts";
 
@@ -44,6 +44,8 @@ type RouteListProps = {
   canOpenTerminal?: ((route: Route) => boolean) | undefined;
   /** The Studio terminal serving a route's port, if any. */
   terminalFor?: ((route: Route) => RowTerminal | null) | undefined;
+  /** The default editor button of a route; null hides it. */
+  editorFor?: ((route: Route) => RowEditor | null) | undefined;
   onRenameGroup: (groupId: string, name: string) => void;
   onDeleteGroup: (groupId: string, name: string) => void;
 };
@@ -80,6 +82,7 @@ export function RouteList(props: RouteListProps) {
               : undefined
           }
           terminal={props.terminalFor?.(route) ?? null}
+          editor={props.editorFor?.(route) ?? null}
         />
       );
     });

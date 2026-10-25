@@ -20,7 +20,7 @@ import { NoMatches } from "../components/no-matches.tsx";
 import { NotificationsMenu } from "../components/notifications-menu.tsx";
 import { ProxyBanner } from "../components/proxy-banner.tsx";
 import { RouteList } from "../components/route-list.tsx";
-import type { RowConfirmation } from "../components/route-row.tsx";
+import type { RowConfirmation, RowEditor } from "../components/route-row.tsx";
 import type { MenuPoint } from "../components/row-menu-trigger.ts";
 import type { RowTerminal } from "../components/row-terminal.ts";
 import { ShortcutHints } from "../components/shortcut-hints.tsx";
@@ -31,6 +31,7 @@ import { ViewMenu } from "../components/view-menu.tsx";
 import { readLastSelected, storeLastSelected } from "../hooks/last-selected.ts";
 import { apiErrorMessage } from "../hooks/route-messages.ts";
 import { useRoutesGateway } from "../hooks/routes-gateway-context.tsx";
+import { useDefaultEditor } from "../hooks/use-default-editor.ts";
 import { useDoctor } from "../hooks/use-doctor.ts";
 import { useKeyboardNavigation } from "../hooks/use-keyboard-navigation.ts";
 import { type ItemTarget, parseFocus, useNotifications } from "../hooks/use-notifications.ts";
@@ -162,6 +163,7 @@ export function RoutesDashboard({
   const [envOpen, setEnvOpen] = useState(false);
   const [rowMenu, setRowMenu] = useState<RowMenuRequest | null>(null);
   const openWith = useOpenWith(rowMenu !== null);
+  const defaultEditor = useDefaultEditor();
   const [confirming, setConfirming] = useState<{ name: string; action: RowConfirmation } | null>(
     null,
   );
@@ -221,6 +223,12 @@ export function RoutesDashboard({
         description:
           "Studio has not seen the process behind this route, so it does not know where it runs.",
       });
+  };
+  /** The row button that opens a folder in the default editor; null without either. */
+  const editorButton = (folder: string | null | undefined): RowEditor | null => {
+    const editor = defaultEditor.editor;
+    if (!editor || !folder) return null;
+    return { name: editor.name, onOpen: () => void openWith.open(editor, folder) };
   };
   /** Two names that give the same key open the dialog, which says which ones. */
   const copyAllEnvLines = () => {
@@ -591,6 +599,8 @@ export function RoutesDashboard({
                   terminals ? (item, folder) => terminals.openIn(folder, item.port) : undefined
                 }
                 rowTerminalFor={(item) => rowTerminal(item.port)}
+                now={now}
+                editorFor={(item) => editorButton(item.project?.path ?? item.cwd)}
               />
             ) : null}
             {hasRoutes && hasDetected ? <h2 className={styles.sectionTitle}>Routes</h2> : null}
@@ -620,6 +630,7 @@ export function RoutesDashboard({
                   onOpenTerminal={terminals ? openTerminal : undefined}
                   canOpenTerminal={(route) => Boolean(route.project?.path)}
                   terminalFor={(route) => rowTerminal(route.port)}
+                  editorFor={(route) => editorButton(route.project?.path)}
                   onRenameGroup={(groupId, name) =>
                     setNaming({ kind: "rename-group", groupId, name })
                   }
@@ -652,7 +663,11 @@ export function RoutesDashboard({
       {settingsOpen ? (
         <SettingsDialogContainer
           projects={knownProjects(routes, detected)}
-          onClose={() => setSettingsOpen(false)}
+          onClose={() => {
+            setSettingsOpen(false);
+            // The default editor or the custom apps may have changed.
+            defaultEditor.reload();
+          }}
           onSaved={onConfigSaved}
         />
       ) : null}

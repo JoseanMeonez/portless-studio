@@ -351,7 +351,7 @@ export class InMemoryRoutesGateway implements RoutesGateway {
     this.#listening = this.#listening.filter((item) => item.pid !== pid);
     const routes = this.#snapshot.routes.map((item) => {
       if (item.listenerPid !== pid) return item;
-      const { listenerPid: _stopped, ...rest } = item;
+      const { listenerPid: _stopped, startedAt: _started, ...rest } = item;
       return { ...rest, health: { state: "down" as const, checkedAt: this.#now() } };
     });
     this.#update(routes);

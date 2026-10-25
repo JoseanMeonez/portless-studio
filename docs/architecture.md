@@ -135,11 +135,13 @@ or is gone, belongs to someone else now: it is dropped from the list, never remo
 or an agent gave are never in the list. When the same project comes back on another port while its
 old name is still waiting, auto mode moves that name to the new port instead of adding `-<port>`.
 
-`StudioRuntime` also adds three optional fields to each route in the snapshot: `listenerPid`, the
-process listening on the route's port in the last scan; `project`, the repository (and linked git
+`StudioRuntime` also adds four optional fields to each route in the snapshot: `listenerPid`, the
+process listening on the route's port in the last scan; `startedAt`, when that process started
+(epoch milliseconds, read by the port scanner; see [platforms.md](platforms.md)), which the
+uptime column counts from; `project`, the repository (and linked git
 worktree) that process runs in, read with `ProjectInfoSource` from its folder; and `health`, the
 last HTTP probe of that port (`up` below 500, `error` for 5xx, `down` when nothing answers).
-Detected ports carry `project` too. Routes are probed on the scan loop only while a browser
+Detected ports carry `project` and `startedAt` too. Routes are probed on the scan loop only while a browser
 watches.
 
 ## Staying in sync with portless
@@ -173,7 +175,9 @@ exist are dropped.
 ## Open with
 
 Right-click, Ctrl+click (Cmd+click on macOS), `.` or `Shift+F10` on a row opens a menu with Open in
-browser, Copy URL, Copy path, Reveal in the file manager and an Open with submenu.
+browser, Copy URL, Copy path, Reveal in the file manager and an Open with submenu. Every row
+with a known folder also has an editor button that opens it in `defaultEditor` from the config,
+or the first editor found when that is `null` or no longer installed.
 `application/open-with.ts` holds the use case and three ports:
 
 | Port | Default implementation | What it does |

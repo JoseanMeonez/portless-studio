@@ -217,5 +217,6 @@ function toDetected(
     cwd: port.cwd,
     suggestedName: info === null ? null : suggestName(info, nameTemplate, port.port),
     ...(project === null ? {} : { project }),
+    ...(port.startedAt === undefined ? {} : { startedAt: port.startedAt }),
   };
 }

@@ -11,6 +11,7 @@ same everywhere.
 | --- | --- | --- | --- |
 | Find listening ports | `/proc/net/tcp` and `/proc/<pid>/fd` | `lsof` | `netstat -ano` |
 | Process name and executable | `/proc/<pid>/exe` | `lsof` and `ps -ww -o comm=` | PowerShell `Get-CimInstance Win32_Process` |
+| When a server started (uptime) | Field 22 of `/proc/<pid>/stat` and `btime` in `/proc/stat` | `ps -o etime=` | `Win32_Process` `CreationDate` |
 | Project folder of a dev server | `/proc/<pid>/cwd` | `lsof -d cwd` | The script path in the process's command line |
 | Auto mode and suggested names | Yes | Yes | Yes, when the command line names a script by its full path |
 | Find every portless proxy | `/proc/<pid>/cmdline` | `ps -ww -A` | Only the one portless records in `proxy.port` |

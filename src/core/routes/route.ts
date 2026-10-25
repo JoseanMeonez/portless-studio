@@ -25,6 +25,11 @@ export type Route = {
   tunnels: Tunnel[];
   /** Process listening on `port`, when the port scan could see it. Absent when unknown. */
   listenerPid?: number;
+  /**
+   * When the process listening on `port` started, in epoch milliseconds: how long the server has
+   * been up. Absent when nothing listens or the system does not say.
+   */
+  startedAt?: number;
   /** Whether `port` answers HTTP, from the last probe. Absent until the first probe. */
   health?: RouteHealth;
   /**

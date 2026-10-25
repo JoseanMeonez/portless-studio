@@ -556,11 +556,30 @@ describe("StudioRuntime route details", () => {
     expect(route?.listenerPid).toBe(5173);
   });
 
+  it("adds when the process listening on a route's port started", async () => {
+    const startedAt = Date.UTC(2026, 9, 24, 9, 47, 0);
+    const { runtime, fake } = build({ ports: [{ ...node(5173, "app"), startedAt }] });
+    await fake.registry.createAlias("app", 5173, false);
+    const [route] = (await runtime.readSnapshot()).routes;
+    expect(route?.startedAt).toBe(startedAt);
+  });
+
+  it("adds the start time to detected ports, and leaves it out when unknown", async () => {
+    const startedAt = Date.UTC(2026, 9, 24, 9, 47, 0);
+    const { runtime } = build({
+      ports: [{ ...node(5173, "app"), startedAt }, node(8000, "scratch")],
+    });
+    const detected = (await runtime.readSnapshot()).detected;
+    expect(detected.find((item) => item.port === 5173)?.startedAt).toBe(startedAt);
+    expect(detected.find((item) => item.port === 8000)).not.toHaveProperty("startedAt");
+  });
+
   it("leaves the pid out when nothing listens on the route's port", async () => {
     const { runtime, fake } = build({ ports: [] });
     await fake.registry.createAlias("db", 5432, false);
     const [route] = (await runtime.readSnapshot()).routes;
     expect(route && "listenerPid" in route).toBe(false);
+    expect(route && "startedAt" in route).toBe(false);
   });
 
   it("lists the pids that listen on detected or routed ports", async () => {

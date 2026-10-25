@@ -4,6 +4,25 @@ All notable changes are listed here. Versions follow [Semantic Versioning](https
 
 ## Unreleased
 
+- Kind, port and uptime now line up in the same columns on every route row. Before, rows with
+  more action buttons (a terminal's Logs and Stop, alias rename and remove) pushed those columns
+  to the left. The actions area has a fixed width and wider action sets show over the columns
+  while hovered; on phones the actions get their own line. Detected rows keep the port in a fixed
+  column too.
+
+- The uptime column counts from when the server's process started, not from when its name was
+  given: `up 2h 13m`. Before, an alias showed how long ago it was named, so a server restarted a
+  minute ago could read `3d`. A route whose port does not answer says `down`; the tooltip says
+  "Running since" with the local time and, for aliases, when the name was given. When the start
+  time cannot be read the column falls back to the name time, labelled `named`. Detected rows show
+  their uptime under the port. The snapshot, `list --json` and the MCP tools carry `startedAt`
+  (epoch milliseconds), read from `/proc` on Linux, `ps` on macOS and `Win32_Process` on Windows.
+
+- Every route and detected row with a known folder has an editor button that opens it in the
+  default editor, with its name in the tooltip ("Open in VS Code"). The new `defaultEditor` config
+  field (Settings, Open with, Default editor) picks any editor found or a custom app; `null`, the
+  default, uses the first editor found. The button is hidden when no editor is found.
+
 - The terminal look is configurable: `terminal` in the config (Settings, Terminal) sets the font
   size (10 to 24, default 12), line height (1 to 2, default 1.2), cursor (`block`, `bar` or
   `underline`, blinking or not), scrollback (1000 to 100000 lines, default 10000) and colors:

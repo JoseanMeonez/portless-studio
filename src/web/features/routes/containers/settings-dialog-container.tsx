@@ -1,5 +1,6 @@
 import type { StudioConfig } from "../../../../core/config/studio-config.ts";
 import { SettingsDialog } from "../components/settings-dialog.tsx";
+import { useOpenWith } from "../hooks/use-open-with.ts";
 import { useRouteActions } from "../hooks/use-route-actions.ts";
 import { useSettingsForm } from "../hooks/use-settings-form.ts";
 import { CustomAppsContainer } from "./custom-apps-container.tsx";
@@ -23,6 +24,7 @@ export function SettingsDialogContainer({
     },
   });
   const actions = useRouteActions();
+  const openWith = useOpenWith(true);
   return (
     <SettingsDialog
       form={form}
@@ -30,6 +32,7 @@ export function SettingsDialogContainer({
       onCopyPath={(path) => void actions.copyPath(path)}
       onClose={onClose}
       customApps={<CustomAppsContainer />}
+      editorApps={openWith.apps}
     />
   );
 }

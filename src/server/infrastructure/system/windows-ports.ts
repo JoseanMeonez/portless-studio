@@ -14,7 +14,13 @@ const SYSTEM_PIDS = new Map([
 const ABSOLUTE = /^(?:[A-Za-z]:[\\/]|\\\\)/;
 const SCRIPT = /\.(?:[cm]?js|ts|py)$/i;
 
-export type Win32Process = { name: string; executable: string | null; commandLine: string | null };
+export type Win32Process = {
+  name: string;
+  executable: string | null;
+  commandLine: string | null;
+  /** `CreationDate` in epoch milliseconds; absent when Windows did not give it. */
+  startedAt?: number;
+};
 
 /** What a scan learned about each pid, and when; kept between scans by `listPortsFor`. */
 export type Win32ProcessCache = Map<number, { info: Win32Process; at: number }>;
@@ -64,10 +70,12 @@ export function parseWin32Processes(text: string): Map<number, Win32Process> {
     if (typeof pid !== "number" || typeof name !== "string") continue;
     const executable: unknown = Reflect.get(item, "ExecutablePath");
     const commandLine: unknown = Reflect.get(item, "CommandLine");
+    const startedAt: unknown = Reflect.get(item, "StartedAt");
     processes.set(pid, {
       name: name.replace(/\.exe$/i, ""),
       executable: typeof executable === "string" && executable !== "" ? executable : null,
       commandLine: typeof commandLine === "string" && commandLine !== "" ? commandLine : null,
+      ...(typeof startedAt === "number" && startedAt > 0 ? { startedAt } : {}),
     });
   }
   return processes;
@@ -159,6 +167,9 @@ export async function listWindowsPorts(
       processName: system ?? info?.name ?? "",
       cwd: folderFromCommandLine(info?.commandLine ?? null),
       executable: info?.executable ?? null,
+      ...(system === undefined && info?.startedAt !== undefined
+        ? { startedAt: info.startedAt }
+        : {}),
     });
   }
   return [...byPort.values()].sort((a, b) => a.port - b.port);
@@ -188,7 +199,10 @@ async function readProcesses(
   const filter = pids.map((pid) => `ProcessId=${pid}`).join(" OR ");
   const script =
     `Get-CimInstance Win32_Process -Filter '${filter}' | ` +
-    "Select-Object ProcessId, Name, ExecutablePath, CommandLine | ConvertTo-Json -Compress";
+    "Select-Object ProcessId, Name, ExecutablePath, CommandLine, " +
+    // A plain number, because ConvertTo-Json writes dates differently in each PowerShell version.
+    "@{n='StartedAt';e={if ($_.CreationDate) { [DateTimeOffset]::new($_.CreationDate).ToUnixTimeMilliseconds() }}} | " +
+    "ConvertTo-Json -Compress";
   const queried = await io.run("powershell", powershellArgs(script));
   const processes = queried.exitCode === 0 ? parseWin32Processes(queried.stdout) : new Map();
   if (processes.size > 0) return { processes, complete: true };

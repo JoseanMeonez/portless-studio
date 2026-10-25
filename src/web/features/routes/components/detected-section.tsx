@@ -7,6 +7,7 @@ import { Switch } from "../../../shared/ui/switch.tsx";
 import { DetectedOtherPorts } from "./detected-other-ports.tsx";
 import { DetectedRow } from "./detected-row.tsx";
 import styles from "./detected-section.module.css";
+import type { RowEditor } from "./route-row.tsx";
 import type { MenuPoint } from "./row-menu-trigger.ts";
 import type { RowTerminal } from "./row-terminal.ts";
 
@@ -40,6 +41,10 @@ type DetectedSectionProps = {
   terminalFor?: ((detected: DetectedPort) => (() => void) | null) | undefined;
   /** The Studio terminal serving a port, if any. */
   rowTerminalFor?: ((detected: DetectedPort) => RowTerminal | null) | undefined;
+  /** Epoch milliseconds the uptimes count to. */
+  now: number;
+  /** The default editor button of a port; null hides it. */
+  editorFor?: ((detected: DetectedPort) => RowEditor | null) | undefined;
 };
 
 /** Dev servers found on this machine that portless does not know yet, ready to be named. */
@@ -66,6 +71,8 @@ export function DetectedSection({
   onToggleOtherPorts,
   terminalFor,
   rowTerminalFor,
+  now,
+  editorFor,
 }: DetectedSectionProps) {
   const suggested = detected.filter((item) => item.suggestedName !== null).length;
   const count =
@@ -134,6 +141,8 @@ export function DetectedSection({
                   onCopyDirectUrl={onCopyDirectUrl}
                   onOpenTerminal={terminalFor?.(item) ?? undefined}
                   terminal={rowTerminalFor?.(item) ?? null}
+                  now={now}
+                  editor={editorFor?.(item) ?? null}
                   onCancelStop={onCancelStop}
                 />
               ))}

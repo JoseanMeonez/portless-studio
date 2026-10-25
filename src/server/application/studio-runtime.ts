@@ -480,6 +480,7 @@ export class StudioRuntime {
       return {
         ...route,
         ...(listener?.pid == null ? {} : { listenerPid: listener.pid }),
+        ...(listener?.startedAt === undefined ? {} : { startedAt: listener.startedAt }),
         ...(project === null ? {} : { project }),
         ...(health === undefined ? {} : { health }),
       };

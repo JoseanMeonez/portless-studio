@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { DetectedPort } from "../../../../core/ports/detected-port.ts";
 import type { OtherPort } from "../../../../core/ports/helper-ports.ts";
 import { DetectedSection } from "../components/detected-section.tsx";
+import type { RowEditor } from "../components/route-row.tsx";
 import type { MenuPoint } from "../components/row-menu-trigger.ts";
 import type { RowTerminal } from "../components/row-terminal.ts";
 import { useAutoName } from "../hooks/use-auto-name.ts";
@@ -28,6 +29,10 @@ type DetectedContainerProps = {
   onOpenTerminal?: ((detected: DetectedPort, folder: string) => void) | undefined;
   /** The Studio terminal serving a port, if any. */
   rowTerminalFor?: ((detected: DetectedPort) => RowTerminal | null) | undefined;
+  /** Epoch milliseconds the uptimes count to. */
+  now: number;
+  /** The default editor button of a port; null hides it. */
+  editorFor?: ((detected: DetectedPort) => RowEditor | null) | undefined;
 };
 
 export function DetectedContainer({
@@ -39,6 +44,8 @@ export function DetectedContainer({
   onMenu,
   onOpenTerminal,
   rowTerminalFor,
+  now,
+  editorFor,
 }: DetectedContainerProps) {
   const routeActions = useRouteActions();
   const actions = useDetectedActions();
@@ -94,6 +101,8 @@ export function DetectedContainer({
           : undefined
       }
       rowTerminalFor={rowTerminalFor}
+      now={now}
+      editorFor={editorFor}
     />
   );
 }

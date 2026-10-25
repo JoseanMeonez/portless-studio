@@ -1,5 +1,6 @@
 import type { DetectedPort } from "../../../../core/ports/detected-port.ts";
 import { shortenPath } from "../../../shared/lib/shorten-path.ts";
+import { processUptime } from "../../../shared/lib/uptime-label.ts";
 import { Badge } from "../../../shared/ui/badge.tsx";
 import { Button } from "../../../shared/ui/button.tsx";
 import { Icon } from "../../../shared/ui/icons/icon.tsx";
@@ -7,6 +8,7 @@ import { ItemIcon } from "../../../shared/ui/item-icon.tsx";
 import styles from "./detected-row.module.css";
 import { DirectUrl } from "./direct-url.tsx";
 import { ProjectLocation } from "./project-location.tsx";
+import type { RowEditor } from "./route-row.tsx";
 import { type MenuPoint, rowMenuTrigger } from "./row-menu-trigger.ts";
 import type { RowTerminal } from "./row-terminal.ts";
 import { RowTerminalActions } from "./row-terminal-actions.tsx";
@@ -30,6 +32,10 @@ type DetectedRowProps = {
   onOpenTerminal?: (() => void) | undefined;
   /** The Studio terminal serving this port: a status chip and its actions. */
   terminal?: RowTerminal | null | undefined;
+  /** Epoch milliseconds the uptime counts to. */
+  now: number;
+  /** Opens the port's folder in the default editor; hidden without it. */
+  editor?: RowEditor | null | undefined;
 };
 
 /** One port that answers HTTP but has no name: what runs there and the name Studio suggests. */
@@ -45,14 +51,22 @@ export function DetectedRow({
   onCopyDirectUrl,
   onOpenTerminal,
   terminal,
+  now,
+  editor,
 }: DetectedRowProps) {
   const { port, pid, processName, cwd, suggestedName, container } = detected;
+  const uptime = processUptime(detected.startedAt, now);
   const stopTarget = container ? `container ${container.name}` : processName || "the server";
   return (
     <li className={styles.row} data-port={port} {...rowMenuTrigger(onMenu)}>
-      <span className={styles.port}>:{port}</span>
+      <span className={styles.portCell} data-cell="port">
+        <span className={styles.port}>:{port}</span>
+        <span className={styles.uptime} data-cell="uptime" title={uptime.title || undefined}>
+          {uptime.text}
+        </span>
+      </span>
 
-      <div className={styles.info}>
+      <div className={styles.info} data-cell="info">
         <span className={styles.titleLine}>
           <ItemIcon
             icon={detected.icon}
@@ -117,6 +131,18 @@ export function DetectedRow({
         </div>
       ) : (
         <div className={styles.actions}>
+          {editor ? (
+            <Button
+              size="xs"
+              variant="ghost"
+              iconOnly
+              aria-label={`Open port ${port} in ${editor.name}`}
+              title={`Open in ${editor.name}`}
+              onClick={editor.onOpen}
+            >
+              <Icon name="code" size={14} />
+            </Button>
+          ) : null}
           {terminal ? (
             <RowTerminalActions terminal={terminal} label={`port ${port}`} />
           ) : onOpenTerminal ? (

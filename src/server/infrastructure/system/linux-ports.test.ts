@@ -1,4 +1,9 @@
-import { listLinuxPorts, parseProcNetTcp } from "./linux-ports.ts";
+import {
+  listLinuxPorts,
+  parseProcNetTcp,
+  processStartTime,
+  readClockTicks,
+} from "./linux-ports.ts";
 import type { SystemIo } from "./system-io.ts";
 
 const TCP = `  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode
@@ -90,5 +95,59 @@ describe("listLinuxPorts", () => {
     const ports = await listLinuxPorts(fakeProc());
     expect(ports.filter((p) => p.port === 5173)).toHaveLength(1);
     expect(ports.map((p) => p.port)).toEqual([3306, 4321, 4977, 5173]);
+  });
+});
+
+// Boot at 2026-10-24 10:00:00 UTC; the process started 2 h 13 min 30.5 s later.
+const BOOT_SECONDS = Date.UTC(2026, 9, 24, 10, 0, 0) / 1000;
+const PROC_STAT = `cpu  1 2 3 4\nbtime ${BOOT_SECONDS}\nprocesses 900\n`;
+const STARTED_TICKS = (2 * 3600 + 13 * 60 + 30.5) * 100;
+const STAT = `100 (my (odd) server) S 1 100 100 0 -1 4194304 475 0 0 0 0 0 0 0 20 0 1 0 ${STARTED_TICKS} 16502784 1918`;
+
+describe("processStartTime", () => {
+  it("adds the start in clock ticks since boot to the boot time", () => {
+    expect(processStartTime(STAT, PROC_STAT, 100)).toBe(Date.UTC(2026, 9, 24, 12, 13, 30, 500));
+  });
+
+  it("uses the clock tick rate it is given", () => {
+    expect(processStartTime(STAT, PROC_STAT, 1000)).toBe(
+      Date.UTC(2026, 9, 24, 10, 0, 0) + STARTED_TICKS,
+    );
+  });
+
+  it("is null when either file is missing or garbled", () => {
+    expect(processStartTime(null, PROC_STAT, 100)).toBeNull();
+    expect(processStartTime(STAT, null, 100)).toBeNull();
+    expect(processStartTime(STAT, "cpu 1 2 3", 100)).toBeNull();
+    expect(processStartTime("100 (x) S", PROC_STAT, 100)).toBeNull();
+  });
+});
+
+describe("readClockTicks", () => {
+  it("reads getconf CLK_TCK and falls back to 100", async () => {
+    const io = (stdout: string): SystemIo => ({
+      ...fakeProc(),
+      run: async () => ({ exitCode: 0, stdout }),
+    });
+    expect(await readClockTicks(io("250\n"))).toBe(250);
+    expect(await readClockTicks(io(""))).toBe(100);
+  });
+});
+
+describe("listLinuxPorts start times", () => {
+  it("adds when each readable process started, and nothing for unknown ones", async () => {
+    const base = fakeProc();
+    const io: SystemIo = {
+      ...base,
+      readFile: (p) =>
+        p === "/proc/stat" ? PROC_STAT : p === "/proc/100/stat" ? STAT : base.readFile(p),
+    };
+    const ports = await listLinuxPorts(io, async () => 100);
+    expect(ports.find((p) => p.port === 5173)?.startedAt).toBe(
+      Date.UTC(2026, 9, 24, 12, 13, 30, 500),
+    );
+    // pid 200 has no readable stat file, and 3306 has no known process.
+    expect(ports.find((p) => p.port === 4321)).not.toHaveProperty("startedAt");
+    expect(ports.find((p) => p.port === 3306)).not.toHaveProperty("startedAt");
   });
 });

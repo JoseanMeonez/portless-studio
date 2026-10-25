@@ -49,6 +49,7 @@ const WIN32_PROCESSES = JSON.stringify([
     ProcessId: 8120,
     Name: "node.exe",
     ExecutablePath: "C:\\Program Files\\nodejs\\node.exe",
+    StartedAt: 1_792_843_200_000,
     CommandLine:
       '"C:\\Program Files\\nodejs\\node.exe" "C:\\Users\\dev\\Proyectos\\tienda ñ\\node_modules\\vite\\bin\\vite.js" --port 5173',
   },
@@ -85,6 +86,7 @@ describe("parseWin32Processes", () => {
       name: "node",
       executable: "C:\\Program Files\\nodejs\\node.exe",
       commandLine: expect.stringContaining("vite.js"),
+      startedAt: 1_792_843_200_000,
     });
     const one = JSON.stringify({ ProcessId: 7, Name: "python.exe", ExecutablePath: null });
     expect(parseWin32Processes(one).get(7)).toEqual({
@@ -162,10 +164,13 @@ describe("listWindowsPorts", () => {
         processName: "node",
         cwd: "C:\\Users\\dev\\Proyectos\\tienda ñ",
         executable: "C:\\Program Files\\nodejs\\node.exe",
+        // From Win32_Process CreationDate.
+        startedAt: 1_792_843_200_000,
       },
     ]);
     const queries = calls.filter((call) => call.bin === "powershell");
     expect(queries).toHaveLength(1);
+    expect(decodePowershellScript(queries[0]?.args ?? [])).toContain("CreationDate");
     expect(decodePowershellScript(queries[0]?.args ?? [])).toContain(
       "ProcessId=1032 OR ProcessId=8120 OR ProcessId=9001",
     );

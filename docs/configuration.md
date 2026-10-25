@@ -43,6 +43,7 @@ is enough:
 | `projectIcons` | `{}` | Icon per project: an emoji, an http(s) image URL or a `data:image` URL. |
 | `checkForUpdates` | `true` | Once a day, asks npm whether a newer portless-studio exists. See below. |
 | `terminal` | see below | How the terminal panel draws text. Each field is optional. |
+| `defaultEditor` | `null` | The app the editor button on each row opens the project folder in: an id from the Open with list, like `"vscode"`, `"zed"` or `"custom-1"`. `null` uses the first editor found on this machine. Settings, Open with, Default editor. |
 | `restoreTerminals` | `"ask"` | What happens on start to the terminals that were running when Studio stopped: `"ask"` lists them with Run again, `"always"` runs their commands again (never plain shells), `"never"` forgets them. See [terminals.md](terminals.md#after-a-studio-restart). |
 
 The `--port`, `--no-open` and `--no-register` flags win over the file for one run.

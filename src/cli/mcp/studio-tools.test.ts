@@ -181,6 +181,7 @@ describe("studio tools", () => {
           project: "acme-monorepo",
           worktree: "falcon",
           pid: 4242,
+          startedAt: null,
         },
       ],
     });
@@ -222,6 +223,7 @@ describe("studio tools", () => {
         suggestedName: "shop",
         project: "shop",
         worktree: null,
+        startedAt: null,
       },
       {
         port: 8080,
@@ -231,6 +233,7 @@ describe("studio tools", () => {
         suggestedName: null,
         project: null,
         worktree: null,
+        startedAt: null,
       },
     ]);
   });

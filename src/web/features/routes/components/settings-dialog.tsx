@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import type { OpenWithApp } from "../../../../core/api/contract.ts";
 import { NAME_TOKEN_HELP, NAME_TOKENS } from "../../../../core/ports/name-template.ts";
 import { Button } from "../../../shared/ui/button.tsx";
 import { Dialog } from "../../../shared/ui/dialog.tsx";
@@ -21,7 +22,27 @@ type SettingsDialogProps = {
   onClose: () => void;
   /** The open-with apps section, which loads and saves on its own. */
   customApps?: ReactNode;
+  /** Editors found on this machine and custom apps, for the default editor; null while loading. */
+  editorApps?: readonly OpenWithApp[] | null | undefined;
 };
+
+/** The default editor choices: the first editor found, then every editor and custom app. */
+export function defaultEditorOptions(
+  apps: readonly OpenWithApp[],
+  current: string | null,
+): (readonly [string, string])[] {
+  const editors = apps.filter((app) => app.kind !== "file-manager");
+  const first = editors.find((app) => app.kind === "editor");
+  const options: (readonly [string, string])[] = [
+    ["", first ? `First editor found (${first.name})` : "First editor found"],
+    ...editors.map((app) => [app.id, app.name] as const),
+  ];
+  // An app that is gone stays selectable, so opening Settings does not change the config.
+  if (current !== null && !editors.some((app) => app.id === current)) {
+    options.push([current, `${current} (not found)`]);
+  }
+  return options;
+}
 
 /** Every Studio setting, the same ones the JSON config file holds. */
 export function SettingsDialog({
@@ -30,6 +51,7 @@ export function SettingsDialog({
   onCopyPath,
   onClose,
   customApps,
+  editorApps,
 }: SettingsDialogProps) {
   const { load, draft, errors } = form;
   // Projects with an icon stay listed even when none of their servers runs now.
@@ -266,6 +288,15 @@ export function SettingsDialog({
           {customApps ? (
             <fieldset className={styles.group}>
               <legend className={styles.legend}>Open with</legend>
+              {editorApps ? (
+                <SelectField
+                  label="Default editor"
+                  value={draft.defaultEditor ?? ""}
+                  options={defaultEditorOptions(editorApps, draft.defaultEditor)}
+                  hint="The editor button on each row opens the project folder in this app."
+                  onChange={(value) => form.change("defaultEditor", value === "" ? null : value)}
+                />
+              ) : null}
               {customApps}
             </fieldset>
           ) : null}

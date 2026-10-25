@@ -1,7 +1,13 @@
 .row {
+  /* Room for the usual widest set (nine icon buttons, or six and Logs); a row with more
+     actions, or a confirmation, overlays the columns to its left instead of moving them. */
+  --row-actions-width: 216px;
+  --row-background: var(--color-bg);
   position: relative;
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  /* Every track but the name is fixed or right-anchored to the fixed actions track, so kind,
+     port and uptime sit at the same x on every row whatever its actions, tunnels or name. */
+  grid-template-columns: var(--dot-size) minmax(0, 1fr) auto var(--row-actions-width);
   align-items: center;
   gap: var(--space-3);
   min-height: var(--row-min-height);
@@ -15,11 +21,18 @@
 }
 
 .row:hover {
-  background: var(--color-bg-subtle);
+  --row-background: var(--color-bg-subtle);
+  background: var(--row-background);
 }
 
 .row[data-selected] {
-  background: var(--color-bg-hover);
+  --row-background: var(--color-bg-hover);
+  background: var(--row-background);
+}
+
+.status {
+  display: inline-flex;
+  justify-content: center;
 }
 
 .row[data-selected]::before {
@@ -89,15 +102,19 @@
 
 .meta {
   display: grid;
-  /* Fixed columns so kind, port and uptime line up across rows whatever the tunnels are. */
-  grid-template-columns: auto 52px 7ch 9ch;
+  /* Tunnels grow to the left; the three fixed tracks keep kind, port and uptime in columns. */
+  grid-template-columns: auto 52px 7ch 11ch;
   align-items: center;
-  justify-items: end;
+  justify-items: stretch;
   gap: var(--space-3);
 }
 
+.tunnelCell {
+  justify-self: end;
+}
+
 .kind {
-  justify-self: center;
+  display: inline-flex;
 }
 
 .tunnelCell {
@@ -106,6 +123,8 @@
 
 .port,
 .uptime {
+  overflow: hidden;
+  white-space: nowrap;
   color: var(--color-text-secondary);
   font-family: var(--font-mono);
   font-size: var(--text-xs);
@@ -113,17 +132,34 @@
   text-align: right;
 }
 
+.uptime[data-state="down"] {
+  color: var(--color-text-tertiary);
+}
+
+.actionsCell {
+  position: relative;
+  align-self: stretch;
+}
+
 .actions,
 .confirm {
+  position: absolute;
+  top: 50%;
+  right: 0;
   display: flex;
   align-items: center;
   justify-content: flex-end;
   gap: var(--space-0-5);
-  min-width: 112px;
+  padding-left: var(--space-2);
+  background: var(--row-background);
+  box-shadow: calc(-1 * var(--space-2)) 0 var(--space-2) var(--row-background);
+  white-space: nowrap;
+  transform: translateY(-50%);
 }
 
 .actions {
   opacity: 0;
+  pointer-events: none;
   transition: opacity var(--duration-fast) var(--ease-out);
 }
 
@@ -131,6 +167,7 @@
 .row:focus-within .actions,
 .row[data-selected] .actions {
   opacity: 1;
+  pointer-events: auto;
 }
 
 .confirm {
@@ -144,16 +181,52 @@
   white-space: nowrap;
 }
 
+/* Medium screens keep room for the name: six icon buttons, and wider sets overlay. */
+@media (max-width: 1024px) {
+  .row {
+    --row-actions-width: 142px;
+  }
+}
+
 @media (max-width: 720px) {
   .row {
-    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-columns: var(--dot-size) minmax(0, 1fr) auto;
   }
 
   .meta {
     display: none;
   }
 
+  .actionsCell {
+    align-self: center;
+  }
+
+  .actions,
+  .confirm {
+    position: static;
+    padding-left: 0;
+    box-shadow: none;
+    transform: none;
+  }
+
   .actions {
     opacity: 1;
+    pointer-events: auto;
+  }
+}
+
+/* Phones: the actions get their own line under the name, like detected rows. */
+@media (max-width: 480px) {
+  .row {
+    grid-template-columns: var(--dot-size) minmax(0, 1fr);
+  }
+
+  .actionsCell {
+    grid-column: 2 / -1;
+  }
+
+  .actions,
+  .confirm {
+    justify-content: flex-start;
   }
 }

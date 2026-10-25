@@ -16,7 +16,7 @@ portless replaces port numbers with names: `portless api pnpm dev` serves your a
 with ten dev servers across several projects you have to remember which names exist and which
 ports have none. Studio shows both, live, and names a port in one click.
 
-![Naming port 8000, searching routes with Ctrl+K, filtering with the Filter popover and running pnpm dev in a Studio terminal](docs/images/demo.gif)
+![Naming port 8000, searching routes with Ctrl+K, filtering with the Filter popover and opening a route's terminal in the right-hand pane](docs/images/demo.gif)
 
 The screenshots use the built-in sample data (`?demo`), not a real machine.
 

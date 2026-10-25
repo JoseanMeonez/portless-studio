@@ -75,7 +75,7 @@ export interface RoutesGateway {
   /** Restarts or stops Studio itself; the answer arrives just before it goes away. */
   controlStudio(action: StudioAction): Promise<Result<StudioActionResponse, ApiError>>;
   /** Stops the dev server with this pid, if it is the user's and serves a shown port. */
-  stopProcess(pid: number): Promise<Result<null, ApiError>>;
+  stopProcess(pid: number, all?: boolean): Promise<Result<null, ApiError>>;
   /** Stops a Docker container a detected row shows, by its name. */
   stopContainer(name: string): Promise<Result<null, ApiError>>;
   /** Editors and the file manager found on the server's machine, then the custom apps. */

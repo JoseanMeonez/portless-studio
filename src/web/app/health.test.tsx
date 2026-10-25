@@ -171,6 +171,16 @@ describe("stopping a dev server", () => {
     expect(stop).not.toHaveBeenCalled();
   });
 
+  it("offers Stop all only after confirming a detected server", async () => {
+    const { gateway, user } = setup();
+    const stop = vi.spyOn(gateway, "stopProcess");
+    const row = await detectedRow(4209);
+    await user.click(within(row).getByRole("button", { name: "Stop the server on port 4209" }));
+    expect(stop).not.toHaveBeenCalled();
+    await user.click(within(row).getByRole("button", { name: "Stop all" }));
+    expect(stop).toHaveBeenCalledWith(61_480, true);
+  });
+
   it("stops the server behind a route whose port has a known pid", async () => {
     const { user, gateway } = setup();
     const stop = vi.spyOn(gateway, "stopProcess");

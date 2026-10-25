@@ -339,7 +339,7 @@ export class InMemoryRoutesGateway implements RoutesGateway {
   }
 
   /** Stops a fake dev server: a detected port disappears, a route stops answering. */
-  async stopProcess(pid: number): Promise<Result<null, ApiError>> {
+  async stopProcess(pid: number, _all?: boolean): Promise<Result<null, ApiError>> {
     const detected = this.#listening.find((item) => item.pid === pid);
     const route = this.#snapshot.routes.find((item) => item.listenerPid === pid);
     if (!detected && !route) {

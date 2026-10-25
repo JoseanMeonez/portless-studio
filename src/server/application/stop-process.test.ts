@@ -1,6 +1,6 @@
 import { ok } from "../../core/result.ts";
 import type { ProcessControl, ProcessOwner } from "./process-control.ts";
-import { stopProcess } from "./stop-process.ts";
+import { type StopProcessDeps, stopProcess } from "./stop-process.ts";
 
 function setup(owner: ProcessOwner = "you", platform = "linux") {
   const terminated: number[] = [];
@@ -11,7 +11,7 @@ function setup(owner: ProcessOwner = "you", platform = "linux") {
       return ok(undefined);
     },
   };
-  const deps = {
+  const deps: StopProcessDeps = {
     processes,
     stoppablePids: async () => new Map([[51_002, 3001]]),
     selfPid: 999,
@@ -67,5 +67,63 @@ describe("stopProcess", () => {
       ok: false,
       error: { code: "process_not_allowed", command: "taskkill /F /PID 51002" },
     });
+  });
+});
+
+describe("verified stop", () => {
+  it("reports a replacement listener instead of reporting success and refreshes health", async () => {
+    const { deps } = setup();
+    const refresh = vi.fn(async () => undefined);
+    deps.listeners = async () => [{ pid: 51003, port: 3001 }];
+    deps.refresh = refresh;
+    deps.settleMs = 0;
+    expect(await stopProcess("51002", deps)).toMatchObject({
+      ok: false,
+      error: { code: "port_in_use", message: expect.stringContaining("51003") },
+    });
+    expect(refresh).toHaveBeenCalledOnce();
+  });
+  it("reports success only after the port is closed", async () => {
+    const { deps } = setup();
+    deps.listeners = async () => [];
+    deps.settleMs = 0;
+    expect(await stopProcess("51002", deps)).toEqual(ok({ pid: 51002, port: 3001 }));
+  });
+  it("does not report success when the OS scan missed an open port", async () => {
+    const { deps } = setup();
+    deps.listeners = async () => [];
+    deps.portClosed = async () => false;
+    deps.settleMs = 0;
+    expect(await stopProcess("51002", deps)).toMatchObject({
+      ok: false,
+      error: { code: "port_in_use" },
+    });
+  });
+  it("stops the bounded command tree root before its children", async () => {
+    const { deps, terminated } = setup();
+    deps.processes.devTree = async () => [51000, 51002, 51001];
+    expect((await stopProcess("51002", deps, true)).ok).toBe(true);
+    expect(terminated).toEqual([51000, 51002, 51001]);
+  });
+  it("checks every owner before signaling any process", async () => {
+    const { deps, terminated } = setup();
+    deps.processes.devTree = async () => [51000, 51002];
+    deps.processes.ownerOf = async (pid) => (pid === 51000 ? "other" : "you");
+    expect((await stopProcess("51002", deps, true)).ok).toBe(false);
+    expect(terminated).toEqual([]);
+  });
+  it("refuses a tree containing Studio before sending signals", async () => {
+    const { deps, terminated } = setup();
+    deps.processes.devTree = async () => [999, 51002];
+    expect((await stopProcess("51002", deps, true)).ok).toBe(false);
+    expect(terminated).toEqual([]);
+  });
+  it("refuses unsupported tree detection without silently doing a single stop", async () => {
+    const { deps, terminated } = setup();
+    expect(await stopProcess("51002", deps, true)).toMatchObject({
+      ok: false,
+      error: { code: "unsupported" },
+    });
+    expect(terminated).toEqual([]);
   });
 });

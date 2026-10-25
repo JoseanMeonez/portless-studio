@@ -61,6 +61,7 @@ import { ephemeralRangeReader } from "./infrastructure/system/ephemeral-ports.ts
 import { FaviconFetcher } from "./infrastructure/system/favicon-fetcher.ts";
 import { fetchLatestVersion } from "./infrastructure/system/npm-registry.ts";
 import { OsNotifier } from "./infrastructure/system/os-notifier.ts";
+import { portClosed } from "./infrastructure/system/port-closed.ts";
 import { startForwarder } from "./infrastructure/system/port-forwarder.ts";
 import { ProjectInfoReader } from "./infrastructure/system/project-info.ts";
 import { nodeSystemIo } from "./infrastructure/system/system-io.ts";
@@ -94,7 +95,7 @@ export type StudioServices = {
   /** Health checks and the fixes Studio can run itself. */
   doctor: DoctorService;
   controlProxy(action: ProxyAction): Promise<Result<string, AppError>>;
-  stopProcess(pid: string): Promise<Result<{ pid: number; port: number }, AppError>>;
+  stopProcess(pid: string, all?: boolean): Promise<Result<{ pid: number; port: number }, AppError>>;
   /** Stops a Docker container the last `docker ps` listed. */
   stopContainer(name: string): Promise<Result<{ name: string }, AppError>>;
   /** Restart and stop for Studio itself, when the CLI provides them. */
@@ -264,12 +265,19 @@ export function createStudioServices(options: StudioServicesOptions = {}): Studi
     detectPorts: () => runtime.detectPorts(),
     doctor,
     controlProxy: proxy,
-    stopProcess: (pid) =>
-      stopProcess(pid, {
-        processes,
-        stoppablePids: () => runtime.stoppablePids(),
-        selfPid: process.pid,
-      }),
+    stopProcess: (pid, all) =>
+      stopProcess(
+        pid,
+        {
+          processes,
+          stoppablePids: () => runtime.stoppablePids(),
+          selfPid: process.pid,
+          listeners: () => scanner.scan(),
+          portClosed,
+          refresh: () => runtime.refreshProcesses(),
+        },
+        all,
+      ),
     stopContainer: (name) => stopContainer(name, containers),
     studioService,
     openWith,

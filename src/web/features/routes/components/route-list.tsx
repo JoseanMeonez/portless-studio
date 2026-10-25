@@ -33,7 +33,7 @@ type RouteListProps = {
   onRename: (route: Route) => void;
   onRequestRemove: (route: Route) => void;
   onRequestStop: (route: Route) => void;
-  onConfirm: (route: Route, action: RowConfirmation) => void;
+  onConfirm: (route: Route, action: RowConfirmation, all?: boolean) => void;
   onCancelConfirm: () => void;
   onToggleFavorite: (route: Route) => void;
   onMoveToGroup: (route: Route) => void;
@@ -70,7 +70,7 @@ export function RouteList(props: RouteListProps) {
           onRename={() => props.onRename(route)}
           onRequestRemove={() => props.onRequestRemove(route)}
           onRequestStop={() => props.onRequestStop(route)}
-          onConfirm={() => action && props.onConfirm(route, action)}
+          onConfirm={(all) => action && props.onConfirm(route, action, all)}
           onCancelConfirm={props.onCancelConfirm}
           onToggleFavorite={() => props.onToggleFavorite(route)}
           onMoveToGroup={() => props.onMoveToGroup(route)}

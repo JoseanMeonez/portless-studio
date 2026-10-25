@@ -280,6 +280,16 @@ export class StudioRuntime {
    * pid -> port for every process listening on a detected or routed port, from a fresh scan.
    * These are the only processes the UI may stop.
    */
+  /** Refresh listeners and health immediately after a process action and broadcast the snapshot. */
+  async refreshProcesses(): Promise<void> {
+    // A scan started before the stop may still contain the listener that just exited.
+    await this.#scanning;
+    const state = await this.#registry.readSnapshot();
+    await this.#detect(state, await this.#currentConfig(), true);
+    await this.#probeRoutes(state.routes);
+    this.#notify();
+  }
+
   async stoppablePids(): Promise<Map<number, number>> {
     const state = await this.#registry.readSnapshot();
     const found = await this.#detect(state, await this.#currentConfig(), true);

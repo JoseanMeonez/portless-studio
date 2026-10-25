@@ -214,11 +214,11 @@ export function RoutesDashboard({
         description: "It goes away when its dev server stops.",
       });
   };
-  const confirmRowAction = async (route: Route, action: RowConfirmation) => {
+  const confirmRowAction = async (route: Route, action: RowConfirmation, all?: boolean) => {
     setConfirming(null);
     if (action === "remove") await actions.removeAlias(route);
     else if (route.listenerPid !== undefined) {
-      await stopProcess({ pid: route.listenerPid, port: route.port });
+      await stopProcess({ pid: route.listenerPid, port: route.port, all });
     }
   };
   const proxyAction = (action: "start" | "stop" | "restart") => {
@@ -633,7 +633,7 @@ export function RoutesDashboard({
                   onRename={requestRename}
                   onRequestRemove={requestRemove}
                   onRequestStop={(route) => setConfirming({ name: route.name, action: "stop" })}
-                  onConfirm={(route, action) => void confirmRowAction(route, action)}
+                  onConfirm={(route, action, all) => void confirmRowAction(route, action, all)}
                   onCancelConfirm={() => setConfirming(null)}
                   onToggleFavorite={toggleFavorite}
                   onMoveToGroup={setMoving}

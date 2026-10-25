@@ -22,7 +22,7 @@ type DetectedRowProps = {
   onIgnore: () => void;
   /** Shown only when the pid or the container is known. */
   onRequestStop: () => void;
-  onConfirmStop: () => void;
+  onConfirmStop: (all?: boolean) => void;
   onCancelStop: () => void;
   /** Right-click or Ctrl+click: the menu with open with, copy path and more. */
   onMenu: (point: MenuPoint) => void;
@@ -125,9 +125,19 @@ export function DetectedRow({
           <Button size="xs" variant="ghost" onClick={onCancelStop}>
             Cancel
           </Button>
-          <Button size="xs" variant="danger" onClick={onConfirmStop} autoFocus>
+          <Button size="xs" variant="danger" onClick={() => onConfirmStop()} autoFocus>
             Stop
           </Button>
+          {!detected.container ? (
+            <Button
+              size="xs"
+              variant="danger"
+              title="Stop the whole development command and its child processes"
+              onClick={() => onConfirmStop(true)}
+            >
+              Stop all
+            </Button>
+          ) : null}
         </div>
       ) : (
         <div className={styles.actions}>

@@ -2,6 +2,8 @@ import { err, ok, type Result } from "../../../core/result.ts";
 import { type AppError, appError } from "../../application/app-error.ts";
 import type { ProcessControl, ProcessOwner } from "../../application/process-control.ts";
 import { isProcessAlive } from "../portless/state-files.ts";
+import { parseStatParent } from "../terminal/process-tree.ts";
+import { devProcessTree, type ProcessEntry, parseProcessTable } from "./dev-process-tree.ts";
 import type { SystemIo } from "./system-io.ts";
 
 /** How long a dev server gets to shut down cleanly before it is forced. */
@@ -58,6 +60,48 @@ export class SystemProcessControl implements ProcessControl {
 
   constructor(options: SystemProcessControlOptions) {
     this.#options = options;
+  }
+
+  async devTree(pid: number): Promise<number[]> {
+    const { platform, io } = this.#options;
+    let table: ProcessEntry[];
+    if (platform === "linux") {
+      table = io
+        .readDir("/proc")
+        .filter((name) => /^\d+$/.test(name))
+        .flatMap((name) => {
+          const stat = io.readFile(`/proc/${name}/stat`);
+          const command = io.readFile(`/proc/${name}/cmdline`);
+          const parent = stat === null ? null : parseStatParent(stat);
+          return parent === null || !command
+            ? []
+            : [{ pid: Number(name), parent, command: command.replaceAll("\0", " ").trim() }];
+        });
+    } else if (platform === "darwin") {
+      const answer = await io.run("ps", ["-ww", "-axo", "pid=,ppid=,args="]);
+      table = answer.exitCode === 0 ? parseProcessTable(answer.stdout) : [];
+    } else {
+      const answer = await io.run("powershell.exe", [
+        "-NoProfile",
+        "-NonInteractive",
+        "-Command",
+        "Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,CommandLine | ConvertTo-Json -Compress",
+      ]);
+      try {
+        const rows: unknown = JSON.parse(answer.stdout);
+        table = (Array.isArray(rows) ? rows : [rows]).flatMap((row) =>
+          row &&
+          typeof row.ProcessId === "number" &&
+          typeof row.ParentProcessId === "number" &&
+          typeof row.CommandLine === "string"
+            ? [{ pid: row.ProcessId, parent: row.ParentProcessId, command: row.CommandLine }]
+            : [],
+        );
+      } catch {
+        table = [];
+      }
+    }
+    return devProcessTree(pid, table);
   }
 
   async ownerOf(pid: number): Promise<ProcessOwner> {

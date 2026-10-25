@@ -25,7 +25,7 @@ type DetectedSectionProps = {
   /** Port whose row asks to confirm stopping its server. */
   confirmingStop: number | null;
   onRequestStop: (detected: DetectedPort) => void;
-  onConfirmStop: (detected: DetectedPort) => void;
+  onConfirmStop: (detected: DetectedPort, all?: boolean) => void;
   onCancelStop: () => void;
   onMenu: (detected: DetectedPort, point: MenuPoint) => void;
   /** Copies `http://localhost:<port>` for a row's port, one of its extra ports or an other port. */
@@ -136,7 +136,7 @@ export function DetectedSection({
                   onName={() => onName(item)}
                   onIgnore={() => onIgnore(item)}
                   onRequestStop={() => onRequestStop(item)}
-                  onConfirmStop={() => onConfirmStop(item)}
+                  onConfirmStop={(all) => onConfirmStop(item, all)}
                   onMenu={(point) => onMenu(item, point)}
                   onCopyDirectUrl={onCopyDirectUrl}
                   onOpenTerminal={terminalFor?.(item) ?? undefined}

@@ -140,8 +140,8 @@ function fakeOperations() {
           );
         },
       },
-      stopProcess: async (pid: string) => {
-        calls.push(`stop ${pid}`);
+      stopProcess: async (pid: string, all?: boolean) => {
+        calls.push(`stop ${pid}${all ? " tree" : ""}`);
         return state.stopResult;
       },
       stopContainer: async (name: string) => {
@@ -459,6 +459,12 @@ describe("stopping a dev server", () => {
     const reply = await send("POST", API_PATHS.stopProcess(51), write);
     expect(reply.status).toBe(204);
     expect(ops.state.calls).toEqual(["stop 51"]);
+  });
+
+  it("passes the explicitly requested tree scope", async () => {
+    const reply = await send("POST", `${API_PATHS.stopProcess(51)}?scope=tree`, write);
+    expect(reply.status).toBe(204);
+    expect(ops.state.calls).toEqual(["stop 51 tree"]);
   });
 
   it("returns process_not_allowed as 403 with the message", async () => {

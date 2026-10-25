@@ -57,11 +57,11 @@ export function DetectedContainer({
   const [collapsed, toggleCollapsed] = useStoredFlag(COLLAPSED_KEY, false);
   const [otherOpen, toggleOther] = useStoredFlag(OTHER_OPEN_KEY, false);
 
-  const stop = async (item: DetectedPort) => {
+  const stop = async (item: DetectedPort, all?: boolean) => {
     setConfirmingStop(null);
     if (item.container) return stopContainer(item.container.name);
     if (item.pid === null) return;
-    await stopProcess({ pid: item.pid, port: item.port, processName: item.processName });
+    await stopProcess({ pid: item.pid, port: item.port, processName: item.processName, all });
   };
 
   const nameAll = async () => {
@@ -83,7 +83,7 @@ export function DetectedContainer({
       onNameAll={() => void nameAll()}
       confirmingStop={confirmingStop}
       onRequestStop={(item) => setConfirmingStop(item.port)}
-      onConfirmStop={(item) => void stop(item)}
+      onConfirmStop={(item, all) => void stop(item, all)}
       onCancelStop={() => setConfirmingStop(null)}
       onMenu={onMenu}
       onCopyDirectUrl={(port) => void routeActions.copyDirectUrl(port)}

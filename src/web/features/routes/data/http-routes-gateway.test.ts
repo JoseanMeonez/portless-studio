@@ -321,6 +321,7 @@ describe("HttpRoutesGateway health and control", () => {
       value: { message: "Stopping", startCommand: "portless-studio" },
     });
     expect(await gateway.stopProcess(51)).toEqual({ ok: true, value: null });
+    expect(await gateway.stopProcess(51, true)).toEqual({ ok: true, value: null });
 
     const writes = calls.filter((call) => call.url !== API_PATHS.session);
     expect(writes.map((call) => [call.init.method, call.url, header(call, TOKEN_HEADER)])).toEqual([
@@ -328,6 +329,7 @@ describe("HttpRoutesGateway health and control", () => {
       ["POST", API_PATHS.proxy("restart"), "t"],
       ["POST", API_PATHS.studio("stop"), "t"],
       ["POST", API_PATHS.stopProcess(51), "t"],
+      ["POST", `${API_PATHS.stopProcess(51)}?scope=tree`, "t"],
     ]);
   });
 

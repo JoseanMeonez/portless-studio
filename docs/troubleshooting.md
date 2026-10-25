@@ -10,6 +10,18 @@ portless-studio doctor
 The Health button in the page runs the same checks and has buttons for most fixes. Each section
 below starts with what you see, then the cause and the fix.
 
+## A server stays green after Stop
+
+Stop waits for the listener to exit, checks that the TCP port closed and refreshes route health.
+If another process is already listening, Studio reports its PID instead of showing a success message.
+A supervisor or an agent may have started the server again.
+
+In the row's confirmation, **Stop all** stops the enclosing development command, such as
+`pnpm dev` or `turbo dev`, and its children. This can stop several apps together. Studio checks
+every process's owner first and stops walking upward before an interactive shell or agent.
+If it cannot identify the command tree, stop the command from the terminal that started it.
+An agent can still start a new command after Stop all completes.
+
 ## "This site can't be reached" on a .localhost name
 
 **You see:** `http://web.myapp.localhost:1355` fails with "This site can't be reached" or

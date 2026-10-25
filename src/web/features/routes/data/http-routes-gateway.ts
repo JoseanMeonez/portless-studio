@@ -208,8 +208,8 @@ export class HttpRoutesGateway implements RoutesGateway {
     });
   }
 
-  stopProcess(pid: number): Promise<Result<null, ApiError>> {
-    return this.#write(API_PATHS.stopProcess(pid), "POST");
+  stopProcess(pid: number, all?: boolean): Promise<Result<null, ApiError>> {
+    return this.#write(`${API_PATHS.stopProcess(pid)}${all ? "?scope=tree" : ""}`, "POST");
   }
 
   stopContainer(name: string): Promise<Result<null, ApiError>> {

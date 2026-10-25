@@ -54,7 +54,7 @@ export type HttpServerOptions = {
   /** Restarts or stops Studio itself; given by the CLI, which knows how Studio was started. */
   studioService?: StudioServiceControl;
   /** Stops a dev server by pid, after checking it is the user's and listens on a shown port. */
-  stopProcess?: (pid: string) => Promise<Result<unknown, AppError>>;
+  stopProcess?: (pid: string, all?: boolean) => Promise<Result<unknown, AppError>>;
   /** Stops a Docker container by name, only one the last `docker ps` listed. */
   stopContainer?: (name: string) => Promise<Result<unknown, AppError>>;
   /** Opens project folders in editors; without it the open-with endpoints answer `unsupported`. */
@@ -235,7 +235,7 @@ export function createHttpServer(options: HttpServerOptions): HttpServer {
     const stop = STOP_PROCESS.exec(pathname);
     if (stop?.[1] && method === "POST") {
       if (!options.stopProcess) return sendAppError(res, unsupported);
-      const result = await options.stopProcess(stop[1]);
+      const result = await options.stopProcess(stop[1], query.get("scope") === "tree");
       if (!result.ok) return sendAppError(res, result.error);
       res.writeHead(204, { "Cache-Control": "no-store" }).end();
       return;

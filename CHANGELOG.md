@@ -4,6 +4,12 @@ All notable changes are listed here. Versions follow [Semantic Versioning](https
 
 ## Unreleased
 
+- Stop checks that the server's TCP ports closed and refreshes health immediately. If a process
+  is already listening again, the error identifies its PID instead of reporting success.
+  Stop all in the confirmation stops the enclosing development command and its children,
+  including package scripts on Windows. Ownership checks protect other users' processes,
+  interactive shells, agents and Studio itself.
+
 - The terminal panel always shows its terminals as a list of cards, even with one or two; the
   header tabs, which scrolled sideways once there were several, are gone. Each card shows the
   status in words (`running`, `exited 1`, `stopped by restart`), the title, the command, the

@@ -29,7 +29,7 @@ export type RouteRowProps = {
   onRequestRemove: () => void;
   /** Shown only when the route's port has a known pid. */
   onRequestStop: () => void;
-  onConfirm: () => void;
+  onConfirm: (all?: boolean) => void;
   onCancelConfirm: () => void;
   onToggleFavorite: () => void;
   onMoveToGroup: () => void;
@@ -143,9 +143,19 @@ export function RouteRow({
             <Button size="xs" variant="ghost" onClick={onCancelConfirm}>
               Cancel
             </Button>
-            <Button size="xs" variant="danger" onClick={onConfirm} autoFocus>
+            <Button size="xs" variant="danger" onClick={() => onConfirm()} autoFocus>
               {confirming === "remove" ? "Remove" : "Stop"}
             </Button>
+            {confirming === "stop" ? (
+              <Button
+                size="xs"
+                variant="danger"
+                title="Stop the whole development command and its child processes"
+                onClick={() => onConfirm(true)}
+              >
+                Stop all
+              </Button>
+            ) : null}
           </div>
         ) : (
           <div className={styles.actions}>

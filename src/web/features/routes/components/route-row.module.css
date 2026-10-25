@@ -170,15 +170,25 @@
   pointer-events: auto;
 }
 
+.row:has(.confirm) .actionsCell {
+  grid-column: 2 / -1;
+}
+
 .confirm {
+  position: static;
+  flex-wrap: wrap;
   gap: var(--space-1);
+  padding-left: 0;
+  transform: none;
 }
 
 .confirmText {
+  min-width: 0;
+  overflow-wrap: anywhere;
   margin-right: var(--space-1);
   color: var(--color-text-secondary);
   font-size: var(--text-sm);
-  white-space: nowrap;
+  white-space: normal;
 }
 
 /* A medium list keeps room for the name: six icon buttons, and wider sets overlay. The list

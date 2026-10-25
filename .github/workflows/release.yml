@@ -14,7 +14,8 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      # Creates the GitHub release after publishing.
+      contents: write
       # Lets npm exchange GitHub's OIDC token for a publish token and sign the provenance statement.
       id-token: write
     steps:
@@ -50,3 +51,16 @@ jobs:
       # The steps above ran what prepublishOnly runs, so the scripts are skipped here.
       - name: Publish to npm
         run: npm publish --provenance --access public --ignore-scripts
+
+      # The release notes are this version's section of CHANGELOG.md.
+      - name: Create the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          awk -v v="$version" '
+            $0 ~ "^## " v "( |$)" { found = 1; next }
+            found && /^## / { exit }
+            found { print }
+          ' CHANGELOG.md > release-notes.md
+          gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --notes-file release-notes.md --verify-tag

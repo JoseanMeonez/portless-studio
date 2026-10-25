@@ -2,6 +2,17 @@
 
 All notable changes are listed here. Versions follow [Semantic Versioning](https://semver.org).
 
+## 0.1.1 (2026-10-25)
+
+- The proxy start is confirmed: Studio checks the port is free before starting it and that it
+  answers afterwards, and says which process holds the port when it cannot start.
+- Studio keeps the last good list when it reads portless's routes file while portless is writing
+  it, instead of showing an empty list.
+- Auto mode waits until a port has been unnamed for two scans in a row, so it no longer races
+  `portless <name> <command>`, and checks the routes again right before naming.
+- The doctor warns when portless's routes file has entries Studio cannot read.
+- Releases publish to npm through Trusted Publishing and create a GitHub release.
+
 ## 0.1.0 (2026-10-25)
 
 The first release.

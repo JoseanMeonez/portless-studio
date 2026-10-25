@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import type { InstallPortlessResponse, PortlessInstallation } from "../../../core/api/contract.ts";
 import { err, ok, type Result } from "../../../core/result.ts";
+import type { ProxyStatus, Route } from "../../../core/routes/route.ts";
 import { type AppError, appError } from "../../application/app-error.ts";
 import type { PortlessState, RouteRegistry } from "../../application/route-registry.ts";
 import {
@@ -12,7 +13,16 @@ import {
   startProxy,
   stopProxy,
 } from "./portless-cli.ts";
-import { readProxyPid, readProxyStatus, readRoutes } from "./state-files.ts";
+import {
+  readProxyPid,
+  readProxyStatus,
+  readRouteEntries,
+  routesFromEntries,
+} from "./state-files.ts";
+
+/** How long a write waits for a half-written `routes.json` to be whole again. */
+const TORN_RETRIES = 10;
+const TORN_RETRY_MS = 50;
 
 export type PortlessRegistryOptions = {
   stateDir: string;
@@ -43,6 +53,8 @@ export class PortlessRegistry implements RouteRegistry {
   // Bumped by an install, so a detection that started before it cannot cache a stale answer.
   #detectGeneration = 0;
   #installing = false;
+  /** The entries of the last `routes.json` that parsed, shown while portless rewrites it. */
+  #lastEntries: unknown[] = [];
   /** One per watcher: compares the installation with what that watcher last saw. */
   readonly #installationChecks = new Set<() => Promise<void>>();
 
@@ -58,7 +70,7 @@ export class PortlessRegistry implements RouteRegistry {
   async readSnapshot(): Promise<PortlessState> {
     const portless = await this.#detect();
     const proxy = readProxyStatus(this.#stateDir);
-    return { proxy, portless, routes: readRoutes(this.#stateDir, proxy), readAt: Date.now() };
+    return { proxy, portless, routes: this.#routes(proxy), readAt: Date.now() };
   }
 
   watch(onChange: () => void): () => void {
@@ -134,8 +146,9 @@ export class PortlessRegistry implements RouteRegistry {
 
   async createAlias(name: string, port: number, force: boolean): Promise<Result<void, AppError>> {
     // `portless alias` silently replaces an existing alias, so the conflict check lives here.
+    await this.#waitForWholeRoutesFile();
     const proxy = readProxyStatus(this.#stateDir);
-    const existing = readRoutes(this.#stateDir, proxy).find((route) => route.name === name);
+    const existing = this.#routes(proxy).find((route) => route.name === name);
     if (existing && !force) {
       if (existing.port === port) return ok(undefined);
       return err(appError("name_taken", `"${name}" already points to port ${existing.port}.`));
@@ -184,6 +197,26 @@ export class PortlessRegistry implements RouteRegistry {
   /** The snapshot without its read time, so two reads of the same state compare equal. */
   #fingerprint(): string {
     const proxy = readProxyStatus(this.#stateDir);
-    return JSON.stringify({ proxy, routes: readRoutes(this.#stateDir, proxy) });
+    return JSON.stringify({ proxy, routes: this.#routes(proxy) });
+  }
+
+  /**
+   * Routes from `routes.json`. portless rewrites the file in place, so a read can land on an empty
+   * or cut-off file; that read keeps the last entries that parsed, and the next file event or poll
+   * reads it again. A missing file, or one in a format Studio does not know, means no routes.
+   */
+  #routes(proxy: ProxyStatus): Route[] {
+    const read = readRouteEntries(this.#stateDir);
+    if (read.kind === "ok") this.#lastEntries = read.entries;
+    else if (read.kind !== "torn") this.#lastEntries = [];
+    return routesFromEntries(this.#lastEntries, proxy);
+  }
+
+  /** Gives portless a moment to finish a write, so a name check never runs on a torn file. */
+  async #waitForWholeRoutesFile(): Promise<void> {
+    for (let attempt = 0; attempt < TORN_RETRIES; attempt += 1) {
+      if (readRouteEntries(this.#stateDir).kind !== "torn") return;
+      await new Promise((resolve) => setTimeout(resolve, TORN_RETRY_MS));
+    }
   }
 }

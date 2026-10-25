@@ -1,7 +1,13 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { readProxyStatus, readRoutes, resolveStateDir } from "./state-files.ts";
+import {
+  inspectRoutesFile,
+  readProxyStatus,
+  readRouteEntries,
+  readRoutes,
+  resolveStateDir,
+} from "./state-files.ts";
 
 let dir: string;
 
@@ -110,6 +116,43 @@ describe("readRoutes", () => {
     write("routes.json", JSON.stringify([{ hostname: "api.test", port: 3000, pid: 0 }]));
     const route = readRoutes(dir, { ...proxy, https: true, port: 443, tlds: ["test"] })[0];
     expect(route).toMatchObject({ name: "api", url: "https://api.test" });
+  });
+});
+
+describe("readRouteEntries", () => {
+  it("tells a file portless is still writing from a missing one and an unknown format", () => {
+    expect(readRouteEntries(dir)).toEqual({ kind: "missing" });
+    write("routes.json", "");
+    expect(readRouteEntries(dir)).toEqual({ kind: "torn" });
+    write("routes.json", '[{"hostname":"web.local');
+    expect(readRouteEntries(dir)).toEqual({ kind: "torn" });
+    write("routes.json", '{"version":2,"routes":[]}');
+    expect(readRouteEntries(dir)).toEqual({ kind: "unexpected" });
+    write("routes.json", '[{"hostname":"web.localhost","port":3000,"pid":0}]');
+    expect(readRouteEntries(dir)).toEqual({
+      kind: "ok",
+      entries: [{ hostname: "web.localhost", port: 3000, pid: 0 }],
+    });
+  });
+});
+
+describe("inspectRoutesFile", () => {
+  it("counts entries Studio cannot read, but not apps whose process ended", () => {
+    write(
+      "routes.json",
+      JSON.stringify([
+        { hostname: "web.localhost", port: 3000, pid: 0 },
+        { hostname: "gone.localhost", port: 3001, pid: 999_999_99 },
+        { host: "new-format.localhost", target: { port: 3002 } },
+        "web.localhost:3003",
+      ]),
+    );
+    expect(inspectRoutesFile(dir)).toEqual({ state: "ok", entries: 4, unreadable: 2 });
+  });
+
+  it("reports a file in a format Studio does not know", () => {
+    write("routes.json", '{"version":2,"routes":[]}');
+    expect(inspectRoutesFile(dir)).toEqual({ state: "unexpected", entries: 0, unreadable: 0 });
   });
 });
 

@@ -50,8 +50,9 @@ data, or `?demo&noportless` to walk through the install flow with a fake install
   or Cloudflare tunnel. It updates as soon as a route appears or goes away.
 - **Detected ports:** listening ports that answer HTTP but have no name yet, with the process, the
   project folder and a suggested name. Name one, name them all, or ignore one.
-- **Auto mode** (off by default): every new dev server gets its suggested name by itself. Names
-  auto mode gave are removed 10 minutes after their port closes.
+- **Auto mode** (off by default): every new dev server gets its suggested name by itself, once
+  it has shown up unnamed in two scans in a row, so a server started with `portless <name>` keeps
+  the name portless gives it. Names auto mode gave are removed 10 minutes after their port closes.
 - **Name a port** that portless did not start, such as a database in Docker (`db` gives
   `db.localhost`). Rename or remove those names later.
 - **Where each server runs:** every row shows the git branch, the linked worktree and the project

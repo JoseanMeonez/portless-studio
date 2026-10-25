@@ -1,16 +1,17 @@
 import type { DetectedPort } from "../../core/ports/detected-port.ts";
 import { err, ok, type Result } from "../../core/result.ts";
+import type { Route } from "../../core/routes/route.ts";
 import { type AppError, appError } from "./app-error.ts";
 import { AutoNamer } from "./auto-namer.ts";
 import type { RouteRegistry } from "./route-registry.ts";
 
-function registryTaking(taken: string[], failing: string[] = []) {
+function registryTaking(taken: string[], failing: string[] = [], routes: Route[] = []) {
   const calls: string[] = [];
   const registry: RouteRegistry = {
     readSnapshot: async () => ({
       proxy: { running: false, port: null, https: false, tlds: ["localhost"] },
       portless: { installed: true, version: "1" },
-      routes: [],
+      routes,
       readAt: 1,
     }),
     watch: () => () => {},
@@ -37,11 +38,57 @@ const detected = (port: number, suggestedName: string | null, pid = 1): Detected
   suggestedName,
 });
 
+// Most rules are about one scan; the wait for a second scan has its own tests.
+const ONE_SCAN = { stableScans: 1 };
+
+const appRoute = (name: string, port: number): Route => ({
+  hostname: `${name}.localhost`,
+  name,
+  port,
+  kind: "app",
+  pid: 77,
+  registeredAt: null,
+  url: `http://${name}.localhost:1355`,
+  tunnels: [],
+});
+
 describe("AutoNamer", () => {
+  it("waits until a port shows up unnamed in two scans in a row", async () => {
+    const { registry, calls } = registryTaking([]);
+    const namer = new AutoNamer(registry, () => {});
+
+    expect(await namer.name([detected(5173, "app.acme")])).toBe(0);
+    expect(calls).toEqual([]);
+    expect(await namer.name([detected(5173, "app.acme")])).toBe(1);
+    expect(calls).toEqual(["app.acme 5173 false"]);
+  });
+
+  it("starts counting again when the port is missing from a scan", async () => {
+    const { registry, calls } = registryTaking([]);
+    const namer = new AutoNamer(registry, () => {});
+
+    await namer.name([detected(5173, "app.acme")]);
+    await namer.name([]);
+    expect(await namer.name([detected(5173, "app.acme")])).toBe(0);
+    expect(calls).toEqual([]);
+    expect(await namer.name([detected(5173, "app.acme")])).toBe(1);
+  });
+
+  it("leaves a port alone once portless has registered a route for it", async () => {
+    // `portless app pnpm dev` registers its route a moment after the server starts listening.
+    const { registry, calls } = registryTaking([], [], [appRoute("app", 5173)]);
+    const lines: string[] = [];
+    const namer = new AutoNamer(registry, (line) => lines.push(line), ONE_SCAN);
+
+    expect(await namer.name([detected(5173, "app.acme")])).toBe(0);
+    expect(calls).toEqual([]);
+    expect(lines).toEqual([]);
+  });
+
   it("names each port once and logs it", async () => {
     const { registry, calls } = registryTaking([]);
     const lines: string[] = [];
-    const namer = new AutoNamer(registry, (line) => lines.push(line));
+    const namer = new AutoNamer(registry, (line) => lines.push(line), ONE_SCAN);
 
     expect(await namer.name([detected(5173, "app.acme"), detected(9000, null)])).toBe(1);
     expect(await namer.name([detected(5173, "app.acme")])).toBe(0);
@@ -52,7 +99,7 @@ describe("AutoNamer", () => {
   it("retries once with the port appended when the name is taken", async () => {
     const { registry, calls } = registryTaking(["web.acme"]);
     const lines: string[] = [];
-    const namer = new AutoNamer(registry, (line) => lines.push(line));
+    const namer = new AutoNamer(registry, (line) => lines.push(line), ONE_SCAN);
 
     expect(await namer.name([detected(4321, "web.acme")])).toBe(1);
     expect(calls).toEqual(["web.acme 4321 false", "web.acme-4321 4321 false"]);
@@ -62,7 +109,7 @@ describe("AutoNamer", () => {
   it("does not retry a port and process that already failed", async () => {
     const { registry, calls } = registryTaking(["db", "db-4983"]);
     const lines: string[] = [];
-    const namer = new AutoNamer(registry, (line) => lines.push(line));
+    const namer = new AutoNamer(registry, (line) => lines.push(line), ONE_SCAN);
 
     expect(await namer.name([detected(4983, "db")])).toBe(0);
     expect(await namer.name([detected(4983, "db")])).toBe(0);
@@ -76,7 +123,7 @@ describe("AutoNamer", () => {
 
   it("does not retry other failures with another name", async () => {
     const { registry, calls } = registryTaking([], ["api"]);
-    const namer = new AutoNamer(registry, () => {});
+    const namer = new AutoNamer(registry, () => {}, ONE_SCAN);
     expect(await namer.name([detected(3000, "api")])).toBe(0);
     expect(calls).toEqual(["api 3000 false"]);
   });

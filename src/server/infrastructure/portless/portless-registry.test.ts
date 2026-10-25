@@ -67,6 +67,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   stop?.();
   stop = undefined;
   fs.rmSync(dir, { recursive: true, force: true });
@@ -92,19 +93,69 @@ describe("PortlessRegistry", () => {
     expect(typeof snapshot.readAt).toBe("number");
   });
 
-  it("notifies once per real change and not for rewrites of the same content", async () => {
+  it("notifies once per real change and not for rewrites of the same content", () => {
+    // Fake timers make the debounce and the poll run when the test says, not when the file
+    // events of a busy machine arrive; the poll reads the files on every tick either way.
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval"] });
     writeRoutes([]);
-    const registry = new PortlessRegistry({ stateDir: dir, bin, debounceMs: 20, pollMs: 60_000 });
+    const registry = new PortlessRegistry({ stateDir: dir, bin, debounceMs: 20, pollMs: 1000 });
     const onChange = vi.fn();
     stop = registry.watch(onChange);
 
     writeRoutes([{ hostname: "db.localhost", port: 5432, pid: 0 }]);
     writeRoutes([{ hostname: "db.localhost", port: 5432, pid: 0 }]);
-    await vi.waitFor(() => expect(onChange).toHaveBeenCalledTimes(1));
+    vi.advanceTimersByTime(1000);
+    expect(onChange).toHaveBeenCalledTimes(1);
 
     writeRoutes([{ hostname: "db.localhost", port: 5432, pid: 0 }]);
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    vi.advanceTimersByTime(3000);
     expect(onChange).toHaveBeenCalledTimes(1);
+
+    writeRoutes([{ hostname: "api.localhost", port: 4000, pid: 0 }]);
+    vi.advanceTimersByTime(1000);
+    expect(onChange).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps the last routes it read while portless rewrites routes.json", async () => {
+    writeRoutes([{ hostname: "db.localhost", port: 5432, pid: 0 }]);
+    const registry = new PortlessRegistry({ stateDir: dir, bin });
+    expect((await registry.readSnapshot()).routes.map((r) => r.name)).toEqual(["db"]);
+
+    // portless truncates the file before it writes the new list.
+    fs.writeFileSync(path.join(dir, "routes.json"), "");
+    expect((await registry.readSnapshot()).routes.map((r) => r.name)).toEqual(["db"]);
+    fs.writeFileSync(path.join(dir, "routes.json"), '[{"hostname":"db.loc');
+    expect((await registry.readSnapshot()).routes.map((r) => r.name)).toEqual(["db"]);
+
+    writeRoutes([{ hostname: "api.localhost", port: 4000, pid: 0 }]);
+    expect((await registry.readSnapshot()).routes.map((r) => r.name)).toEqual(["api"]);
+    fs.rmSync(path.join(dir, "routes.json"));
+    expect((await registry.readSnapshot()).routes).toEqual([]);
+  });
+
+  it("does not notify watchers about a half-written routes.json", () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval"] });
+    writeRoutes([{ hostname: "db.localhost", port: 5432, pid: 0 }]);
+    const registry = new PortlessRegistry({ stateDir: dir, bin, debounceMs: 20, pollMs: 1000 });
+    const onChange = vi.fn();
+    stop = registry.watch(onChange);
+
+    fs.writeFileSync(path.join(dir, "routes.json"), "[");
+    vi.advanceTimersByTime(1000);
+    expect(onChange).not.toHaveBeenCalled();
+
+    writeRoutes([]);
+    vi.advanceTimersByTime(1000);
+    expect(onChange).toHaveBeenCalledTimes(1);
+  });
+
+  posixOnly("refuses to replace a name while routes.json is half written", async () => {
+    writeRoutes([{ hostname: "web.localhost", port: 1500, pid: 0 }]);
+    const registry = new PortlessRegistry({ stateDir: dir, bin });
+    await registry.readSnapshot();
+    fs.writeFileSync(path.join(dir, "routes.json"), "");
+    const result = await registry.createAlias("web", 5199, false);
+    expect(result).toMatchObject({ ok: false, error: { code: "name_taken" } });
   });
 
   it("notices changes through polling when no file event arrives", async () => {

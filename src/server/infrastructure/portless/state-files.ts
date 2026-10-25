@@ -47,24 +47,61 @@ export function readProxyPid(dir: string): number | null {
   return Number.isInteger(pid) && pid > 0 ? pid : null;
 }
 
-/** Live routes from `routes.json`. Invalid entries and apps whose process died are left out. */
-export function readRoutes(dir: string, proxy: ProxyStatus): Route[] {
+/**
+ * What `routes.json` holds. portless rewrites it in place, so an empty or cut-off file usually
+ * means a write is in progress (`torn`), while valid JSON that is not a list is a format this
+ * version of Studio does not know (`unexpected`).
+ */
+export type RouteEntries =
+  | { kind: "ok"; entries: unknown[] }
+  | { kind: "missing" }
+  | { kind: "torn" }
+  | { kind: "unexpected" };
+
+export function readRouteEntries(dir: string): RouteEntries {
   const raw = readText(dir, ROUTES_FILE);
-  if (raw === null) return [];
+  if (raw === null) return { kind: "missing" };
+  if (raw.trim() === "") return { kind: "torn" };
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
   } catch {
-    return [];
+    return { kind: "torn" };
   }
-  if (!Array.isArray(parsed)) return [];
-  return parsed
+  return Array.isArray(parsed) ? { kind: "ok", entries: parsed } : { kind: "unexpected" };
+}
+
+/** Live routes from `routes.json`. Invalid entries and apps whose process died are left out. */
+export function readRoutes(dir: string, proxy: ProxyStatus): Route[] {
+  const read = readRouteEntries(dir);
+  return read.kind === "ok" ? routesFromEntries(read.entries, proxy) : [];
+}
+
+/** The routes in a parsed `routes.json`, without invalid entries and apps whose process died. */
+export function routesFromEntries(entries: readonly unknown[], proxy: ProxyStatus): Route[] {
+  return entries
     .flatMap((entry) => {
       const route = toRoute(entry, proxy);
       return route ? [route] : [];
     })
     .filter((route) => route.pid === null || isProcessAlive(route.pid))
     .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/** For the doctor: whether `routes.json` reads, and how many of its entries Studio cannot use. */
+export type RoutesFileHealth = {
+  state: RouteEntries["kind"];
+  entries: number;
+  /** Entries without a hostname, port and pid Studio understands; they are not shown. */
+  unreadable: number;
+};
+
+export function inspectRoutesFile(dir: string): RoutesFileHealth {
+  const read = readRouteEntries(dir);
+  if (read.kind !== "ok") return { state: read.kind, entries: 0, unreadable: 0 };
+  const proxy: ProxyStatus = { running: false, port: null, https: false, tlds: [DEFAULT_TLD] };
+  const unreadable = read.entries.filter((entry) => toRoute(entry, proxy) === null).length;
+  return { state: "ok", entries: read.entries.length, unreadable };
 }
 
 /** Signal 0 checks existence without touching the process; EPERM means it exists. */

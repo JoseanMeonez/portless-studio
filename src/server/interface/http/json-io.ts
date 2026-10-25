@@ -20,6 +20,7 @@ const STATUS_BY_CODE: Record<ApiErrorCode, number> = {
   process_not_allowed: 403,
   unsupported: 501,
   command_failed: 502,
+  port_in_use: 409,
   unknown_app: 404,
   path_not_allowed: 403,
   terminal_not_running: 409,

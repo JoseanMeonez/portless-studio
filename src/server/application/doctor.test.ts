@@ -43,6 +43,44 @@ describe("diagnose system notifications", () => {
   });
 });
 
+describe("diagnose routes.json", () => {
+  it("warns, with the portless version, about entries Studio cannot read", () => {
+    const check = byId(
+      diagnose(facts({ routesFile: { state: "ok", entries: 5, unreadable: 2 } })),
+      "routes-file",
+    );
+    expect(check).toEqual({
+      id: "routes-file",
+      status: "warn",
+      title: "Studio cannot read 2 of the 5 routes portless saved",
+      detail:
+        "portless 0.15.11 may have changed the format of routes.json, so those routes are not " +
+        "shown. Update portless-studio, or report it with the portless version.",
+    });
+  });
+
+  it("warns when routes.json is in a format Studio does not know", () => {
+    const check = byId(
+      diagnose(facts({ routesFile: { state: "unexpected", entries: 0, unreadable: 0 } })),
+      "routes-file",
+    );
+    expect(check).toMatchObject({
+      status: "warn",
+      title: "Studio cannot read routes.json",
+      detail:
+        "portless 0.15.11 saved it in a format this version of Studio does not know, so no " +
+        "route is shown. Update portless-studio, or report it with the portless version.",
+    });
+  });
+
+  it("says nothing while every entry reads", () => {
+    const ok = facts({ routesFile: { state: "ok", entries: 3, unreadable: 0 } });
+    expect(byId(diagnose(ok), "routes-file")).toBe(undefined);
+    const missing = facts({ routesFile: { state: "missing", entries: 0, unreadable: 0 } });
+    expect(byId(diagnose(missing), "routes-file")).toBe(undefined);
+  });
+});
+
 describe("diagnose", () => {
   it("reports nothing to fix on a healthy machine", () => {
     const checks = diagnose(facts());

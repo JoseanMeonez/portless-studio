@@ -36,6 +36,16 @@ export type PortHolder =
   | { kind: "studio" }
   | { kind: "other"; pid: number | null; processName: string };
 
+/**
+ * Whether portless's `routes.json` reads: `torn` is a file portless is still writing, `unexpected`
+ * valid JSON in a format Studio does not know. `unreadable` counts entries Studio cannot use.
+ */
+export type RoutesFileFacts = {
+  state: "ok" | "missing" | "torn" | "unexpected";
+  entries: number;
+  unreadable: number;
+};
+
 /** Everything the checks look at, gathered from the machine by an infrastructure collector. */
 export type DoctorFacts = {
   platform: NodeJS.Platform;
@@ -61,6 +71,8 @@ export type DoctorFacts = {
    * terminal-notifier: osascript shows them, but a click does nothing.
    */
   systemNotifier?: "available" | "limited" | "missing" | "unsupported";
+  /** Absent when not checked. */
+  routesFile?: RoutesFileFacts;
 };
 
 /** The checks, in the order people should read them. Pure, so every rule is easy to test. */
@@ -71,6 +83,7 @@ export function diagnose(facts: DoctorFacts): DoctorCheck[] {
     pushIf(checks, proxyOwnerCheck(facts));
     pushIf(checks, proxyCountCheck(facts));
     pushIf(checks, httpsTrustCheck(facts));
+    pushIf(checks, routesFileCheck(facts));
   }
   checks.push(studioPortCheck(facts));
   pushIf(checks, loginServiceCheck(facts));
@@ -232,6 +245,32 @@ function proxyOwnerCheck({
       label: windows ? "Stop it once as Administrator" : "Stop it once with sudo",
       command: stopProxyAsAdminCommand(platform),
     },
+  };
+}
+
+/** portless is before 1.0 and may change its state files; Studio says so instead of hiding routes. */
+function routesFileCheck({ routesFile, portless }: DoctorFacts): DoctorCheck | null {
+  if (!routesFile) return null;
+  const version = portless.version ? `portless ${portless.version}` : "This portless";
+  const advice = "Update portless-studio, or report it with the portless version.";
+  if (routesFile.state === "unexpected") {
+    return {
+      id: "routes-file",
+      status: "warn",
+      title: "Studio cannot read routes.json",
+      detail:
+        `${version} saved it in a format this version of Studio does not know, so no route is ` +
+        `shown. ${advice}`,
+    };
+  }
+  if (routesFile.state !== "ok" || routesFile.unreadable === 0) return null;
+  return {
+    id: "routes-file",
+    status: "warn",
+    title: `Studio cannot read ${routesFile.unreadable} of the ${routesFile.entries} routes portless saved`,
+    detail:
+      `${version} may have changed the format of routes.json, so those routes are not shown. ` +
+      advice,
   };
 }
 

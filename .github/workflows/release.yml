@@ -1,6 +1,6 @@
 # Publishes the package to npm when a version tag such as v0.1.0 is pushed.
-# It does nothing until the repository has an NPM_TOKEN secret (an npm automation token):
-# without it the publish step is skipped and the run says so.
+# It uses npm Trusted Publishing: npm trusts this workflow through GitHub's OIDC token, so the
+# repository needs no NPM_TOKEN secret. The one-time setup on npmjs.com is in docs/releasing.md.
 name: Release
 
 on:
@@ -15,13 +15,12 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      # Lets npm sign the provenance statement that links the package to this workflow run.
+      # Lets npm exchange GitHub's OIDC token for a publish token and sign the provenance statement.
       id-token: write
-    env:
-      NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
     steps:
       - uses: actions/checkout@v4
 
+      # Reads the pnpm version from `packageManager` in package.json.
       - uses: pnpm/action-setup@v4
 
       - uses: actions/setup-node@v4
@@ -29,6 +28,10 @@ jobs:
           node-version: 24
           cache: pnpm
           registry-url: https://registry.npmjs.org
+
+      # Trusted Publishing needs npm 11.5.1 or later; the npm bundled with Node 24 may be older.
+      - name: Update npm
+        run: npm install -g npm@latest
 
       - name: Check the tag matches package.json
         run: |
@@ -40,14 +43,10 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
       - run: pnpm check
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm build
 
-      - name: Skip without NPM_TOKEN
-        if: env.NPM_TOKEN == ''
-        run: echo "::notice::NPM_TOKEN is not set, so nothing was published."
-
-      # prepublishOnly runs typecheck, tests and build before the upload.
+      # The steps above ran what prepublishOnly runs, so the scripts are skipped here.
       - name: Publish to npm
-        if: env.NPM_TOKEN != ''
-        run: npm publish --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --provenance --access public --ignore-scripts

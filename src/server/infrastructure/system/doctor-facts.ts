@@ -7,6 +7,7 @@ import type {
   DoctorFacts,
   PortHolder,
   ProxyProcess,
+  RoutesFileFacts,
 } from "../../application/doctor.ts";
 import type { ListeningPort, ProbePort } from "../../application/port-scanner.ts";
 import type { ProcessControl, ProcessOwner } from "../../application/process-control.ts";
@@ -37,6 +38,8 @@ export type DoctorFactsOptions = {
    * bind on macOS and to not asking elsewhere.
    */
   canBind?: (port: number) => Promise<boolean>;
+  /** Whether portless's routes.json reads; omitted when not checked. */
+  routesFile?: () => RoutesFileFacts;
 };
 
 /** A process from /proc (exact `args`) or from ps (`args` split on spaces, plus the raw `line`). */
@@ -190,6 +193,7 @@ export async function collectDoctorFacts(options: DoctorFactsOptions): Promise<D
     studioPort: { port: config.port, holder: await portHolder(config.port, options) },
     loginService,
     ...(systemNotifier === undefined ? {} : { systemNotifier }),
+    ...(options.routesFile ? { routesFile: options.routesFile() } : {}),
   };
 }
 

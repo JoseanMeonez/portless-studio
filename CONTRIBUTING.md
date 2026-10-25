@@ -39,6 +39,11 @@ Code layout, naming and commit format are in [docs/conventions.md](docs/conventi
 layers are explained in [docs/architecture.md](docs/architecture.md). Commits follow Conventional
 Commits with a scope, such as `fix(server): reject foreign origins`.
 
+## Releases
+
+Maintainers publish to npm by pushing a version tag; GitHub Actions does the rest with npm Trusted
+Publishing. The steps and the one-time npm setup are in [docs/releasing.md](docs/releasing.md).
+
 ## Keep your machine out of the repository
 
 Screenshots, test fixtures, logs and examples must not contain data from your own machine: real

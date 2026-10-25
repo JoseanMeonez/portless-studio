@@ -14,6 +14,7 @@ import { OpenWith } from "./application/open-with.ts";
 import type { PortScanner } from "./application/port-scanner.ts";
 import type { ProcessOwner } from "./application/process-control.ts";
 import { controlProxy } from "./application/proxy-control.ts";
+import { confirmProxyStarts } from "./application/proxy-start-check.ts";
 import type { RouteRegistry } from "./application/route-registry.ts";
 import { createAlias, renameAlias } from "./application/route-use-cases.ts";
 import { stopProcess } from "./application/stop-process.ts";
@@ -40,7 +41,7 @@ import {
   recordProxyStarts,
 } from "./infrastructure/config/proxy-start-record.ts";
 import { PortlessRegistry } from "./infrastructure/portless/portless-registry.ts";
-import { resolveStateDir } from "./infrastructure/portless/state-files.ts";
+import { inspectRoutesFile, resolveStateDir } from "./infrastructure/portless/state-files.ts";
 import { collectDoctorFacts, proxyPidsAmong } from "./infrastructure/system/doctor-facts.ts";
 import { FaviconFetcher } from "./infrastructure/system/favicon-fetcher.ts";
 import { OsNotifier } from "./infrastructure/system/os-notifier.ts";
@@ -113,9 +114,14 @@ export function createStudioServices(options: StudioServicesOptions = {}): Studi
     bin: options.portlessBin ?? (process.env.PORTLESS_BIN || "portless"),
     ...(options.npmBin === undefined ? {} : { npmBin: options.npmBin }),
   });
-  // Every proxy Studio starts is written down, so `uninstall` stops only Studio's own.
-  const registry = recordProxyStarts(portless, proxyStartRecordPathFor(configPath));
   const scanner = createPortScanner();
+  const proxyPids = (pids: number[]) => proxyPidsAmong(process.platform, nodeSystemIo, pids);
+  // A start counts only once the proxy listens, and every proxy Studio starts is written down,
+  // so `uninstall` stops only Studio's own.
+  const registry = recordProxyStarts(
+    confirmProxyStarts(portless, { scan: () => scanner.scan(), proxyPids }),
+    proxyStartRecordPathFor(configPath),
+  );
   const configStore = new JsonConfigStore(configPath);
   const notifier = new OsNotifier({ platform: process.platform });
   const runtime = new StudioRuntime({
@@ -125,7 +131,7 @@ export function createStudioServices(options: StudioServicesOptions = {}): Studi
     projects: new ProjectInfoReader(),
     studioPort: options.studioPort ?? null,
     probe: (port) => probeHttpResponse(port),
-    proxyPids: (pids) => proxyPidsAmong(process.platform, nodeSystemIo, pids),
+    proxyPids,
     autoNamedStore: new JsonAutoNamedStore(autoNamedPathFor(configPath)),
     notifier,
     icons: new FaviconFetcher(),
@@ -173,6 +179,7 @@ export function createStudioServices(options: StudioServicesOptions = {}): Studi
         probe: (port) => probeHttpResponse(port),
         ...(studioService ? { loginService: () => studioService.status() } : {}),
         systemNotifier: () => notifier.availability(),
+        routesFile: () => inspectRoutesFile(stateDir),
       }),
     controlProxy: proxy,
     updateConfig: (config) => runtime.updateConfig(config),

@@ -81,7 +81,7 @@ Two more ports feed port detection and settings:
 `StudioRuntime` (`application/studio-runtime.ts`) ties them together. It scans every
 `scanIntervalMs` while a browser is watching or auto mode is on, builds the full `Snapshot`
 (portless state plus detected ports), and, in auto mode, names each new dev server through
-`RouteRegistry.createAlias`. A detected port must answer HTTP, have no route, not be ignored, not be
+`RouteRegistry.createAlias` once it has shown up unnamed in two scans in a row. A detected port must answer HTTP, have no route, not be ignored, not be
 another Studio (they send `x-portless-studio`), not belong to a portless proxy, and run on a known
 runtime (`node`, `python`, `bun` and similar) or from a binary built inside the project. A port is
 the proxy's when portless recorded it in `proxy.port`, or when the process listening on it runs
@@ -119,6 +119,20 @@ worktree) that process runs in, read with `ProjectInfoSource` from its folder; a
 last HTTP probe of that port (`up` below 500, `error` for 5xx, `down` when nothing answers).
 Detected ports carry `project` too. Routes are probed on the scan loop only while a browser
 watches.
+
+## Staying in sync with portless
+
+Studio reads portless's state files and writes through the portless CLI, so its view can drift
+from what portless does. These are the ways it can drift, and what Studio does about each.
+
+| What can go wrong | What Studio does |
+| --- | --- |
+| portless rewrites `routes.json` in place, so a read can land on an empty or cut-off file. Before, Studio showed an empty list for that moment, and the name check before `portless alias` saw no names. | `readRouteEntries` (`infrastructure/portless/state-files.ts`) tells a torn file (empty or not JSON) from a missing one. `PortlessRegistry` keeps the last entries that parsed and shows them while the file is torn; the next file event or poll reads it again. A torn read never changes the snapshot, so watchers are not notified. `createAlias` waits up to half a second for a whole file before it checks the name. |
+| `portless <name> <command>` starts the server first and registers its route a moment later. Auto mode could see the port unnamed in that gap and give it a second name. | `AutoNamer` names a port only after it shows up unnamed in two scans in a row (the second scan comes `scanIntervalMs` later, 3 seconds by default); a port missing from a scan starts counting again. Right before naming, it reads the routes again and leaves the port alone if portless registered it meanwhile. |
+| `portless alias` silently replaces a name that exists. | Every write path goes through `PortlessRegistry.createAlias`, which refuses a name another port has unless `force` is set: the page and the MCP tools through the HTTP API, a rename (it creates the new name first), `portless-studio run`, `init` and auto mode. Only `registerStudioAlias` forces, and only over a `studio` alias that no running app or other Studio owns. |
+| portless is before 1.0 and may change its state format. Entries Studio cannot parse were dropped without a word. | The doctor reads `inspectRoutesFile` and warns, with the installed portless version, when entries of `routes.json` cannot be read or the file is valid JSON in an unknown shape (`routes-file` check). Such a file shows no routes; it is not kept from before. |
+| `fs.watch` misses changes: the state directory does not exist yet when Studio starts, it is deleted and created again, or the platform does not report a replaced file. | The registry also polls every 2 seconds and compares a fingerprint of the proxy status and the routes, so it notices every change within one poll whatever the file events did. |
+| `portless proxy start` exits 0 although the proxy did not start, for example when another portless proxy with another state directory holds the port. | `confirmProxyStarts` (`application/proxy-start-check.ts`) wraps every proxy start (at launch, in `init`, from the page and the doctor). Before starting, it refuses a port another process holds, and names the holder: `port 1355 is in use by another process (node, pid 42).`, or a separate message for another portless proxy. After the command, it checks for about 3 seconds that the pid portless recorded is alive and the port listens, and otherwise reports the start as failed. |
 
 ## Where each row runs
 
@@ -242,7 +256,8 @@ action at that moment (start the proxy, restart a proxy you own, move to HTTP on
 that need sudo are commands to copy, never run.
 
 `application/proxy-control.ts` starts, stops and restarts the proxy, and refuses with
-`needs_admin` and the `sudo` command when root or another user owns it.
+`needs_admin` and the `sudo` command when root or another user owns it. A start counts only once
+the proxy listens; see "Staying in sync with portless".
 `application/stop-process.ts` stops a dev server only when its pid listens on a detected or routed
 port and belongs to the current user.
 

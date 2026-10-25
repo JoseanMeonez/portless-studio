@@ -318,6 +318,8 @@ export type ApiErrorCode =
   | "unsupported"
   /** A system command failed; the message carries what it printed. */
   | "command_failed"
+  /** Another process already listens on the port, e.g. a second portless proxy. */
+  | "port_in_use"
   /** No app with that id was found on this machine or among the custom apps. */
   | "unknown_app"
   /** The folder is not one Studio shows, so it will not open it. */
